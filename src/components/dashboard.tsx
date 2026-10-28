@@ -1,7 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Archive,
+  Bot,
+  ClipboardCheck,
+  History,
+  Wallet,
   ArrowRight,
   Bookmark,
   Check,
@@ -25,6 +29,10 @@ import { api, useWorkspace } from "./use-workspace";
 import { ProviderSettings } from "./provider-settings";
 import { WorkspaceBoard } from "./workspace-board";
 import { agentStatus } from "./agent-panel";
+import { OrchestratorPanel } from "./orchestrator-panel";
+import { ProposalQueue } from "./proposal-queue";
+import { SpendingView } from "./spending-view";
+import { AuditHistory } from "./audit-view";
 export default function Dashboard() {
   const workspace = useWorkspace();
   const {
@@ -43,7 +51,14 @@ export default function Dashboard() {
     updateLayout,
   } = workspace;
   const [view, setView] = useState<
-    "workspace" | "keys" | "templates" | "archive"
+    | "workspace"
+    | "keys"
+    | "templates"
+    | "archive"
+    | "orchestrator"
+    | "proposals"
+    | "spending"
+    | "audit"
   >("workspace");
   const [mobileNav, setMobileNav] = useState(false);
   const [editor, setEditor] = useState<{
@@ -53,7 +68,17 @@ export default function Dashboard() {
   const connected = data?.providers.some((p) => p.connected) ?? false;
   const active = agents.filter((a) => !a.archived);
   const selected = active.find((a) => a.id === layout.activeId) ?? active[0];
-  const runs = agents.flatMap((agent) => agent.conversation.runs);
+  const runs = [
+    ...agents,
+    ...(workspace.orchestrator ? [workspace.orchestrator] : []),
+  ].flatMap((agent) => agent.conversation.runs);
+  const initialView = useRef(false);
+  useEffect(() => {
+    if (data && !initialView.current) {
+      initialView.current = true;
+      if (data.orchestrator) setView("orchestrator");
+    }
+  }, [data]);
   const totalTokens = runs.reduce(
     (n, r) => n + (r.inputTokens ?? 0) + (r.outputTokens ?? 0),
     0,
@@ -162,6 +187,14 @@ export default function Dashboard() {
         </div>
         <div className="nav-caption">WORKSPACE</div>
         <button
+          className={`nav-item ${view === "orchestrator" ? "active" : ""}`}
+          onClick={() => navigate("orchestrator")}
+        >
+          <Bot size={17} />
+          Orchestrator
+          <span className="approval-dot" title="Approval required" />
+        </button>
+        <button
           className={`nav-item ${view === "workspace" ? "active" : ""}`}
           onClick={() => navigate("workspace")}
         >
@@ -174,6 +207,30 @@ export default function Dashboard() {
         >
           <KeyRound size={17} />
           API keys{connected && <span className="tiny-dot" />}
+        </button>
+        <button
+          className={`nav-item ${view === "proposals" ? "active" : ""}`}
+          onClick={() => navigate("proposals")}
+        >
+          <ClipboardCheck size={17} />
+          Proposals
+          {data?.proposals.some((p) => p.status === "pending") && (
+            <span className="nav-number">{data.pendingProposalCount}</span>
+          )}
+        </button>
+        <button
+          className={`nav-item ${view === "spending" ? "active" : ""}`}
+          onClick={() => navigate("spending")}
+        >
+          <Wallet size={17} />
+          Spending limits
+        </button>
+        <button
+          className={`nav-item ${view === "audit" ? "active" : ""}`}
+          onClick={() => navigate("audit")}
+        >
+          <History size={17} />
+          Audit history
         </button>
         <button
           className={`nav-item ${view === "templates" ? "active" : ""}`}
@@ -208,7 +265,12 @@ export default function Dashboard() {
             <Plus size={15} />
           </button>
         </div>
-        <div className="agent-list">
+        <div
+          className="agent-list"
+          tabIndex={0}
+          role="region"
+          aria-label="Your agents"
+        >
           {[...active]
             .sort(
               (a, b) =>
@@ -299,13 +361,21 @@ export default function Dashboard() {
             <span>Workspace</span>
             <ChevronRight size={13} />
             <strong>
-              {view === "workspace"
-                ? "Conversations"
-                : view === "keys"
-                  ? "API keys"
-                  : view === "templates"
-                    ? "Templates"
-                    : "Archive"}
+              {view === "orchestrator"
+                ? "Orchestrator"
+                : view === "proposals"
+                  ? "Proposals"
+                  : view === "spending"
+                    ? "Spending limits"
+                    : view === "audit"
+                      ? "Audit history"
+                      : view === "workspace"
+                        ? "Conversations"
+                        : view === "keys"
+                          ? "API keys"
+                          : view === "templates"
+                            ? "Templates"
+                            : "Archive"}
             </strong>
           </div>
           <div className="topbar-right">
@@ -324,6 +394,27 @@ export default function Dashboard() {
             </span>
           </div>
         </header>
+        {!!data?.budgets.some((budget) => budget.warning) && (
+          <div className="budget-banner" role="status">
+            <ShieldCheck size={15} />
+            <span>
+              {data.budgets
+                .filter((budget) => budget.warning)
+                .map(
+                  (budget) =>
+                    `${budget.label}: ${budget.blocked ? "new generations blocked" : "80% of budget used or reserved"}`,
+                )
+                .join(" · ")}
+            </span>
+            <button
+              className="text-button"
+              onClick={() => navigate("spending")}
+            >
+              Review spending limits
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
         {error && (
           <div className="error-banner" role="alert">
             <span>{error}</span>
@@ -355,7 +446,8 @@ export default function Dashboard() {
               Try again
             </button>
           </div>
-        ) : view === "keys" || (!connected && !agents.length) ? (
+        ) : view === "keys" ||
+          (view === "workspace" && !connected && !agents.length) ? (
           <ProviderSettings
             providers={data.providers}
             onChange={async () => {
@@ -365,6 +457,14 @@ export default function Dashboard() {
             openWorkspace={openWorkspace}
             onError={setError}
           />
+        ) : view === "orchestrator" ? (
+          <OrchestratorPanel workspace={workspace} onFocus={select} />
+        ) : view === "proposals" ? (
+          <ProposalQueue workspace={workspace} onFocus={select} />
+        ) : view === "spending" ? (
+          <SpendingView workspace={workspace} />
+        ) : view === "audit" ? (
+          <AuditHistory workspace={workspace} />
         ) : view === "templates" ? (
           <div className="collection-view">
             <div className="page-eyebrow">

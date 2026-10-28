@@ -92,6 +92,7 @@ export function useWorkspace() {
   const [layout, setLayout] = useState<WorkspaceLayout>(defaultLayout);
   const [saving, setSaving] = useState(false);
   const [connected, setConnected] = useState(false);
+  const [contextScope, setContextScope] = useState<string[] | null>(null);
   const [models, setModels] = useState<Record<string, ModelList>>({});
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [chatErrors, setChatErrors] = useState<Record<string, string>>({});
@@ -111,7 +112,10 @@ export function useWorkspace() {
       setLive((current) =>
         Object.fromEntries(
           Object.entries(current).filter(([agentId, patch]) => {
-            const run = next.agents
+            const run = [
+              ...next.agents,
+              ...(next.orchestrator ? [next.orchestrator] : []),
+            ]
               .find((a) => a.id === agentId)
               ?.conversation.runs.find((r) => r.id === patch.runId);
             return !run || run.status === "running";
@@ -122,6 +126,7 @@ export function useWorkspace() {
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) {
         setAuth(true);
+        setContextScope(null);
         setData(null);
         setLive({});
       } else setError((e as Error).message);
@@ -158,6 +163,7 @@ export function useWorkspace() {
       else {
         feed.close();
         setAuth(true);
+        setContextScope(null);
         setData(null);
         for (const request of requests.current.values()) request.abort();
       }
@@ -199,6 +205,13 @@ export function useWorkspace() {
       data?.agents.map((agent) => overlayAgent(agent, live[agent.id])) ?? [],
     [data, live],
   );
+  const orchestrator = useMemo(
+    () =>
+      data?.orchestrator
+        ? overlayAgent(data.orchestrator, live[data.orchestrator.id])
+        : null,
+    [data, live],
+  );
   function updateLayout(next: WorkspaceLayout) {
     setLayout(next);
     saveCount.current++;
@@ -224,6 +237,7 @@ export function useWorkspace() {
     text: string,
     mode: "send" | "edit" | "regenerate" = "send",
     messageId?: string,
+    options: { orchestrator?: boolean; agentIds?: string[] } = {},
   ) {
     if (requests.current.has(agentId)) return;
     const abort = new AbortController();
@@ -231,17 +245,23 @@ export function useWorkspace() {
     setPending((old) => ({ ...old, [agentId]: true }));
     setChatErrors((old) => ({ ...old, [agentId]: "" }));
     try {
-      const response = await fetch(`/api/agents/${agentId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: crypto.randomUUID(),
-          mode,
-          ...(mode !== "regenerate" ? { text } : {}),
-          ...(messageId ? { messageId, confirm: true } : {}),
-        }),
-        signal: abort.signal,
-      });
+      const response = await fetch(
+        options.orchestrator
+          ? "/api/orchestrator/messages"
+          : `/api/agents/${agentId}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientId: crypto.randomUUID(),
+            mode,
+            ...(mode !== "regenerate" ? { text } : {}),
+            ...(messageId ? { messageId, confirm: true } : {}),
+            ...(options.orchestrator ? { agentIds: options.agentIds } : {}),
+          }),
+          signal: abort.signal,
+        },
+      );
       if (!response.ok) throw new Error((await response.json()).message);
       if (response.headers.get("content-type")?.includes("text/event-stream")) {
         const reader = response.body!.getReader();
@@ -281,6 +301,7 @@ export function useWorkspace() {
     requests.current.get(agent.id)?.abort();
   }
   async function logout() {
+    setContextScope(null);
     for (const request of requests.current.values()) request.abort();
     await api("auth/logout", "POST");
     setModels({});
@@ -289,6 +310,9 @@ export function useWorkspace() {
     await reload();
   }
   return {
+    contextScope,
+    setContextScope,
+    orchestrator,
     data,
     agents,
     auth,

@@ -4,6 +4,7 @@ import { PRICING_DATE } from "./pricing";
 import { selfHost } from "./security";
 import { providers } from "../providers";
 import { parseLayout } from "../layout";
+import { budgetViews } from "./budgets";
 export const defaultAgent = {
   name: "My assistant",
   provider: "anthropic",
@@ -97,6 +98,44 @@ export async function workspace(user: { id: string; email: string }) {
     layout: parseLayout(preferences.workspaceLayout),
     templates: templates.map((t) => ({ ...t, config: JSON.parse(t.config) })),
     pricingDate: PRICING_DATE,
-    agents: agents.map(({ userId: _owner, ...agent }) => agent),
+    agents: agents
+      .filter((agent) => agent.kind === "agent")
+      .map(({ userId: _owner, ...agent }) => agent),
+    orchestrator:
+      agents
+        .filter((agent) => agent.kind === "orchestrator")
+        .map(({ userId: _owner, ...agent }) => agent)[0] ?? null,
+    pendingProposalCount: await db.proposal.count({
+      where: { userId: user.id, status: "pending" },
+    }),
+    proposals: (
+      await Promise.all([
+        db.proposal.findMany({
+          where: { userId: user.id, status: "pending" },
+          orderBy: { createdAt: "asc" },
+          take: 100,
+        }),
+        db.proposal.findMany({
+          where: { userId: user.id, status: { not: "pending" } },
+          orderBy: { createdAt: "desc" },
+          take: 50,
+        }),
+      ])
+    )
+      .flat()
+      .map((proposal) => ({
+        id: proposal.id,
+        action: proposal.action,
+        agentId: proposal.agentId,
+        status: proposal.status,
+        version: proposal.version,
+        createdAt: proposal.createdAt,
+        resultRunId: proposal.resultRunId,
+        error: proposal.error,
+        payload: JSON.parse(proposal.payload),
+        approvedBy: proposal.approvedBy === user.id,
+      })),
+    budgets: await budgetViews(user.id),
+    autopilot: false,
   };
 }

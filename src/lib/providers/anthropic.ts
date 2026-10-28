@@ -69,7 +69,44 @@ function body(input: SendInput, stream: boolean) {
     model: input.model,
     max_tokens: input.maxTokens,
     system: input.system,
-    messages: input.messages,
+    messages: input.messages.map((message) =>
+      message.role === "tool"
+        ? {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: message.callId,
+                content: message.content,
+              },
+            ],
+          }
+        : message.toolCalls?.length
+          ? {
+              role: "assistant",
+              content: [
+                ...(message.content
+                  ? [{ type: "text", text: message.content }]
+                  : []),
+                ...message.toolCalls.map((call) => ({
+                  type: "tool_use",
+                  id: call.id,
+                  name: call.name,
+                  input: call.arguments,
+                })),
+              ],
+            }
+          : { role: message.role, content: message.content },
+    ),
+    ...(input.tools?.length
+      ? {
+          tools: input.tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description,
+            input_schema: tool.parameters,
+          })),
+        }
+      : {}),
     ...(acceptsTemperature(input.model)
       ? { temperature: input.temperature }
       : {}),
@@ -174,10 +211,10 @@ export const anthropic: Provider = {
       );
     return models;
   },
-  async validateKey(key, abort) {
+  async validateKey(key, abort, send) {
     const models = await this.listModels(key, abort);
     const model = models.find((m) => m.id.includes("haiku")) ?? models[0];
-    await this.send({
+    await (send ?? this.send.bind(this))({
       key,
       model: model.id,
       system: "Reply OK.",
@@ -186,6 +223,30 @@ export const anthropic: Provider = {
       temperature: 0,
       signal: abort,
     });
+  },
+  async countTokens(input) {
+    const {
+      max_tokens: _max,
+      temperature: _temperature,
+      stream: _stream,
+      ...payload
+    } = JSON.parse(body(input, false));
+    const response = await checked(
+      await fetch(`${endpoint}/messages/count_tokens`, {
+        method: "POST",
+        headers: headers(input.key),
+        body: JSON.stringify(payload),
+        signal: signal(input.signal),
+      }),
+    );
+    const result = await response.json();
+    if (!Number.isSafeInteger(result.input_tokens) || result.input_tokens < 0)
+      throw new AppError(
+        "token_count",
+        "Claude could not verify input tokens. No generation was started.",
+        503,
+      );
+    return result.input_tokens;
   },
   async send(input) {
     const response = await checked(
@@ -230,6 +291,10 @@ export const anthropic: Provider = {
       complete: false,
     };
     let completed = false;
+    const calls = new Map<
+      number,
+      { id: string; name: string; input: unknown; json: string }
+    >();
     for await (const raw of frames(response.body, input.signal)) {
       let event;
       try {
@@ -249,6 +314,51 @@ export const anthropic: Provider = {
       if (event.type === "message_start") {
         usage.inputTokens = event.message?.usage?.input_tokens ?? null;
         yield { type: "usage", usage: { ...usage } };
+      }
+      if (
+        event.type === "content_block_start" &&
+        event.content_block?.type === "tool_use"
+      )
+        calls.set(event.index, {
+          id: event.content_block.id,
+          name: event.content_block.name,
+          input: event.content_block.input ?? {},
+          json: "",
+        });
+      if (
+        event.type === "content_block_delta" &&
+        event.delta?.type === "input_json_delta"
+      ) {
+        const call = calls.get(event.index);
+        if (call) {
+          call.json += event.delta.partial_json;
+          if (call.json.length > 64000)
+            throw new AppError(
+              "tool_invalid",
+              "The tool proposal was too large.",
+              502,
+            );
+        }
+      }
+      if (event.type === "content_block_stop") {
+        const call = calls.get(event.index);
+        if (call) {
+          let args: unknown;
+          try {
+            args = call.json ? JSON.parse(call.json) : call.input;
+          } catch {
+            throw new AppError(
+              "tool_invalid",
+              "Claude returned an incomplete tool proposal.",
+              502,
+            );
+          }
+          yield {
+            type: "tool",
+            call: { id: call.id, name: call.name, arguments: args },
+          };
+          calls.delete(event.index);
+        }
       }
       if (
         event.type === "content_block_delta" &&

@@ -1,0 +1,20 @@
+{
+  "contract": "Extend the approved local graphite/mint workspace with one main orchestrator chat, selected compact agent context, and a human approval queue. Keep drafts visibly pending and editable, separate proposal/approval provenance, and make optional provider spending limits and audit history easy to find. Preserve existing concurrent agent chats. Autopilot remains off; no autonomous replies or management actions. Desktop uses chat plus context/queue; narrow screens keep a reachable composer and scroll context below it. Reference: existing Vizor stages one/two and user authorization for stages three/four plus spending limits.",
+  "targetViewports": ["1440x900", "390x844"],
+  "accessibility": { "status": "pass", "evidence": "Chromium Axe A/AA checks pass for desktop/mobile orchestrator, mobile audit and spending controls, in addition to the original onboarding/workspace checks. Labelled forms, focusable scroll regions, keyboard navigation and Escape dismissal are exercised. This is not a complete assistive-technology certification." },
+  "responsive": { "status": "pass", "evidence": "Inspected both target sizes. Desktop chat, selected context and pending action controls remain legible. Fixed mobile conversation sizing; the composer is reachable, context/proposals scroll within the page region, no body-height or width overflow occurs, budget cards stack and ledger tables scroll locally." },
+  "contentStates": {
+    "loading": { "status": "pass", "evidence": "Chat shows Thinking/Stop while streaming. Proposal approval and budget-save controls show busy states and disable repeated clicks. Audit requests show loading and pagination controls." },
+    "empty": { "status": "pass", "evidence": "Orchestrator setup explains its provider choice, empty approval queue says nothing is waiting, and first-use spending controls explain optional limits without inventing a dollar amount." },
+    "error": { "status": "pass", "evidence": "Budget exhaustion blocks direct chat, orchestrator and connection tests with clear recovery guidance. Unknown prices/token counts fail closed; stale edits and failed actions preserve explicit error states. Unknown costs display Unavailable." },
+    "partial": { "status": "pass", "evidence": "Cancellation/restart retain partial text and conservative ledger accounting when final usage is missing. Bounded tool continuation can leave proposals for review without executing them." },
+    "success": { "status": "pass", "evidence": "Edited drafts are approved once, the target chat labels their approved orchestrator origin, management proposals change the target only on approval, and saved limits show current spend/reservations and an 80 percent warning." },
+    "permission": { "status": "pass", "evidence": "Autopilot off is always visible on the orchestrator. Native sends and management changes only queue drafts. Approval snapshots record exact payload and human approval; foreign-owner access and forged provenance are rejected in automated tests." }
+  },
+  "renderedEvidence": [
+    { "viewport": "1440x900", "artifact": "orchestrator-desktop.png", "observation": "Main orchestrator chat with provider/model, composer, selected agent and explicit Approve/Edit/Reject draft controls; existing sidebar remains familiar." },
+    { "viewport": "390x844", "artifact": "orchestrator-mobile.png", "observation": "Long history scrolls inside the bounded agent panel and the composer stays reachable; context and proposals are available by scrolling the outer conversation region." },
+    { "viewport": "1440x900", "artifact": "budget-desktop.png", "observation": "Provider cards show spend, monthly limits and reserved balance, with an 80 percent warning and a persistent review link." },
+    { "viewport": "390x844", "artifact": "budget-mobile.png", "observation": "Budget amount, progress and labelled controls stack in one narrow column with no page-width overflow." }
+  ]
+}

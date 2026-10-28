@@ -196,11 +196,28 @@ export function Message({
       className={`message ${user ? "user-message" : "assistant-message"}`}
     >
       <span className={`message-avatar ${user ? "user-avatar" : agent.color}`}>
-        {user ? "Y" : <AgentIcon icon={agent.icon} />}
+        {user ? (
+          message.origin === "orchestrator" ? (
+            <Sparkles size={16} />
+          ) : (
+            "Y"
+          )
+        ) : (
+          <AgentIcon icon={agent.icon} />
+        )}
       </span>
       <div className="message-content">
         <div className="message-heading">
-          <strong>{user ? "You" : agent.name}</strong>
+          <strong>
+            {user
+              ? message.origin === "orchestrator"
+                ? "Orchestrator"
+                : "You"
+              : agent.name}
+          </strong>
+          {user && message.origin === "orchestrator" && (
+            <span>Approved by you</span>
+          )}
           {!user && <span>{providerLabel}</span>}
           <time dateTime={message.createdAt}>
             {new Date(message.createdAt).toLocaleTimeString([], {

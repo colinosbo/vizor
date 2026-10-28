@@ -85,6 +85,18 @@ it("upgrades a populated stage-one database without losing keys, accounts or his
       provider: "anthropic",
       cost: 0.000276,
     });
+    expect(
+      sqlite
+        .prepare("SELECT source,chargedMicros,status FROM SpendEntry")
+        .get(),
+    ).toEqual({ source: "legacy", chargedMicros: 276, status: "settled" });
+    expect(
+      sqlite
+        .prepare(
+          "SELECT spentMicros,reservedMicros,unknownCalls FROM BudgetMonth",
+        )
+        .get(),
+    ).toEqual({ spentMicros: 276, reservedMicros: 0, unknownCalls: 0 });
     const row = sqlite.prepare("SELECT encrypted FROM Credential").get() as {
       encrypted: string;
     };

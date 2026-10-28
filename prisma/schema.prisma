@@ -16,6 +16,11 @@ model User {
   runs Run[]
   templates AgentTemplate[]
   workspaceLayout String @default("{}")
+  proposals Proposal[]
+  audits AuditEntry[]
+  budgets ProviderBudget[]
+  budgetMonths BudgetMonth[]
+  spending SpendEntry[]
 }
 model Session {
   id String @id
@@ -49,6 +54,9 @@ model Agent {
   demo Boolean @default(false)
   paused Boolean @default(false)
   archived Boolean @default(false)
+  kind String @default("agent")
+  contextSummary String @default("")
+  summaryThroughPosition Int @default(-1)
   createdAt DateTime @default(now())
   conversation Conversation?
   @@index([userId])
@@ -69,6 +77,8 @@ model Message {
   role String
   text String
   status String @default("complete")
+  origin String @default("user")
+  proposalId String?
   createdAt DateTime @default(now())
   @@unique([conversationId, position])
 }
@@ -88,6 +98,7 @@ model Run {
   cost Float?
   usageComplete Boolean @default(false)
   errorCode String?
+  proposalId String? @unique
   createdAt DateTime @default(now())
   endedAt DateTime?
   @@unique([userId, clientId])
@@ -106,4 +117,79 @@ model AgentTemplate {
   config String
   createdAt DateTime @default(now())
   @@index([userId])
+}
+model Proposal {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runId String
+  toolCallId String
+  action String
+  agentId String?
+  payload String
+  status String @default("pending")
+  version Int @default(0)
+  origin String @default("user_request")
+  approvedBy String?
+  approvedAt DateTime?
+  resultRunId String?
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([runId, toolCallId])
+  @@index([userId, status, createdAt])
+}
+model AuditEntry {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  actor String
+  action String
+  subjectId String?
+  proposalId String?
+  approvedBy String?
+  details String @default("{}")
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+}
+model ProviderBudget {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider String
+  limitMicros BigInt?
+  updatedAt DateTime @updatedAt
+  @@unique([userId, provider])
+}
+model BudgetMonth {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider String
+  period String
+  spentMicros BigInt @default(0)
+  reservedMicros BigInt @default(0)
+  unknownCalls Int @default(0)
+  @@unique([userId, provider, period])
+}
+model SpendEntry {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider String
+  model String
+  source String
+  referenceId String?
+  period String
+  status String @default("reserved")
+  quotedMicros BigInt @default(0)
+  chargedMicros BigInt?
+  inputTokens Int?
+  outputTokens Int?
+  inputRate Float?
+  outputRate Float?
+  estimated Boolean @default(true)
+  createdAt DateTime @default(now())
+  settledAt DateTime?
+  @@index([userId, provider, period])
 }

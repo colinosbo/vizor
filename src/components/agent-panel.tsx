@@ -51,6 +51,7 @@ export function AgentPanel({
   send,
   stop,
   notify,
+  coordinator = false,
 }: {
   agent: AgentView;
   provider: ProviderInfo;
@@ -72,6 +73,7 @@ export function AgentPanel({
   ) => Promise<void>;
   stop: () => Promise<void>;
   notify: (value: string) => void;
+  coordinator?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [edit, setEdit] = useState<PublicMessage | null>(null);
@@ -101,7 +103,7 @@ export function AgentPanel({
   }
   return (
     <section
-      className={`agent-panel ${compact ? "compact-panel" : "focus-panel"} ${collapsed ? "collapsed-panel" : ""}`}
+      className={`agent-panel ${compact ? "compact-panel" : "focus-panel"} ${collapsed ? "collapsed-panel" : ""} ${coordinator ? "coordinator-panel" : ""}`}
       aria-label={`${agent.name} panel`}
     >
       <header className="panel-top">
@@ -161,7 +163,11 @@ export function AgentPanel({
           )}
           <button
             className="icon-button"
-            aria-label={`Agent settings${compact ? ` for ${agent.name}` : ""}`}
+            aria-label={
+              coordinator
+                ? "Orchestrator settings"
+                : `Agent settings${compact ? ` for ${agent.name}` : ""}`
+            }
             title="Agent settings"
             onClick={onEdit}
           >
@@ -191,15 +197,25 @@ export function AgentPanel({
                   <Sparkles size={compact ? 22 : 27} />
                 </div>
                 <div className="eyebrow">ROOM TO THINK</div>
-                <h3>What’s on your mind?</h3>
+                <h3>
+                  {coordinator
+                    ? "What should we work on?"
+                    : "What’s on your mind?"}
+                </h3>
                 <p>
-                  {compact ? (
-                    "Start a conversation. Give this agent a direction."
+                  {coordinator ? (
+                    "Ask for a progress summary or draft directions for your agents."
                   ) : (
                     <>
-                      A rough idea, a tricky question, a blank page.
-                      <br />
-                      Start anywhere.
+                      {compact ? (
+                        "Start a conversation. Give this agent a direction."
+                      ) : (
+                        <>
+                          A rough idea, a tricky question, a blank page.
+                          <br />
+                          Start anywhere.
+                        </>
+                      )}
                     </>
                   )}
                 </p>

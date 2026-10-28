@@ -21,6 +21,19 @@ import { getProvider } from "@/lib/providers";
 import { recoverRuns, startChat, stopOwner, stopRun } from "@/lib/server/chat";
 import { publish, eventStream } from "@/lib/server/events";
 import {
+  coordinator,
+  configureOrchestrator,
+} from "@/lib/server/orchestrator-config";
+import {
+  approveMany,
+  approveProposal,
+  editProposal,
+  rejectProposal,
+} from "@/lib/server/proposals";
+import { proposalPayload } from "@/lib/server/orchestrator-tools";
+import { meteredSend, setBudget, usd } from "@/lib/server/budgets";
+import { audit } from "@/lib/server/audit";
+import {
   createAgent,
   editAgent,
   agentAction,
@@ -84,6 +97,175 @@ async function handle(
     await rateLimit(`requests:${user.id}`, 180);
     if (route === "workspace" && method === "GET")
       return Response.json(await workspace(user));
+    if (route === "orchestrator" && method === "PATCH") {
+      const input = await readJson(
+        request,
+        z
+          .object({
+            provider: z.string().max(40),
+            model: z.string().max(150),
+            temperature: z.number().min(0).max(1),
+            maxTokens: z.number().int().min(64).max(8192),
+          })
+          .strict()
+          .refine(
+            (config) =>
+              agentSchema.safeParse({ ...defaultAgent, ...config }).success,
+          ),
+      );
+      return Response.json(await configureOrchestrator(user.id, input));
+    }
+    if (route === "orchestrator/messages" && method === "POST") {
+      await rateLimit(`chat:${user.id}`, 20);
+      const input = await readJson(
+        request,
+        messageSchema.extend({
+          agentIds: z.array(z.string().min(1).max(100)).max(20).optional(),
+        }),
+      );
+      return await startChat(
+        user.id,
+        (await coordinator(user.id)).id,
+        input,
+        request.signal,
+        { orchestrator: true, scope: input.agentIds },
+      );
+    }
+    if (path[0] === "proposals" && path.length === 2 && method === "PATCH") {
+      const input = await readJson(
+        request,
+        z
+          .object({
+            version: z.number().int().min(0),
+            payload: proposalPayload,
+          })
+          .strict(),
+      );
+      await editProposal(user.id, path[1], input.version, input.payload);
+      return Response.json({ ok: true });
+    }
+    if (
+      path[0] === "proposals" &&
+      path.length === 3 &&
+      ["approve", "reject"].includes(path[2]) &&
+      method === "POST"
+    ) {
+      const input = await readJson(
+        request,
+        z.object({ version: z.number().int().min(0) }).strict(),
+      );
+      if (path[2] === "approve")
+        return Response.json(
+          await approveProposal(user.id, path[1], input.version),
+        );
+      await rejectProposal(user.id, path[1], input.version);
+      return Response.json({ ok: true });
+    }
+    if (route === "proposals/approve-many" && method === "POST") {
+      const input = await readJson(
+        request,
+        z
+          .object({
+            items: z
+              .array(
+                z
+                  .object({
+                    id: z.string().min(1).max(100),
+                    version: z.number().int().min(0),
+                  })
+                  .strict(),
+              )
+              .min(1)
+              .max(20),
+          })
+          .strict(),
+      );
+      return Response.json({
+        results: await approveMany(user.id, input.items),
+      });
+    }
+    if (path[0] === "budgets" && path.length === 2 && method === "PATCH") {
+      const dollars = z
+        .number()
+        .finite()
+        .min(0)
+        .max(1000000)
+        .refine(
+          (value) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-6,
+        );
+      const input = await readJson(
+        request,
+        z
+          .object({
+            limit: dollars.nullable(),
+            openingBalance: dollars.optional(),
+          })
+          .strict(),
+      );
+      await setBudget(user.id, path[1], input.limit, input.openingBalance);
+      return Response.json({ ok: true });
+    }
+    if (route === "audit" && method === "GET") {
+      const cursor = new URL(request.url).searchParams.get("before");
+      if (
+        cursor &&
+        !(await db.auditEntry.findFirst({
+          where: { id: cursor, userId: user.id },
+          select: { id: true },
+        }))
+      )
+        throw new AppError(
+          "not_found",
+          "This audit cursor was not found.",
+          404,
+        );
+      const entries = await db.auditEntry.findMany({
+        where: { userId: user.id },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: 51,
+      });
+      return Response.json({
+        entries: entries.slice(0, 50).map(({ userId: _owner, ...entry }) => ({
+          ...entry,
+          details: JSON.parse(entry.details),
+          approvedBy: entry.approvedBy === user.id,
+        })),
+        nextCursor: entries.length > 50 ? entries[49].id : null,
+      });
+    }
+    if (route === "spending" && method === "GET") {
+      const entries = await db.spendEntry.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      });
+      return Response.json({
+        entries: entries.map((entry) => ({
+          id: entry.id,
+          provider: entry.provider,
+          model: entry.model,
+          source: entry.source,
+          period: entry.period,
+          status: entry.status,
+          quoted:
+            entry.inputRate == null &&
+            entry.outputRate == null &&
+            entry.quotedMicros === 0n
+              ? null
+              : usd(entry.quotedMicros),
+          charged:
+            entry.chargedMicros == null ||
+            ["unknown", "reconciled"].includes(entry.status)
+              ? null
+              : usd(entry.chargedMicros),
+          inputTokens: entry.inputTokens,
+          outputTokens: entry.outputTokens,
+          estimated: entry.estimated,
+          createdAt: entry.createdAt,
+        })),
+      });
+    }
     if (route === "events" && method === "GET") {
       return eventStream(
         user.id,
@@ -122,7 +304,9 @@ async function handle(
           .strict(),
       );
       const encrypted = encryptKey(input.key, user.id, provider.id);
-      await provider.validateKey(input.key, request.signal);
+      await provider.validateKey(input.key, request.signal, (modelInput) =>
+        meteredSend(user.id, provider.id, modelInput, { source: "connection" }),
+      );
       stopOwner(user.id, provider.id);
       await db.credential.upsert({
         where: { userId_provider: { userId: user.id, provider: provider.id } },
@@ -135,6 +319,7 @@ async function handle(
         update: { encrypted, last4: input.key.slice(-4) },
       });
       publish(user.id);
+      await audit(user.id, "provider.connected", provider.id);
       return Response.json({ connected: true, last4: input.key.slice(-4) });
     }
     if (path[0] === "providers" && path.length === 2 && method === "DELETE") {
@@ -144,6 +329,7 @@ async function handle(
       });
       stopOwner(user.id, provider.id);
       publish(user.id);
+      await audit(user.id, "provider.removed", provider.id);
       return Response.json({ connected: false, last4: null });
     }
     if (

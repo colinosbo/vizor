@@ -25,12 +25,17 @@ export default defineConfig({
       use: { baseURL: "http://127.0.0.1:3103" },
     },
     {
+      name: "orchestration",
+      testMatch: /orchestration\.spec\.ts/,
+      use: { baseURL: "http://127.0.0.1:3104" },
+    },
+    {
       name: "accounts",
       testMatch: /accounts\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:3101" },
     },
   ],
-  webServer: [3100, 3101, 3103].map((port) => ({
+  webServer: [3100, 3101, 3103, 3104].map((port) => ({
     command: `node scripts/test-server.mjs ${port}`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,

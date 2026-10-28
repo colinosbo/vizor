@@ -5,6 +5,7 @@ import { ownedAgent } from "./store";
 import { stopAgent } from "./chat";
 import { publish } from "./events";
 import { AppError } from "./errors";
+import { audit } from "./audit";
 export async function requireProvider(userId: string, provider: string) {
   const key = await db.credential.findUnique({
     where: { userId_provider: { userId, provider } },
@@ -21,9 +22,20 @@ export async function createAgent(
   config: z.infer<typeof agentSchema>,
 ) {
   await requireProvider(userId, config.provider);
-  const agent = await db.agent.create({
-    data: { userId, ...config, conversation: { create: {} } },
-    select: { id: true },
+  const agent = await db.$transaction(async (tx) => {
+    const created = await tx.agent.create({
+      data: { userId, ...config, conversation: { create: {} } },
+      select: { id: true },
+    });
+    await audit(
+      userId,
+      "agent.created",
+      created.id,
+      { name: config.name, provider: config.provider, model: config.model },
+      {},
+      tx,
+    );
+    return created;
   });
   publish(userId);
   return agent;
@@ -33,7 +45,8 @@ export async function editAgent(
   id: string,
   config: z.infer<typeof agentSchema>,
 ) {
-  await ownedAgent(userId, id);
+  if ((await ownedAgent(userId, id)).kind !== "agent")
+    throw new AppError("not_found", "This agent was not found.", 404);
   await requireProvider(userId, config.provider);
   await db.$transaction(async (tx) => {
     const result = await tx.agent.updateMany({
@@ -46,6 +59,14 @@ export async function editAgent(
         "Stop the current response before changing agent settings.",
         409,
       );
+    await audit(
+      userId,
+      "agent.updated",
+      id,
+      { name: config.name, provider: config.provider, model: config.model },
+      {},
+      tx,
+    );
   });
   publish(userId);
 }
@@ -55,6 +76,8 @@ export async function agentAction(
   action: "duplicate" | "archive" | "restore" | "pause" | "resume",
 ) {
   const agent = await ownedAgent(userId, id);
+  if (agent.kind !== "agent")
+    throw new AppError("not_found", "This agent was not found.", 404);
   if (action === "duplicate") {
     const config = agentSchema.parse({
       name: `${agent.name.slice(0, 64)} copy`,
@@ -68,14 +91,17 @@ export async function agentAction(
     });
     return createAgent(userId, config);
   }
-  await db.agent.updateMany({
-    where: { id, userId },
-    data:
-      action === "archive"
-        ? { archived: true }
-        : action === "restore"
-          ? { archived: false }
-          : { paused: action === "pause" },
+  await db.$transaction(async (tx) => {
+    await tx.agent.updateMany({
+      where: { id, userId },
+      data:
+        action === "archive"
+          ? { archived: true }
+          : action === "restore"
+            ? { archived: false }
+            : { paused: action === "pause" },
+    });
+    await audit(userId, `agent.${action}`, id, {}, {}, tx);
   });
   if (action === "archive" || action === "pause") stopAgent(userId, id);
   publish(userId);

@@ -70,7 +70,37 @@ function body(input: SendInput, stream: boolean) {
   return JSON.stringify({
     model: input.model,
     instructions: input.system,
-    input: input.messages.map((m) => ({ role: m.role, content: m.content })),
+    input: input.messages.flatMap((m) =>
+      m.role === "tool"
+        ? [
+            {
+              type: "function_call_output",
+              call_id: m.callId,
+              output: m.content,
+            },
+          ]
+        : ([
+            ...(m.content ? [{ role: m.role, content: m.content }] : []),
+            ...(m.toolCalls ?? []).map((call) => ({
+              type: "function_call",
+              call_id: call.id,
+              name: call.name,
+              arguments: JSON.stringify(call.arguments),
+            })),
+          ] as Record<string, unknown>[]),
+    ),
+    ...(input.tools?.length
+      ? {
+          tools: input.tools.map((tool) => ({
+            type: "function",
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+            strict: true,
+          })),
+          parallel_tool_calls: false,
+        }
+      : {}),
     max_output_tokens: input.maxTokens,
     ...(temperature(input.model) ? { temperature: input.temperature } : {}),
     store: false,
@@ -134,13 +164,13 @@ export const openai: Provider = {
       a.id.localeCompare(b.id),
     );
   },
-  async validateKey(key, abort) {
+  async validateKey(key, abort, send) {
     const models = await this.listModels(key, abort);
     const model =
       models.find((m) => m.id === this.defaultModel) ??
       models.find((m) => m.id.includes("mini")) ??
       models[0];
-    await this.send({
+    await (send ?? this.send.bind(this))({
       key,
       model: model.id,
       system: "Reply OK.",
@@ -149,6 +179,31 @@ export const openai: Provider = {
       maxTokens: 16,
       signal: abort,
     });
+  },
+  async countTokens(input) {
+    const {
+      max_output_tokens: _max,
+      temperature: _temperature,
+      stream: _stream,
+      store: _store,
+      ...payload
+    } = JSON.parse(body(input, false));
+    const response = await checked(
+      await fetch(`${endpoint}/responses/input_tokens`, {
+        method: "POST",
+        headers: headers(input.key),
+        body: JSON.stringify(payload),
+        signal: signal(input.signal),
+      }),
+    );
+    const data = await response.json();
+    if (!Number.isSafeInteger(data.input_tokens) || data.input_tokens < 0)
+      throw new AppError(
+        "token_count",
+        "OpenAI could not verify input tokens. No generation was started.",
+        503,
+      );
+    return data.input_tokens;
   },
   async send(input) {
     const response = await checked(
@@ -192,6 +247,7 @@ export const openai: Provider = {
         502,
       );
     let ended = false;
+    const seenCalls = new Set<string>();
     for await (const raw of frames(response.body, input.signal)) {
       if (raw === "[DONE]") continue;
       let event;
@@ -209,6 +265,32 @@ export const openai: Provider = {
         event.type === "response.refusal.delta"
       )
         yield { type: "delta", text: event.delta };
+      if (
+        event.type === "response.output_item.done" &&
+        event.item?.type === "function_call" &&
+        !seenCalls.has(event.item.call_id)
+      ) {
+        seenCalls.add(event.item.call_id);
+        let args: unknown;
+        try {
+          if (event.item.arguments.length > 64000) throw new Error();
+          args = JSON.parse(event.item.arguments);
+        } catch {
+          throw new AppError(
+            "tool_invalid",
+            "OpenAI returned an incomplete tool proposal.",
+            502,
+          );
+        }
+        yield {
+          type: "tool",
+          call: {
+            id: event.item.call_id,
+            name: event.item.name,
+            arguments: args,
+          },
+        };
+      }
       if (event.type === "error" || event.type === "response.failed")
         throw openaiError(400, event.code ?? event.response?.error?.code);
       if (

@@ -9,6 +9,9 @@ import { messageSchema } from "./validation";
 import { estimateCost } from "./pricing";
 import type { Usage } from "../providers/types";
 import { publish } from "./events";
+import { meteredStream, recoverSpending } from "./budgets";
+import { streamOrchestrator } from "./orchestrator-stream";
+import { audit } from "./audit";
 type Active = {
   userId: string;
   agentId: string;
@@ -21,34 +24,62 @@ const runtime = globalThis as unknown as {
 };
 const active = (runtime.vizorRuns ??= new Map());
 export async function recoverRuns() {
-  await (runtime.vizorRecovery ??= db.$transaction(async (tx) => {
-    const abandoned = await tx.run.findMany({ where: { status: "running" } });
-    for (const run of abandoned) {
-      await tx.message.updateMany({
-        where: { id: run.assistantId, conversationId: run.conversationId },
-        data: { status: "interrupted" },
-      });
-      await tx.run.update({
-        where: { id: run.id },
-        data: {
-          status: "interrupted",
-          errorCode: "server_restarted",
-          usageComplete: false,
-          endedAt: new Date(),
-        },
-      });
-      await tx.conversation.updateMany({
-        where: { id: run.conversationId, activeRunId: run.id },
-        data: { activeRunId: null },
-      });
-    }
-  }));
+  await (runtime.vizorRecovery ??= (async () => {
+    await recoverSpending();
+    await db.$transaction(async (tx) => {
+      const abandoned = await tx.run.findMany({ where: { status: "running" } });
+      for (const run of abandoned) {
+        await tx.message.updateMany({
+          where: { id: run.assistantId, conversationId: run.conversationId },
+          data: { status: "interrupted" },
+        });
+        await tx.run.update({
+          where: { id: run.id },
+          data: {
+            status: "interrupted",
+            errorCode: "server_restarted",
+            usageComplete: false,
+            endedAt: new Date(),
+          },
+        });
+        await tx.conversation.updateMany({
+          where: { id: run.conversationId, activeRunId: run.id },
+          data: { activeRunId: null },
+        });
+      }
+      for (const proposal of await tx.proposal.findMany({
+        where: { status: "executing" },
+      })) {
+        await tx.proposal.update({
+          where: { id: proposal.id },
+          data: {
+            status: "failed",
+            error:
+              "The server restarted during approval. Review the agent history before proposing another message.",
+          },
+        });
+        await audit(
+          proposal.userId,
+          "proposal.interrupted",
+          proposal.agentId,
+          {},
+          {
+            actor: "system",
+            proposalId: proposal.id,
+            approvedBy: proposal.approvedBy ?? undefined,
+          },
+          tx,
+        );
+      }
+    });
+  })());
 }
 export async function stopRun(userId: string, runId: string) {
   const run = await ownedRun(userId, runId);
   if (run.status !== "running") return;
   const current = active.get(runId);
   if (current?.userId === userId) current.controller.abort();
+  await audit(userId, "response.stopped", run.id);
 }
 export function stopOwner(userId: string, provider?: string) {
   for (const entry of active.values())
@@ -65,9 +96,34 @@ export async function startChat(
   agentId: string,
   input: z.infer<typeof messageSchema>,
   requestSignal?: AbortSignal,
+  options: {
+    orchestrator?: boolean;
+    scope?: string[];
+    proposalId?: string;
+  } = {},
 ) {
   await recoverRuns();
   const agent = await ownedAgent(userId, agentId);
+  if ((agent.kind === "orchestrator") !== !!options.orchestrator)
+    throw new AppError("not_found", "This agent was not found.", 404);
+  if (options.proposalId) {
+    const proposal = await db.proposal.findFirst({
+      where: {
+        id: options.proposalId,
+        userId,
+        status: "executing",
+        approvedBy: userId,
+        action: "send_message",
+        agentId,
+      },
+    });
+    if (!proposal || JSON.parse(proposal.payload).text !== input.text)
+      throw new AppError(
+        "approval_required",
+        "This message has not been approved.",
+        403,
+      );
+  }
   if (agent.archived || agent.paused)
     throw new AppError(
       "agent_inactive",
@@ -147,6 +203,10 @@ export async function startChat(
           },
         });
         position = edited.position;
+        await tx.agent.updateMany({
+          where: { id: agentId, userId },
+          data: { contextSummary: "", summaryThroughPosition: -1 },
+        });
       } else if (input.mode === "regenerate") {
         const last = messages.at(-1);
         if (!last || last.role !== "assistant")
@@ -166,6 +226,8 @@ export async function startChat(
             role: "user",
             text: input.text,
             position: position++,
+            origin: options.proposalId ? "orchestrator" : "user",
+            proposalId: options.proposalId,
           },
         });
       }
@@ -188,8 +250,26 @@ export async function startChat(
           assistantId,
           model: agent.model,
           provider: agent.provider,
+          proposalId: options.proposalId,
         },
       });
+      await audit(
+        userId,
+        "message.submitted",
+        agentId,
+        {
+          runId,
+          mode: input.mode,
+          provider: agent.provider,
+          model: agent.model,
+        },
+        {
+          actor: options.proposalId ? "orchestrator" : "user",
+          proposalId: options.proposalId,
+          approvedBy: options.proposalId ? userId : undefined,
+        },
+        tx,
+      );
     });
   } catch (error) {
     active.delete(runId);
@@ -285,6 +365,7 @@ export async function startChat(
             orderBy: { position: "asc" },
           });
           if (
+            agent.kind !== "orchestrator" &&
             messages.reduce(
               (n, m) => n + m.text.length,
               agent.systemPrompt.length,
@@ -294,7 +375,7 @@ export async function startChat(
               "context_limit",
               "This conversation is too long. Start another agent conversation before continuing.",
             );
-          for await (const event of getProvider(agent.provider).stream({
+          const modelInput = {
             key,
             model: agent.model,
             system: agent.systemPrompt,
@@ -307,8 +388,28 @@ export async function startChat(
             temperature: agent.temperature,
             maxTokens: agent.maxTokens,
             signal: abort.signal,
-          })) {
+          };
+          const events =
+            agent.kind === "orchestrator"
+              ? streamOrchestrator(
+                  userId,
+                  runId,
+                  agent.provider,
+                  modelInput,
+                  options.scope,
+                )
+              : meteredStream(userId, agent.provider, modelInput, {
+                  source: "chat",
+                  referenceId: runId,
+                });
+          for await (const event of events) {
             abort.signal.throwIfAborted();
+            if (event.type === "tool")
+              throw new AppError(
+                "unexpected_tool",
+                "Agent tool calls cannot execute actions.",
+                502,
+              );
             if (event.type === "delta") {
               text += event.text;
               emit("delta", { text: event.text });
@@ -377,6 +478,14 @@ export async function startChat(
               });
             });
             emit("done", { status, runId });
+            if (status === "error")
+              await audit(
+                userId,
+                "response.failed",
+                agentId,
+                { runId, code: errorCode },
+                { actor: "system" },
+              );
             publish(userId);
           } catch {
             emit("error", {

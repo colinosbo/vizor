@@ -5,6 +5,8 @@ export type PublicMessage = {
   text: string;
   status: string;
   createdAt: string;
+  origin?: string;
+  proposalId?: string | null;
 };
 export type AgentView = {
   id: string;
@@ -19,6 +21,7 @@ export type AgentView = {
   demo: boolean;
   paused: boolean;
   archived: boolean;
+  kind?: string;
   conversation: {
     id: string;
     activeRunId: string | null;
@@ -47,6 +50,11 @@ export type Workspace = {
   layout: WorkspaceLayout;
   agents: AgentView[];
   pricingDate: string;
+  orchestrator: AgentView | null;
+  proposals: ProposalView[];
+  pendingProposalCount: number;
+  budgets: BudgetView[];
+  autopilot: false;
 };
 export type AgentConfig = Pick<
   AgentView,
@@ -107,3 +115,42 @@ export type LiveEvent =
   | { type: "change" }
   | { type: "run"; run: RunPatch }
   | { type: "unauthorized" };
+export type ProposalPayload =
+  | { action: "send_message"; agentId: string; text: string }
+  | { action: "create_agent"; config: AgentConfig }
+  | { action: "rename_agent"; agentId: string; name: string }
+  | { action: "pause_agent" | "archive_agent"; agentId: string };
+export type ProposalView = {
+  id: string;
+  action: string;
+  agentId: string | null;
+  payload: ProposalPayload;
+  status: string;
+  version: number;
+  approvedBy: boolean;
+  createdAt: string;
+  resultRunId: string | null;
+  error: string | null;
+};
+export type BudgetView = {
+  provider: string;
+  label: string;
+  period: string;
+  limit: number | null;
+  spent: number;
+  reserved: number;
+  unknownCalls: number;
+  warning: boolean;
+  blocked: boolean;
+  pricedModels: string[];
+};
+export type AuditView = {
+  id: string;
+  actor: string;
+  action: string;
+  subjectId: string | null;
+  proposalId: string | null;
+  approvedBy: boolean;
+  details: Record<string, unknown>;
+  createdAt: string;
+};

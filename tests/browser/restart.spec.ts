@@ -87,6 +87,46 @@ test("real server restart preserves history and keys and recovers an interrupted
       .getByRole("button", { name: "Pin My assistant", exact: true })
       .click();
     await expect(page.getByText("Layout saved", { exact: true })).toBeVisible();
+    const apiHeaders = { origin: "http://127.0.0.1:3102" };
+    const savedCoordinator = await page.request.patch(
+      "http://127.0.0.1:3102/api/orchestrator",
+      {
+        headers: apiHeaders,
+        data: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          maxTokens: 512,
+          temperature: 0.4,
+        },
+      },
+    );
+    expect(savedCoordinator.ok()).toBe(true);
+    const draft = await page.request.post(
+      "http://127.0.0.1:3102/api/orchestrator/messages",
+      {
+        headers: apiHeaders,
+        data: {
+          clientId: crypto.randomUUID(),
+          mode: "send",
+          text: "Rename the writer",
+        },
+      },
+    );
+    expect(await draft.text()).toContain("event: done");
+    const savedState = await (
+      await page.request.get("http://127.0.0.1:3102/api/workspace")
+    ).json();
+    const pendingId = savedState.proposals.find(
+      (p: { status: string }) => p.status === "pending",
+    ).id;
+    expect(
+      (
+        await page.request.patch(
+          "http://127.0.0.1:3102/api/budgets/anthropic",
+          { headers: apiHeaders, data: { limit: 0.05 } },
+        )
+      ).ok(),
+    ).toBe(true);
     await page
       .getByLabel("Message My assistant", { exact: true })
       .fill("[long] Crash recovery check");
@@ -110,6 +150,35 @@ test("real server restart preserves history and keys and recovers an interrupted
     await kill();
     await start();
     await page.reload();
+    const restored = await (
+      await page.request.get("http://127.0.0.1:3102/api/workspace")
+    ).json();
+    expect(restored.autopilot).toBe(false);
+    expect(restored.orchestrator.id).toBe(savedState.orchestrator.id);
+    expect(
+      restored.proposals.find((p: { id: string }) => p.id === pendingId),
+    ).toMatchObject({ status: "pending", approvedBy: false });
+    expect(
+      restored.budgets.find(
+        (b: { provider: string }) => b.provider === "anthropic",
+      ),
+    ).toMatchObject({ limit: 0.05, reserved: 0 });
+    expect(
+      restored.budgets.find(
+        (b: { provider: string }) => b.provider === "anthropic",
+      ).spent,
+    ).toBeGreaterThan(0.03);
+    expect(
+      (
+        await (await page.request.get("http://127.0.0.1:3102/api/audit")).json()
+      ).entries.some(
+        (e: { action: string }) => e.action === "proposal.created",
+      ),
+    ).toBe(true);
+    await page
+      .locator(".sidebar")
+      .getByRole("button", { name: /^Conversations/ })
+      .click();
     await expect(
       page.getByRole("button", { name: "2-up layout", exact: true }),
     ).toHaveAttribute("aria-pressed", "true");
