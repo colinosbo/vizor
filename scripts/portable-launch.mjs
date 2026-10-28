@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { existsSync, readFileSync, chmodSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   acquireLock,
@@ -13,6 +13,14 @@ import {
 import { migrate } from "./lib/portable-migrate.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
+const desktop =
+  process.argv.includes("--desktop") && typeof process.send === "function";
+const workspace =
+  desktop && process.env.VIZOR_WORKSPACE
+    ? resolve(process.env.VIZOR_WORKSPACE)
+    : root;
+if (desktop && !isAbsolute(process.env.VIZOR_WORKSPACE ?? ""))
+  throw new Error("The desktop workspace must be an absolute local path.");
 let child;
 let lock;
 let stopping = false;
@@ -35,6 +43,12 @@ function stop() {
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 process.on("exit", () => lock?.release());
+if (desktop) {
+  process.on("message", (message) => {
+    if (message?.type === "stop") stop();
+  });
+  process.on("disconnect", stop);
+}
 try {
   const manifest = JSON.parse(
     readFileSync(join(root, "vizor-portable.json"), "utf8"),
@@ -52,11 +66,11 @@ try {
     throw new Error(
       "The app files are missing. Extract the whole download before opening Start Vizor.",
     );
-  const { config } = ensureConfig(root);
+  const { config } = ensureConfig(workspace);
   const { origin, port } = localAddress(config);
   await availablePort(port);
-  lock = acquireLock(root);
-  const database = databasePath(root, config.DATABASE_URL);
+  lock = acquireLock(workspace);
+  const database = databasePath(workspace, config.DATABASE_URL);
   const requireApp = createRequire(join(root, "app/package.json"));
   const result = await migrate({
     database,
@@ -68,6 +82,7 @@ try {
     console.log(
       "A backup was saved in your database's backups folder before upgrading.",
     );
+  if (stopping) throw new Error("Vizor startup was stopped.");
   console.log(
     `Starting Vizor ${manifest.version}. Keys and conversations stay in this folder.`,
   );
@@ -128,6 +143,7 @@ try {
     );
   }
   if (ready) {
+    if (desktop) process.send({ type: "ready", origin });
     console.log(
       `Vizor is ready: ${origin}\nKeep this window open. Press Ctrl+C to stop.`,
     );
@@ -160,4 +176,5 @@ try {
   process.exitCode = 1;
 } finally {
   lock?.release();
+  if (desktop && process.connected) process.disconnect();
 }

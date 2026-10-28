@@ -4,6 +4,10 @@ A local workspace for running Claude and OpenAI conversations side by side, with
 
 ## Download and run
 
+**Windows:** download **Vizor-Setup-0.7.0-x64.exe** from the [latest release](https://github.com/colinosbo/vizor/releases/latest), run it, then open **Vizor** from your new desktop or Start menu shortcut. It opens in its own window, includes Node, and stops its local server when closed. Updates preserve your workspace outside the installation folder. See the [Windows guide](WINDOWS.md) for setup, backups and moving from the portable version. The installer is unsigned and Windows may show a publisher warning.
+
+**Portable downloads** remain available for Windows, macOS and Linux:
+
 1. [Download the latest release](https://github.com/colinosbo/vizor/releases/latest). Choose **windows-x64**, **macos-arm64** (Apple silicon), **macos-x64** (Intel), or **linux-x64**.
 2. Extract the **whole archive** into a writable local folder.
 3. On **Windows**, double-click **Start Vizor.cmd**. On **macOS**, open **Start Vizor.command**. On **Linux**, run `./start-vizor.sh`.

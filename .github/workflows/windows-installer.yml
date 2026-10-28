@@ -1,0 +1,57 @@
+name: Windows desktop installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Matching draft release ID
+        required: true
+        type: string
+      commit_sha:
+        description: Exact main-branch commit to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    if: github.ref == 'refs/heads/main'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      CHECKPOINT_DISABLE: "1"
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24.22.1"
+      - name: Compile and verify the local app
+        run: |
+          npm ci
+          npm run setup
+          npm run build:portable
+          npm run typecheck
+          npm test
+          npm run format:check
+          npm run package:portable
+          npm run test:portable
+      - name: Build Windows installer
+        run: |
+          npm ci --prefix desktop
+          npm run package:windows
+      - name: Install, launch, upgrade and uninstall the actual package
+        run: npm run test:windows
+      - name: Upload verified installer to the matching draft release
+        run: node scripts/upload-windows.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VIZOR_RELEASE_ID: ${{ inputs.release_id }}
+          VIZOR_RELEASE_COMMIT: ${{ inputs.commit_sha }}
