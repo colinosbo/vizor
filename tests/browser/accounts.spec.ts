@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+const evidenceRoot = process.env.VIZOR_VERIFICATION_DIR ?? "verification";
 test("registration, login, logout and private account workspace", async ({
   page,
 }) => {
@@ -18,7 +19,7 @@ test("registration, login, logout and private account workspace", async ({
     .click();
   await expect(page.getByRole("heading", { name: /Your ideas/ })).toBeVisible();
   await page.screenshot({
-    path: "verification/account-workspace.png",
+    path: `${evidenceRoot}/account-workspace.png`,
     fullPage: true,
   });
   await page.getByRole("button", { name: "Sign out" }).click();

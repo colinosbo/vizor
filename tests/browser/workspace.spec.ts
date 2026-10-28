@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import AxeBuilder from "@axe-core/playwright";
+const evidenceRoot = process.env.VIZOR_VERIFICATION_DIR ?? "verification";
 test.describe.serial("local workspace with mock Anthropic transport", () => {
   test("onboarding, persistent chat, settings, edits, cancellation and key lifecycle", async ({
     page,
@@ -9,13 +10,13 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("request", (request) => outgoing.push(request.url()));
-    mkdirSync("verification", { recursive: true });
+    mkdirSync(evidenceRoot, { recursive: true });
     await page.goto("/");
     await expect(
       page.getByRole("heading", { name: /Your ideas/ }),
     ).toBeVisible();
     await page.screenshot({
-      path: "verification/onboarding-desktop.png",
+      path: `${evidenceRoot}/onboarding-desktop.png`,
       fullPage: true,
     });
     await page
@@ -41,7 +42,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
       page.getByRole("heading", { name: "What’s on your mind?" }),
     ).toBeVisible();
     await page.screenshot({
-      path: "verification/workspace-desktop.png",
+      path: `${evidenceRoot}/workspace-desktop.png`,
       fullPage: true,
     });
     const accessibility = await new AxeBuilder({ page })
@@ -120,12 +121,12 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
       page.getByRole("button", { name: "Send message" }),
     ).toBeVisible();
     await page.screenshot({
-      path: "verification/conversation-desktop.png",
+      path: `${evidenceRoot}/conversation-desktop.png`,
       fullPage: true,
     });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({
-      path: "verification/conversation-mobile.png",
+      path: `${evidenceRoot}/conversation-mobile.png`,
       fullPage: true,
     });
     expect(
@@ -162,7 +163,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
       .click();
     await expect(page.getByLabel("Your Anthropic API key")).toBeVisible();
     await page.screenshot({
-      path: "verification/onboarding-mobile.png",
+      path: `${evidenceRoot}/onboarding-mobile.png`,
       fullPage: true,
     });
     expect(pageErrors).toEqual([]);
@@ -225,7 +226,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     await page.getByRole("button", { name: "Refresh", exact: true }).click();
     await expect(page.getByText(/Fallback list/)).toBeVisible();
     await page.screenshot({
-      path: "verification/error-and-partial.png",
+      path: `${evidenceRoot}/error-and-partial.png`,
       fullPage: true,
     });
   });

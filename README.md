@@ -53,6 +53,8 @@ Only the key's last four characters are returned to the browser. Entered keys re
 
 ## Your workspace
 
+Vizor uses charcoal grey surfaces and bright orange actions, selections and keyboard focus. Individual agent colours remain configurable. The latest [theme and readiness check](verification/charcoal-orange/REPORT.md) records desktop/mobile checks; earlier reports retain their original screenshots.
+
 - Choose **1**, **2**, **4** or **6** panels, or **Tabs**. Larger workspaces have previous/next controls; the sidebar can select any agent. Narrow screens stack panels and preserve touch scrolling.
 - Drag using a panel's grip; resize from its lower-right corner. Keyboard alternatives: focus the grip and press Left/Right to reorder, or focus the resize handle and use arrow keys to resize. Pointer drag/resize is disabled on narrow screens.
 - Pin agents to prioritize them in the sidebar, tabs and visible groups. Collapse a panel to its header or use Focus to open it alone. Hiding/collapsing a panel, switching tabs or opening settings does not cancel its generation.
@@ -83,7 +85,7 @@ Approved messages are labelled **Orchestrator · Approved by you** in the target
 
 Open **Spending limits**, enable a monthly limit for either provider, enter a USD amount and save. Limits are optional and start disabled; no dollar amount has been chosen for you. **$0 blocks new generations** for that provider. The same balance covers all your agent chats, orchestrator calls and new connection tests. Key replacement/removal does not reset the ledger. Each account and provider has a separate balance.
 
-Before a protected generation, Vizor calls the provider's input-token counter and reserves the cost of those tokens plus a 10%/256-token safety buffer and the full output-token cap. The reservation and balance check are one database transaction, so concurrent requests cannot spend the same remaining balance. Final complete usage replaces the reservation with the reported token cost. At 80% used or reserved, a warning appears. Requests whose maximum estimate will not fit are blocked before inference. Unknown model prices, unavailable token counting or unresolved unpriced usage also block protected requests.
+Before a protected generation, Vizor calls the provider's input-token counter and reserves the cost of those tokens plus a 10% safety buffer, 256 additional input tokens and the full output-token cap. The reservation and balance check are one database transaction, so concurrent requests cannot spend the same remaining balance. Final complete usage replaces the reservation with the reported token cost. At 80% used or reserved, a warning appears. Requests whose maximum estimate will not fit are blocked before inference. Unknown model prices, unavailable token counting or unresolved unpriced usage also block protected requests.
 
 Budgets use **UTC calendar months**, integer microdollars and a dated standard-text price table. They protect this account's Vizor usage at those listed rates; they are not an exact provider invoice or an organization-wide billing cap. They do not discover spending in other apps. Price changes, taxes, negotiated pricing and provider accounting differences are outside the guard. Unknown costs stay unavailable. The recent request ledger shows the latest 50 calls/adjustments, including connection tests that are outside chat totals.
 

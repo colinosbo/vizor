@@ -1,0 +1,20 @@
+{
+  "contract": "See CONTRACT.md. Apply dark grey layers and bright orange actions throughout the existing local agent workspace. Keep conversations readable, selection/focus visible, and permission/spending states clear. Preserve user-configured agent colour chips, responsive panel layouts, approval requirements and disabled autopilot. Local reference: the working Vizor interface and the user's requested palette.",
+  "targetViewports": ["1440x900", "390x844"],
+  "accessibility": { "status": "pass", "evidence": "Axe A/AA checks pass across onboarding, conversation, multi-agent workspace, orchestration, audit and spending controls. Orange filled controls use dark text; secondary text is neutral grey. Keyboard focus, labelled controls and reduced-motion behavior are checked; not a complete assistive-technology certification." },
+  "responsive": { "status": "pass", "evidence": "Inspected 1440x900 and 390x844 renders. Desktop grids and approval sidebars keep their hierarchy, mobile views stack without horizontal overflow, and long-history composers remain reachable. Colour changes do not alter panel sizing or navigation behavior." },
+  "contentStates": {
+    "loading": { "status": "pass", "evidence": "Provider connection and proposal/save controls keep their busy/disabled feedback. Active provider streams show Thinking and Stop; independent agents continue streaming." },
+    "empty": { "status": "pass", "evidence": "Onboarding retains provider instructions, empty chats retain their composer, and the approval queue explains how to create a draft. Charcoal cards and orange primary actions establish hierarchy." },
+    "error": { "status": "pass", "evidence": "Invalid credentials and provider errors remain readable in distinct error surfaces. Budget exhaustion gives recovery guidance and blocks generation, including connection replacement, without losing an existing key." },
+    "partial": { "status": "pass", "evidence": "Stopped streams retain their partial text and explicit unavailable/partial cost labels. Conservative budget accounting and restart recovery pass existing checks." },
+    "success": { "status": "pass", "evidence": "Connected providers, saved layouts, edited/approved drafts and spending controls give visible confirmations. Orange selections stay distinct from hover and disabled states." },
+    "permission": { "status": "pass", "evidence": "Autopilot off remains visible; orange Approve controls are explicit human actions. Proposals do not execute automatically, owner boundaries remain tested, and audit history retains approval provenance." }
+  },
+  "renderedEvidence": [
+    { "viewport": "1440x900", "artifact": "onboarding-desktop.png", "observation": "Neutral charcoal canvas and provider cards with bright orange branding/navigation; key-test controls are visibly disabled until input is entered." },
+    { "viewport": "1440x900", "artifact": "orchestration/orchestrator-desktop.png", "observation": "Grey conversation/context/draft panels use orange for active navigation, focus and approval; readable white/grey text remains the main content." },
+    { "viewport": "390x844", "artifact": "conversation-mobile.png", "observation": "Conversation, partial-response status and composer remain readable at narrow width, with a bright orange New agent action and orange selection/focus styling." },
+    { "viewport": "390x844", "artifact": "orchestration/proposals-mobile.png", "observation": "Pending proposal, explicit approval/edit/reject controls and orange selected-state accents fit the mobile page without overflow." }
+  ]
+}

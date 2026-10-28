@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdirSync } from "node:fs";
+const evidenceRoot = process.env.VIZOR_VERIFICATION_DIR ?? "verification";
 test("both providers, concurrent live observers, saved layouts, templates and lifecycle", async ({
   page,
   context,
 }) => {
   test.setTimeout(90000);
-  mkdirSync("verification/stage-two", { recursive: true });
+  mkdirSync(`${evidenceRoot}/stage-two`, { recursive: true });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   const button = (name: string) =>
@@ -94,7 +95,7 @@ test("both providers, concurrent live observers, saved layouts, templates and li
       .getByRole("log"),
   ).toContainText("OpenAI is streaming independently");
   await page.screenshot({
-    path: "verification/stage-two/concurrent-desktop.png",
+    path: `${evidenceRoot}/stage-two/concurrent-desktop.png`,
     fullPage: true,
   });
   await button("Collapse Writer").click();
@@ -207,7 +208,7 @@ test("both providers, concurrent live observers, saved layouts, templates and li
   await page.keyboard.press("Escape");
   await expect(page.locator(".agent-panel")).toHaveCount(4);
   await page.screenshot({
-    path: "verification/stage-two/four-agent-desktop.png",
+    path: `${evidenceRoot}/stage-two/four-agent-desktop.png`,
     fullPage: true,
   });
   await button("Agent settings for Writing role copy").click();
@@ -245,7 +246,7 @@ test("both providers, concurrent live observers, saved layouts, templates and li
     ),
   ).toBe(true);
   await page.screenshot({
-    path: "verification/stage-two/tabs-mobile.png",
+    path: `${evidenceRoot}/stage-two/tabs-mobile.png`,
     fullPage: true,
   });
   await button("4-up layout").click();
@@ -255,7 +256,7 @@ test("both providers, concurrent live observers, saved layouts, templates and li
     ),
   ).toBe(true);
   await page.screenshot({
-    path: "verification/stage-two/grid-mobile.png",
+    path: `${evidenceRoot}/stage-two/grid-mobile.png`,
     fullPage: true,
   });
   expect(

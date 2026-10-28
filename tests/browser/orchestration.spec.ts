@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdirSync } from "node:fs";
+const evidenceRoot = process.env.VIZOR_VERIFICATION_DIR ?? "verification";
 test("native orchestration, human approval, audit history and provider spending controls", async ({
   page,
 }) => {
   test.setTimeout(120000);
-  mkdirSync("verification/orchestration", { recursive: true });
+  mkdirSync(`${evidenceRoot}/orchestration`, { recursive: true });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   const button = (name: string) =>
@@ -81,7 +82,7 @@ test("native orchestration, human approval, audit history and provider spending 
   expect((await state()).autopilot).toBe(false);
   await assertA11y();
   await page.screenshot({
-    path: "verification/orchestration/orchestrator-desktop.png",
+    path: `${evidenceRoot}/orchestration/orchestrator-desktop.png`,
     fullPage: true,
   });
   await card.getByRole("button", { name: "Edit", exact: true }).click();
@@ -192,12 +193,12 @@ test("native orchestration, human approval, audit history and provider spending 
   ).toBeInViewport();
   await assertA11y();
   await page.screenshot({
-    path: "verification/orchestration/orchestrator-mobile.png",
+    path: `${evidenceRoot}/orchestration/orchestrator-mobile.png`,
     fullPage: true,
   });
   await navigate("Proposals");
   await page.screenshot({
-    path: "verification/orchestration/proposals-mobile.png",
+    path: `${evidenceRoot}/orchestration/proposals-mobile.png`,
     fullPage: true,
   });
   await navigate("Audit history");
@@ -205,7 +206,7 @@ test("native orchestration, human approval, audit history and provider spending 
   await expect(page.locator(".audit-list")).toContainText("Orchestrator");
   await assertA11y();
   await page.screenshot({
-    path: "verification/orchestration/audit-mobile.png",
+    path: `${evidenceRoot}/orchestration/audit-mobile.png`,
     fullPage: true,
   });
   await navigate("Spending limits");
@@ -230,7 +231,7 @@ test("native orchestration, human approval, audit history and provider spending 
       .filter({ hasText: "Claude spending settings saved." }),
   ).not.toBeVisible({ timeout: 10000 });
   await page.screenshot({
-    path: "verification/orchestration/budget-mobile.png",
+    path: `${evidenceRoot}/orchestration/budget-mobile.png`,
     fullPage: true,
   });
   await assertA11y();
@@ -239,7 +240,7 @@ test("native orchestration, human approval, audit history and provider spending 
     .locator(".spending-view")
     .evaluate((el) => el.scrollTo({ top: 0 }));
   await page.screenshot({
-    path: "verification/orchestration/budget-desktop.png",
+    path: `${evidenceRoot}/orchestration/budget-desktop.png`,
     fullPage: true,
   });
   await claudeBudget.getByLabel("Monthly limit (USD)").fill("0");
@@ -294,7 +295,7 @@ test("native orchestration, human approval, audit history and provider spending 
   expect((await state()).pendingProposalCount).toBe(1);
   await navigate("Audit history");
   await page.screenshot({
-    path: "verification/orchestration/audit-desktop.png",
+    path: `${evidenceRoot}/orchestration/audit-desktop.png`,
     fullPage: true,
   });
   expect(errors).toEqual([]);
