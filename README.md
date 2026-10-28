@@ -8,6 +8,8 @@ A local workspace for running Claude and OpenAI conversations side by side, with
 
 **Portable downloads** remain available for Windows, macOS and Linux:
 
+The v0.7.1 Windows app and installer use the approved orange Claude character inside a scope. See the [icon update verification](verification/icon-refresh/REPORT.md).
+
 1. [Download the latest release](https://github.com/colinosbo/vizor/releases/latest). Choose **windows-x64**, **macos-arm64** (Apple silicon), **macos-x64** (Intel), or **linux-x64**.
 2. Extract the **whole archive** into a writable local folder.
 3. On **Windows**, double-click **Start Vizor.cmd**. On **macOS**, open **Start Vizor.command**. On **Linux**, run `./start-vizor.sh`.
