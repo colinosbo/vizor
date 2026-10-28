@@ -20,7 +20,7 @@ The installer is for Windows 11 on Intel/AMD 64-bit PCs. It includes the app, it
 
 ## Your keys and conversations
 
-Program files install under `%LOCALAPPDATA%\Programs\Vizor`. Saved information lives separately in **`%LOCALAPPDATA%\Vizor\workspace`**:
+Program files install under `%LOCALAPPDATA%\Programs\vizor-desktop`. Saved information lives separately in **`%LOCALAPPDATA%\Vizor\workspace`**:
 
 - `.env`: your permanent encryption key and configuration.
 - `data\`: SQLite conversations, agent settings, encrypted provider keys and spending history.
