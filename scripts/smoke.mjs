@@ -63,7 +63,12 @@ try {
         signal: AbortSignal.timeout(1000),
       });
       const value = await response.json();
-      if (response.ok && value.app === "vizor" && value.version === "0.5.0") {
+      if (
+        response.ok &&
+        value.app === "vizor" &&
+        value.version ===
+          JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version
+      ) {
         ready = true;
         break;
       }

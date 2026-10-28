@@ -1,5 +1,12 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
+  output: process.env.VIZOR_PORTABLE_BUILD === "1" ? "standalone" : undefined,
+  outputFileTracingIncludes: {
+    "/*": [
+      "./node_modules/better-sqlite3/build/Release/*.node",
+      "./node_modules/argon2/prebuilds/**/*",
+    ],
+  },
   poweredByHeader: false,
   serverExternalPackages: ["argon2", "better-sqlite3"],
   async headers() {

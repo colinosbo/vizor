@@ -1,0 +1,59 @@
+name: Build portable releases
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Matching draft release ID
+        required: true
+        type: string
+      commit_sha:
+        description: Exact main-branch commit to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    if: github.ref == 'refs/heads/main'
+    name: Portable ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15-intel, macos-15, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      CHECKPOINT_DISABLE: "1"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.commit_sha }}
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24.22.1"
+      - name: Install and compile on the target system
+        run: |
+          npm ci
+          npm run setup
+          npm run build:portable
+      - name: Verify application and runtime migrations
+        run: |
+          npm run typecheck
+          npm test
+          npm run format:check
+      - name: Package bundled Node and production app
+        run: npm run package:portable
+      - name: Run extracted package with no Node or npm on PATH
+        run: npm run test:portable
+      - name: Upload verified packages to the matching draft release
+        run: node scripts/upload-portable.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VIZOR_RELEASE_ID: ${{ inputs.release_id }}
+          VIZOR_RELEASE_COMMIT: ${{ inputs.commit_sha }}

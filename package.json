@@ -1,13 +1,16 @@
 {
   "name": "vizor",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
+    "build:portable": "node scripts/build-standalone.mjs",
     "start": "next start --hostname 127.0.0.1",
     "launch": "node scripts/launch.mjs",
+    "package:portable": "node scripts/build-portable.mjs",
+    "test:portable": "node scripts/portable-smoke.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",

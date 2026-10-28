@@ -1,63 +1,31 @@
-# Start Vizor
+# Start Vizor — no Node installation needed
 
-Vizor runs on your own computer. You bring your own Claude/Anthropic or OpenAI API key. No account on someone else's Vizor server is needed.
+1. Extract the **whole archive** into a folder you can write to. Do not run it inside the ZIP, Downloads preview, Program Files, a shared folder, or a cloud-synced folder.
+2. **Windows:** double-click **Start Vizor.cmd**. **macOS:** open **Start Vizor.command**. **Linux:** run `./start-vizor.sh` from a terminal.
+3. Your browser opens Vizor at **http://127.0.0.1:3000**. Keep the launcher window open. Press **Ctrl+C** there to stop.
+4. Connect your own Claude or OpenAI API key in the app. API usage is billed by the provider separately from chat subscriptions. Connection tests can incur a small charge. Autopilot is off.
 
-## First time
+Everything needed to run the app, including Node.js, is included. There is no npm install, build, or first-launch download. You need internet only for provider requests after you explicitly connect or chat. Nothing is uploaded to Vizor or GitHub. Use a current browser.
 
-1. Install **Node.js 24 LTS**, including npm, from [nodejs.org](https://nodejs.org/en/download). Choose the **24.x** version. Reopen your terminal or launcher after installing it.
-2. Download the latest **vizor-v0.5.0.zip** from [Releases](https://github.com/colinosbo/vizor/releases/latest), then **extract the entire ZIP** to a folder you can write to. Do not run it from inside the ZIP. Keep it out of a synced/cloud folder when possible.
-3. Start it for your system:
+## Choose the correct download
 
-| System               | Launch                                                                                                     |
-| -------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Windows              | Double-click **Start Vizor.cmd**                                                                           |
-| macOS                | Double-click **Start Vizor.command**, or open Terminal in the extracted folder and run `sh start-vizor.sh` |
-| Linux                | Open a terminal in the extracted folder and run `sh start-vizor.sh`                                        |
-| Any supported system | `npm run launch`                                                                                           |
+- `windows-x64.zip`: Windows 11 on Intel/AMD 64-bit PCs.
+- `macos-arm64.tar.gz`: Apple silicon Macs, macOS 13.5 or later.
+- `macos-x64.tar.gz`: Intel Macs, macOS 13.5 or later.
+- `linux-x64.tar.gz`: Intel/AMD 64-bit Linux, glibc 2.28 or later (for example Ubuntu 22.04+); Alpine is unsupported.
 
-The first launch installs the pinned dependencies, creates your local database and private encryption key, builds the app, and opens your browser. This needs internet and may take several minutes. Later launches reuse the installation and build. You do not need Git, a database server, Docker, or Codex.
+These are unsigned portable packages, not installers. Windows or macOS may show a warning for downloaded software. Only proceed if you trust the release and its checksums. Managed computers may block unsigned apps. On macOS, use your system's normal security approval controls if required. On Linux, if execution permission was lost during extraction, run `chmod +x start-vizor.sh runtime/node`. Other operating systems and processors are not verified.
 
-The release also includes **SHA256SUMS.txt**. You can compare its ZIP hash with `Get-FileHash .\vizor-v0.5.0.zip -Algorithm SHA256` in Windows PowerShell, `shasum -a 256 vizor-v0.5.0.zip` on macOS, or `sha256sum vizor-v0.5.0.zip` on Linux.
+## Keep your information safe
 
-If the browser does not open, visit **http://127.0.0.1:3000**. Keep the launcher window open while using Vizor. Press **Ctrl+C** to stop it. Use the same launcher to start it again.
+Vizor listens only on this computer. Each extracted folder is a separate workspace. Its `.env` contains the permanent encryption key; `data/` contains conversations and encrypted provider keys. Never upload or share these files. Closing the browser does not stop the server; close the launcher or press Ctrl+C.
 
-## Add your keys
+For a backup, stop Vizor and copy **both `.env` and the entire `data/` folder** to a private location. Losing `.env` makes saved API keys unreadable. Do not replace its master key. Store backups securely.
 
-The first page has separate **Claude** and **ChatGPT** cards. Each has key-creation/billing instructions. Enter a key in the masked field and choose **Test connection**. The small inference test can incur an API charge; API billing is separate from Claude Pro or ChatGPT Plus. Keys are encrypted in your own local database and never included in the download.
+## Update an existing workspace
 
-Connect one provider or both. Open **Spending limits** to set your monthly dollar caps, then **Open workspace** to begin. You can configure the orchestrator later. **Autopilot is off**, and proposed messages or agent changes require your approval.
+Stop the old Vizor. Back up its `.env` and `data/` together. Extract the new package into a new folder, copy your `.env` and `data/` into that new folder, then start it. This also works when upgrading from v0.5.0. Keep the old folder until you confirm the upgrade. Database upgrades create a pre-upgrade backup automatically. Do not run two copies against the same database or use an older version against an upgraded database.
 
-## Your data
+If port 3000 is already occupied, stop the other copy or set `APP_ORIGIN="http://127.0.0.1:3001"` in `.env`. If the browser doesn't open automatically, visit that address manually.
 
-Every installation creates its own `.env` encryption key and `data/` folder. Another person's keys, conversations and spending history do not come with the download.
-
-Stop Vizor before backing up **both `.env` and the entire `data/` folder**. Keep backups private. Restoring only the database without its matching `.env` makes saved provider keys unreadable. Some file managers hide `.env`; enable showing hidden files when copying it. Do not replace the encryption key during an upgrade.
-
-## Updating
-
-1. Stop Vizor and back up `.env` and `data/`.
-2. Extract the new download into a **new folder**.
-3. Copy your original `.env` and complete `data/` folder into it. In the new folder, remove the old `data/.vizor-launch.lock` and `data/.vizor-build.json` if present. Do not copy `node_modules` or `.next` from the old installation.
-4. Run the new launcher. It installs the correct dependencies, applies migrations and rebuilds. Keep the old folder/backup until you have checked your data.
-
-To roll back, stop the new version and restore the **old code, database and matching `.env` together**. Opening a migrated database with old code is not a supported rollback.
-
-## If something stops setup
-
-| Message / symptom                                          | Next step                                                                                                                                                         |
-| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node.js is missing or the version is unsupported           | Install Node.js **24 LTS**, reopen the launcher, and try again.                                                                                                   |
-| Port 3000 is already in use                                | Close your other Vizor launcher/app. To use another port, change `APP_ORIGIN` in `.env` to `http://127.0.0.1:3001`; the launcher uses that port automatically.    |
-| Another launcher is running                                | Use its existing window, or close it before restarting. If a crash left a lock, the next launch reclaims it when that process is gone.                            |
-| Missing/invalid MASTER_KEY or existing data without `.env` | Restore the original matching `.env`. The launcher will not silently replace it.                                                                                  |
-| Dependency/build failure                                   | Check internet, disk space and Node.js 24. Then run `node scripts/launch.mjs --repair` from the extracted folder. Repair preserves `.env` and your database.      |
-| Browser did not open / remote Linux machine                | Run `node scripts/launch.mjs --no-open` and open the printed local address yourself. The launcher is for local desktop use, not public hosting.                   |
-| Permission or native-module error                          | Use a writable local folder and the normal Node.js 24 installation for your computer's architecture. Unsupported/older systems may lack native dependency builds. |
-
-macOS may require allowing a downloaded launcher in system security settings or using the documented Terminal command. The download is a source distribution with local setup, not a signed native installer. Supported targets are current Windows, macOS and Linux desktops with Node.js 24; see the release verification notes for what was actually tested.
-
-For a reproducible problem, open an [issue](https://github.com/colinosbo/vizor/issues). Do not attach API keys, `.env`, your database, private conversations or backups. Include your OS, Node.js version and a redacted error message instead.
-
-## Rights
-
-Vizor is **rights reserved**, not open source. The included [LICENSE](LICENSE) permits downloading and running your own local workspace. Redistribution, modification, sublicensing and resale rights are reserved.
+Vizor's code is rights reserved; see LICENSE. Third-party components retain their own licenses in THIRD-PARTY-LICENSES and runtime/LICENSE. Automatic updates, code signing, hosted accounts and autopilot are not included.

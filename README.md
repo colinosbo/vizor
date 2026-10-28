@@ -4,20 +4,22 @@ A local workspace for running Claude and OpenAI conversations side by side, with
 
 ## Download and run
 
-1. Install **Node.js 24 LTS** (24.11+ in the 24.x line, with npm) from [nodejs.org](https://nodejs.org/en/download).
-2. [Download the latest release](https://github.com/colinosbo/vizor/releases/latest) and extract the complete ZIP into a writable local folder.
-3. On **Windows**, double-click **Start Vizor.cmd**. On **macOS**, open **Start Vizor.command**. On **Linux**, run `sh start-vizor.sh` from the extracted folder. `npm run launch` works on all supported systems.
-4. The launcher installs dependencies, creates your private local workspace, builds the app and opens your browser. Enter your own provider key in the app and set your spending limits.
+1. [Download the latest release](https://github.com/colinosbo/vizor/releases/latest). Choose **windows-x64**, **macos-arm64** (Apple silicon), **macos-x64** (Intel), or **linux-x64**.
+2. Extract the **whole archive** into a writable local folder.
+3. On **Windows**, double-click **Start Vizor.cmd**. On **macOS**, open **Start Vizor.command**. On **Linux**, run `./start-vizor.sh`.
+4. Vizor opens in your browser. Enter your own provider key in the app and set your spending limits.
 
-First setup needs internet and can take several minutes; later launches reuse the installation/build. Keep the launcher window open while using Vizor; Ctrl+C stops it. No Git, Docker, database service or Codex installation is required. This is a source download with automatic local setup, not a signed native installer.
+**Node.js is included.** No Node, npm, Git, Docker, database service or Codex installation is required. The app is already compiled and launches without installing or downloading anything. Internet is needed for provider requests after you explicitly connect or chat. Keep the launcher window open; Ctrl+C stops it. Packages are unsigned portable apps, so operating-system security controls may require approval.
 
 See **[START-HERE.md](START-HERE.md)** for the full walkthrough, updates, backups and troubleshooting. Windows, macOS and Linux are the target platforms; [download verification](verification/distribution/REPORT.md) records actual test results.
 
 The default address is **http://127.0.0.1:3000**. If you change the port in `.env`'s `APP_ORIGIN`, the launcher uses the new port. It binds only to `127.0.0.1`, refuses a busy port instead of stopping another app, and prevents concurrent setup from the same folder.
 
-Each first launch creates its own `.env` with a permanent encryption key, local SQLite database, generated Prisma client and migrated schema. No provider key is required to start. Missing/invalid keys in an existing configuration stop setup; existing encryption keys and data are not silently replaced. `--repair` reinstalls dependencies and rebuilds while preserving `.env` and data. There are no background update downloads.
+Each first launch creates its own `.env` with a permanent encryption key and local SQLite database, then applies bundled migrations. No provider key is required to start. Missing/invalid keys in an existing configuration stop setup; existing encryption keys and data are not silently replaced. Existing databases are backed up before pending portable migrations. There are no background update downloads. Keep `.env` and `data/` together when updating or backing up.
 
 ## Developer setup
+
+Developer checkouts and GitHub's automatic **Source code** archives still require **Node.js 24 LTS** (24.11+ in the 24.x line, with npm). Download a named platform package above for the version with Node included. The source launchers run `npm run launch` with automatic local setup; `--repair` reinstalls/rebuilds while preserving data.
 
 ```powershell
 npm ci
@@ -35,6 +37,10 @@ npm start
 Manual start commands use port 3000. The launcher follows `APP_ORIGIN`; use it for a custom local port. The public `/api/health` route returns only the app name, version and readiness marker, with the same host/origin checks and no user data.
 
 For optional **Writing partner** and **Code reviewer** demo configurations, run `npm run db:seed`. This repeatable seed does not overwrite existing agents or create messages or provider keys. Demo configurations make normal provider calls after you connect a key.
+
+### Build a portable release
+
+On the target OS/processor, after setup, run `npm run build:portable`, `npm run package:portable`, then `npm run test:portable`. The package contains Next.js standalone output, Node 24.22.1 verified against the official archive SHA-256, native dependencies, SQL migrations and third-party licenses. Packaging rejects private configuration/database files and scans for the build's master key. Portable verification extracts into a path containing spaces, removes Node/npm from PATH, blocks real outbound requests, and checks first boot, local assets, mocked streaming, key removal, restart persistence and native account registration. The manual **Build portable releases** workflow tests each package before uploading it to a matching draft release; publication remains a separate release step.
 
 ### Upgrade from an earlier stage
 

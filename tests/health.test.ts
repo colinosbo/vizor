@@ -1,6 +1,7 @@
 import { expect, it, afterAll } from "vitest";
 import { GET } from "../src/app/api/health/route";
 import { db } from "../src/lib/server/db";
+import { version } from "../package.json";
 afterAll(async () => {
   await db.$disconnect();
 });
@@ -15,7 +16,7 @@ it("provides a minimal, uncached readiness marker without account or credential 
   expect(await response.json()).toEqual({
     app: "vizor",
     status: "ok",
-    version: "0.5.0",
+    version,
   });
 });
 it("retains the same host and cross-origin protection on readiness requests", async () => {
