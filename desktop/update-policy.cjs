@@ -45,7 +45,8 @@ function verifyManifest(info, bytes, signature, publicKey, current) {
     manifest.size < 1 ||
     !/^[A-Za-z0-9+/]{86}==$/.test(manifest.sha512 || "") ||
     !Array.isArray(info.files) ||
-    info.files.length !== 1
+    info.files.length !== 1 ||
+    info.packages != null
   )
     throw new Error("Update manifest does not match this app");
   const metadata = info.files[0];

@@ -92,6 +92,11 @@ it("rejects an untrusted download URL, hash, size or extra executable", () => {
     (info: typeof f.info) => {
       info.files.push(info.files[0]);
     },
+    (info: typeof f.info) => {
+      Object.assign(info, {
+        packages: { x64: { path: "https://evil.invalid/extra-package.7z" } },
+      });
+    },
   ]) {
     const info = structuredClone(f.info);
     mutate(info);

@@ -46,6 +46,7 @@ class UpdateManager {
     updater.autoInstallOnAppQuit = false;
     updater.allowPrerelease = false;
     updater.allowDowngrade = false;
+    updater.disableWebInstaller = true;
     updater.logger = null;
     // Replace electron-updater's per-install rollout identifier with a shared,
     // non-identifying value. Update checks are not an analytics channel.
