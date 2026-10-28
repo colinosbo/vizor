@@ -1,0 +1,50 @@
+{
+  "contract": "Private daily-use agent workspace: immediate Claude connection, one visible conversation, a narrow sidebar, a central streaming chat, and a collapsible configuration drawer. Quiet graphite, ivory and mint controls with warm Claude accents. Primary actions: connect a key and send a message. Preserve readable controls, visible focus and independent chat scrolling at 1440x900 and 390x844. Local references: user-approved stage-one plan and verification/REPORT.md.",
+  "targetViewports": ["1440x900", "390x844"],
+  "accessibility": {
+    "status": "pass",
+    "evidence": "Axe WCAG A/AA checks passed on desktop/mobile onboarding and desktop empty chat. Labelled controls, keyboard focus visibility, Escape dialog dismissal and reduced-motion rules checked; screenshots inspected. Full assistive technology certification is outside this check."
+  },
+  "responsive": {
+    "status": "pass",
+    "evidence": "Inspected 1440x900 and 390x844 captures. Mobile navigation collapses, conversation composer remains available, settings fit the viewport, and document scrollWidth does not exceed innerWidth."
+  },
+  "contentStates": {
+    "loading": {
+      "status": "pass",
+      "evidence": "Initial workspace loading and provider Test connection pending states display progress. Streaming exposes Stop."
+    },
+    "empty": {
+      "status": "pass",
+      "evidence": "Fresh database displays provider onboarding; a connected empty conversation displays starter prompts and the composer."
+    },
+    "error": {
+      "status": "pass",
+      "evidence": "Invalid-key and provider-outage browser checks display actionable errors; failed replacement keeps the working key."
+    },
+    "partial": {
+      "status": "pass",
+      "evidence": "Stopped generation retains partial text; missing costs remain unavailable and model discovery fallback is labelled."
+    },
+    "success": {
+      "status": "pass",
+      "evidence": "Connection success shows Connected and last four characters; opening the workspace, saving settings and copying/removing keys expose confirmation feedback."
+    },
+    "permission": {
+      "status": "pass",
+      "evidence": "Account-mode browser checks require login, validate failed credentials and return to login on logout. Cross-account integration checks deny access to another user's data."
+    }
+  },
+  "renderedEvidence": [
+    {
+      "viewport": "1440x900",
+      "artifact": "onboarding-desktop.png",
+      "observation": "Readable provider form, persistent local navigation and a numbered setup guide; no external assets."
+    },
+    {
+      "viewport": "390x844",
+      "artifact": "conversation-mobile.png",
+      "observation": "Collapsed navigation, wrapping Markdown/code, visible stopped response and composer; no horizontal page overflow."
+    }
+  ]
+}

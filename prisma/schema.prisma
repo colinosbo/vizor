@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client"
+  output = "../src/generated/prisma"
+}
+datasource db {
+  provider = "sqlite"
+}
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  passwordHash String?
+  createdAt DateTime @default(now())
+  sessions Session[]
+  credentials Credential[]
+  agents Agent[]
+  runs Run[]
+}
+model Session {
+  id String @id
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  @@index([userId])
+}
+model Credential {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider String
+  encrypted String
+  last4 String
+  updatedAt DateTime @updatedAt
+  @@unique([userId, provider])
+}
+model Agent {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name String
+  provider String @default("anthropic")
+  model String
+  systemPrompt String
+  temperature Float @default(0.7)
+  maxTokens Int @default(2048)
+  color String @default("mint")
+  icon String @default("spark")
+  demo Boolean @default(false)
+  createdAt DateTime @default(now())
+  conversation Conversation?
+  @@index([userId])
+}
+model Conversation {
+  id String @id @default(cuid())
+  agentId String @unique
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  activeRunId String?
+  messages Message[]
+  runs Run[]
+}
+model Message {
+  id String @id @default(cuid())
+  conversationId String
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  position Int
+  role String
+  text String
+  status String @default("complete")
+  createdAt DateTime @default(now())
+  @@unique([conversationId, position])
+}
+model Run {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  clientId String
+  assistantId String
+  model String
+  status String @default("running")
+  inputTokens Int?
+  outputTokens Int?
+  cost Float?
+  usageComplete Boolean @default(false)
+  errorCode String?
+  createdAt DateTime @default(now())
+  endedAt DateTime?
+  @@unique([userId, clientId])
+  @@index([userId, conversationId])
+}
+model RateLimit {
+  id String @id
+  count Int @default(1)
+  expiresAt DateTime
+}
