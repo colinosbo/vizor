@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { createRequire } from "node:module";
 if (process.platform !== "win32" || process.arch !== "x64")
   throw new Error("Build the Windows installer on Windows x64.");
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -55,6 +56,48 @@ const installer = join(
   "artifacts/windows-installer",
   `Vizor-Setup-${pkg.version}-x64.exe`,
 );
+const executable = join(dirname(installer), "win-unpacked/Vizor.exe");
+const requireDesktop = createRequire(join(root, "desktop/package.json"));
+const { NtExecutable, NtExecutableResource, Resource } =
+  requireDesktop("resedit");
+const ico = readFileSync(join(root, "desktop/icon.ico"));
+const expectedIcons = Array.from(
+  { length: ico.readUInt16LE(4) },
+  (_, index) => {
+    const at = 6 + index * 16;
+    return ico.subarray(
+      ico.readUInt32LE(at + 12),
+      ico.readUInt32LE(at + 12) + ico.readUInt32LE(at + 8),
+    );
+  },
+);
+for (const file of [executable, installer]) {
+  const resources = NtExecutableResource.from(
+    NtExecutable.from(readFileSync(file)),
+  );
+  const matches = Resource.IconGroupEntry.fromEntries(resources.entries).some(
+    (group) => {
+      const icons = group.getIconItemsFromEntries(resources.entries);
+      return expectedIcons.every((expected) =>
+        icons.some(
+          (icon) => icon.isRaw() && Buffer.from(icon.bin).equals(expected),
+        ),
+      );
+    },
+  );
+  if (!matches)
+    throw new Error(
+      "The compiled Windows application or installer is missing the approved icon.",
+    );
+}
+const packedIcon = requireDesktop("@electron/asar").extractFile(
+  join(dirname(installer), "win-unpacked/resources/app.asar"),
+  "icon.png",
+);
+if (
+  !Buffer.from(packedIcon).equals(readFileSync(join(root, "desktop/icon.png")))
+)
+  throw new Error("The app window does not contain the approved icon.");
 const sha256 = createHash("sha256")
   .update(readFileSync(installer))
   .digest("hex");
@@ -66,7 +109,11 @@ writeFileSync(
       version: pkg.version,
       sourceCommit: manifest.sourceCommit,
       installer,
-      executable: join(dirname(installer), "win-unpacked/Vizor.exe"),
+      executable,
+      iconResourcesVerified: true,
+      iconSourceSHA256: createHash("sha256")
+        .update(readFileSync(join(root, "desktop/clawd-scope.png")))
+        .digest("hex"),
       sha256,
     },
     null,

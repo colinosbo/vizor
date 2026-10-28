@@ -2,7 +2,7 @@
 
 ## Install and open
 
-1. Download **Vizor-Setup-0.7.0-x64.exe** from the [latest release](https://github.com/colinosbo/vizor/releases/latest).
+1. Download **Vizor-Setup-0.7.1-x64.exe** from the [latest release](https://github.com/colinosbo/vizor/releases/latest).
 2. Run it and accept the included license. Vizor installs for your Windows user; you do not need to install Node or run commands.
 3. Open **Vizor** from your desktop or Start menu. It opens in its own app window.
 4. Connect your own Anthropic or OpenAI API key. API usage is billed separately from chat subscriptions; a connection test can incur a small provider charge. Set your spending limits in the app.
