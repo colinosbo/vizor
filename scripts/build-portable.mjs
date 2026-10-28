@@ -109,6 +109,44 @@ cpSync(source, join(bundle, "app"), {
     );
   },
 });
+// Argon2 builds locally on Intel Macs. Tracing dynamic native loaders can omit
+// build/Release, including Next's relocated package copies. Populate every copy.
+const nativePackages = [];
+function includeNativeBinaries(folder) {
+  const metadata = join(folder, "package.json");
+  if (existsSync(metadata)) {
+    const pkg = JSON.parse(readFileSync(metadata, "utf8"));
+    if (["argon2", "better-sqlite3"].includes(pkg.name)) {
+      nativePackages.push(folder);
+      const compiled = join(root, "node_modules", pkg.name, "build/Release");
+      if (existsSync(compiled)) {
+        const destination = join(folder, "build/Release");
+        mkdirSync(destination, { recursive: true });
+        for (const file of readdirSync(compiled).filter((file) =>
+          file.endsWith(".node"),
+        ))
+          cpSync(join(compiled, file), join(destination, file));
+      }
+    }
+  }
+  for (const entry of readdirSync(folder, { withFileTypes: true }))
+    if (entry.isDirectory()) includeNativeBinaries(join(folder, entry.name));
+}
+includeNativeBinaries(join(bundle, "app"));
+const nativeCheck = spawnSync(
+  join(bundle, "runtime", runtimeName),
+  [
+    "--input-type=commonjs",
+    "-e",
+    `const {createRequire}=require('node:module'); const fs=require('node:fs'); for(const folder of process.argv.slice(1)){ const req=createRequire(folder+'/package.json'); const p=JSON.parse(fs.readFileSync(folder+'/package.json')); const loaded=req(folder+'/'+p.main); if(p.name==='better-sqlite3'){const db=new loaded(':memory:');db.close();} }`,
+    ...nativePackages,
+  ],
+  { encoding: "utf8", windowsHide: true },
+);
+if (nativeCheck.status !== 0)
+  throw new Error(
+    "A bundled native dependency failed its runtime load check. No release archive was created.",
+  );
 cpSync(join(root, ".next/static"), join(bundle, "app/.next/static"), {
   recursive: true,
 });

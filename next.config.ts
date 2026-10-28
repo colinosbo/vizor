@@ -5,6 +5,7 @@ const config: NextConfig = {
     "/*": [
       "./node_modules/better-sqlite3/build/Release/*.node",
       "./node_modules/argon2/prebuilds/**/*",
+      "./node_modules/argon2/build/Release/*.node",
     ],
   },
   poweredByHeader: false,
