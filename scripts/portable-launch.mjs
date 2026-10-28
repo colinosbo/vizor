@@ -24,6 +24,8 @@ if (desktop && !isAbsolute(process.env.VIZOR_WORKSPACE ?? ""))
 let child;
 let lock;
 let stopping = false;
+let activityDatabase;
+let activityDatabasePath;
 const system = (name) =>
   join(process.env.SystemRoot ?? "C:\\Windows", "System32", name);
 function stop() {
@@ -46,6 +48,30 @@ process.on("exit", () => lock?.release());
 if (desktop) {
   process.on("message", (message) => {
     if (message?.type === "stop") stop();
+    if (
+      message?.type === "update-activity" &&
+      typeof message.id === "string" &&
+      message.id.length < 100
+    ) {
+      let active = null;
+      if (!stopping && activityDatabase && child && child.exitCode === null) {
+        let check;
+        try {
+          check = new activityDatabase(activityDatabasePath, {
+            readonly: true,
+          });
+          active = check
+            .prepare("SELECT COUNT(*) AS n FROM Run WHERE status = 'running'")
+            .get().n;
+        } catch {
+          /* Unknown activity blocks a requested update restart. */
+        } finally {
+          check?.close();
+        }
+      }
+      if (process.connected)
+        process.send({ type: "update-activity", id: message.id, active });
+    }
   });
   process.on("disconnect", stop);
 }
@@ -72,10 +98,12 @@ try {
   lock = acquireLock(workspace);
   const database = databasePath(workspace, config.DATABASE_URL);
   const requireApp = createRequire(join(root, "app/package.json"));
+  activityDatabase = requireApp("better-sqlite3");
+  activityDatabasePath = database;
   const result = await migrate({
     database,
     migrations: join(root, "migrations"),
-    Database: requireApp("better-sqlite3"),
+    Database: activityDatabase,
   });
   if (process.platform !== "win32") chmodSync(database, 0o600);
   if (result.backup)

@@ -1,7 +1,7 @@
 {
   "name": "vizor-desktop",
   "productName": "Vizor",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "private": true,
   "license": "UNLICENSED",
   "description": "Your private local AI workspace",
@@ -10,5 +10,8 @@
   "devDependencies": {
     "electron": "45.1.0",
     "electron-builder": "26.18.0"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
   }
 }

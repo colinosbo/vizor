@@ -98,6 +98,38 @@ if (
   !Buffer.from(packedIcon).equals(readFileSync(join(root, "desktop/icon.png")))
 )
   throw new Error("The app window does not contain the approved icon.");
+for (const file of [
+  "preload.cjs",
+  "updater.cjs",
+  "update-policy.cjs",
+  "update-source.cjs",
+  "update-key.cjs",
+]) {
+  const packed = requireDesktop("@electron/asar").extractFile(
+    join(dirname(installer), "win-unpacked/resources/app.asar"),
+    file,
+  );
+  if (!Buffer.from(packed).equals(readFileSync(join(root, "desktop", file))))
+    throw new Error(
+      "The packaged update code does not match the production source.",
+    );
+}
+const feed = requireDesktop("js-yaml").load(
+  readFileSync(
+    join(dirname(installer), "win-unpacked/resources/app-update.yml"),
+    "utf8",
+  ),
+);
+if (
+  feed.provider !== "github" ||
+  feed.owner !== "colinosbo" ||
+  feed.repo !== "vizor" ||
+  feed.private !== false ||
+  feed.publisherName
+)
+  throw new Error(
+    "The packaged public update feed is not configured correctly.",
+  );
 const sha256 = createHash("sha256")
   .update(readFileSync(installer))
   .digest("hex");
@@ -111,6 +143,7 @@ writeFileSync(
       installer,
       executable,
       iconResourcesVerified: true,
+      updateResourcesVerified: true,
       iconSourceSHA256: createHash("sha256")
         .update(readFileSync(join(root, "desktop/clawd-scope.png")))
         .digest("hex"),

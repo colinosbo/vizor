@@ -4,11 +4,11 @@ A local workspace for running Claude and OpenAI conversations side by side, with
 
 ## Download and run
 
-**Windows:** download **[Vizor-Setup-0.7.1-x64.exe](https://github.com/colinosbo/vizor/releases/download/v0.7.1/Vizor-Setup-0.7.1-x64.exe)**, run it, then open **Vizor** from your new desktop or Start menu shortcut. It opens in its own window, includes Node, and stops its local server when closed. Updates preserve your workspace outside the installation folder. See the [Windows guide](WINDOWS.md) for setup, backups and moving from the portable version, and the [installer verification report](verification/windows/REPORT.md) for tested boundaries. The installer is unsigned and Windows may show a publisher warning.
+**Windows:** download **[Vizor-Setup-0.8.0-x64.exe](https://github.com/colinosbo/vizor/releases/download/v0.8.0/Vizor-Setup-0.8.0-x64.exe)** once, then open **Vizor** from your desktop or Start menu shortcut. From v0.8.0 onward, installed copies check GitHub for stable releases, authenticate and download updates automatically, then install when the app closes. They never force a restart. **Help → Check for updates** checks immediately; **Help → Automatic updates** controls the saved preference. See the [Windows guide](WINDOWS.md) and [release workflow guide](UPDATE-RELEASES.md). The installer remains unsigned and Windows may show a publisher warning.
+
+The Windows app and installer keep the approved orange Claude character inside a scope. See the [icon update verification](verification/icon-refresh/REPORT.md).
 
 **Portable downloads** remain available for Windows, macOS and Linux:
-
-The v0.7.1 Windows app and installer use the approved orange Claude character inside a scope. See the [icon update verification](verification/icon-refresh/REPORT.md).
 
 1. [Download the latest release](https://github.com/colinosbo/vizor/releases/latest). Choose **windows-x64**, **macos-arm64** (Apple silicon), **macos-x64** (Intel), or **linux-x64**.
 2. Extract the **whole archive** into a writable local folder.
@@ -21,7 +21,7 @@ See **[START-HERE.md](START-HERE.md)** for the full walkthrough, updates, backup
 
 The default address is **http://127.0.0.1:3000**. If you change the port in `.env`'s `APP_ORIGIN`, the launcher uses the new port. It binds only to `127.0.0.1`, refuses a busy port instead of stopping another app, and prevents concurrent setup from the same folder.
 
-Each first launch creates its own `.env` with a permanent encryption key and local SQLite database, then applies bundled migrations. No provider key is required to start. Missing/invalid keys in an existing configuration stop setup; existing encryption keys and data are not silently replaced. Existing databases are backed up before pending portable migrations. There are no background update downloads. Keep `.env` and `data/` together when updating or backing up.
+Each first launch creates its own `.env` with a permanent encryption key and local SQLite database, then applies bundled migrations. No provider key is required to start. Missing/invalid keys in an existing configuration stop setup; existing encryption keys and data are not silently replaced. Existing databases are backed up before pending migrations. Portable/source versions use manual updates; the Windows installed app supports automatic GitHub updates. Keep `.env` and `data/` together when updating or backing up.
 
 ## Developer setup
 
@@ -123,7 +123,7 @@ If earlier usage has no reliable price/complete usage, **Reconcile earlier usage
 - Messages, prompts, summaries, proposals, audit events and templates are ordinary local database text. Direct agent chats send that agent's history to its provider. Orchestrator submissions also send the selected agents' compact context to the orchestrator's chosen provider; the context selector explains this sharing.
 - OpenAI uses the Responses API with `store: false`; no remote conversation resource is created. This does not override the provider's own service retention policies.
 - Vizor cannot execute code, browse websites or contact external tools on a model's behalf. Native tools are limited to read-only summaries and reviewable proposals; mutations require approval. Raw HTML and automatically loaded remote Markdown images remain disabled. Production CSP uses per-request nonces. Development additionally permits the style/evaluation operations required by Next's development server.
-- Runtime connections are limited to the local app and selected Anthropic/OpenAI APIs. Console links open when clicked. No analytics, paid infrastructure, cloud database, remote fonts or background AI calls are installed. Next.js telemetry is disabled in the generated environment.
+- Runtime conversations use the local app and selected Anthropic/OpenAI APIs. The installed Windows app additionally contacts Vizor's GitHub release feed and asset CDN for automatic updates; this can be disabled in Help. It does not send conversations or provider keys with update requests, and replaces the updater's per-install rollout header with a shared non-identifying value. Console links open when clicked. No analytics, paid infrastructure, cloud database, remote fonts or background AI calls are installed. Next.js telemetry is disabled in the generated environment.
 - npm installation downloads dependencies; browser-test setup downloads Chromium. These development operations do not upload conversations or API keys.
 
 Stop the app before backing up **both `.env` and the database**, including any remaining WAL/SHM sidecars. Restore them together. Losing `MASTER_KEY` makes saved provider keys unreadable; restore it or reconnect providers. Protect `.env` and backups with Windows account/file permissions: someone who can read both the database and master key can decrypt the credentials.

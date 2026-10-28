@@ -7,7 +7,17 @@ module.exports = {
   npmRebuild: false,
   buildDependenciesFromSource: false,
   directories: { output: "../artifacts/windows-installer" },
-  files: ["main.cjs", "policy.cjs", "icon.png", "package.json"],
+  files: [
+    "main.cjs",
+    "policy.cjs",
+    "preload.cjs",
+    "updater.cjs",
+    "update-policy.cjs",
+    "update-source.cjs",
+    "update-key.cjs",
+    "icon.png",
+    "package.json",
+  ],
   extraResources: [
     {
       from: process.env.VIZOR_INSTALLER_BUNDLE,
@@ -34,6 +44,7 @@ module.exports = {
     icon: path.join(__dirname, "icon.ico"),
     artifactName: "Vizor-Setup-${version}-x64.exe",
     signExecutable: false,
+    verifyUpdateCodeSignature: false,
   },
   nsis: {
     oneClick: true,
@@ -51,5 +62,11 @@ module.exports = {
     uninstallerIcon: path.join(__dirname, "icon.ico"),
     installerHeaderIcon: path.join(__dirname, "icon.ico"),
   },
-  publish: null,
+  publish: {
+    provider: "github",
+    owner: "colinosbo",
+    repo: "vizor",
+    private: false,
+    releaseType: "release",
+  },
 };

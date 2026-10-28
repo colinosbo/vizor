@@ -1,11 +1,15 @@
 import { readFileSync } from "node:fs";
-import { basename } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 const result = JSON.parse(
   readFileSync("artifacts/windows-result.json", "utf8"),
 );
 const check = JSON.parse(
   readFileSync("artifacts/windows-smoke-result.json", "utf8"),
+);
+const realUpdate = JSON.parse(
+  readFileSync("artifacts/real-update-smoke-result.json", "utf8"),
 );
 const id = process.env.VIZOR_RELEASE_ID;
 if (
@@ -20,12 +24,29 @@ if (
 const digest = createHash("sha256")
   .update(readFileSync(result.installer))
   .digest("hex");
+const requireDesktop = createRequire(
+  join(process.cwd(), "desktop/package.json"),
+);
+const updateInfo = requireDesktop("js-yaml").load(
+  readFileSync(join(dirname(result.installer), "latest.yml"), "utf8"),
+);
+requireDesktop("./update-policy.cjs").verifyManifest(
+  updateInfo,
+  readFileSync(join(dirname(result.installer), "vizor-update.json")),
+  readFileSync(join(dirname(result.installer), "vizor-update.sig"), "utf8"),
+  requireDesktop("./update-key.cjs"),
+  "0.0.0",
+);
 if (
   !check.passed ||
   !check.install ||
   !check.desktopShortcut ||
   !check.upgradePersistence ||
   !check.uninstallPreservesData ||
+  !realUpdate.passed ||
+  !realUpdate.installOnNormalQuit ||
+  !realUpdate.dataPreserved ||
+  realUpdate.sourceCommit !== result.sourceCommit ||
   check.installerSHA256 !== digest ||
   result.sourceCommit !== process.env.VIZOR_RELEASE_COMMIT
 )
@@ -52,7 +73,14 @@ if (
   throw new Error(
     "Uploads require the matching draft release and source commit.",
   );
-for (const file of [result.installer, `${result.installer}.sha256`]) {
+for (const file of [
+  result.installer,
+  `${result.installer}.sha256`,
+  `${result.installer}.blockmap`,
+  ...["latest.yml", "vizor-update.json", "vizor-update.sig"].map((name) =>
+    join(dirname(result.installer), name),
+  ),
+]) {
   const name = basename(file);
   const upload = await fetch(
     `https://uploads.github.com/repos/colinosbo/vizor/releases/${id}/assets?name=${encodeURIComponent(name)}`,

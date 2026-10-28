@@ -49,6 +49,12 @@ jobs:
           npm run package:windows
       - name: Install, launch, upgrade and uninstall the actual package
         run: npm run test:windows
+      - name: Verify a real two-version automatic update
+        run: npm run test:updates
+      - name: Authenticate the tested release for automatic updates
+        run: npm run release:sign-update
+        env:
+          VIZOR_UPDATE_SIGNING_KEY: ${{ secrets.VIZOR_UPDATE_SIGNING_KEY }}
       - name: Upload verified installer to the matching draft release
         run: node scripts/upload-windows.mjs
         env:

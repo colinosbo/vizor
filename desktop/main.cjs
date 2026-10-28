@@ -6,8 +6,10 @@ const {
   shell,
   session,
   nativeTheme,
+  ipcMain,
 } = require("electron");
-const { spawn } = require("node:child_process");
+const { spawn, spawnSync } = require("node:child_process");
+const { randomUUID } = require("node:crypto");
 const { createServer } = require("node:net");
 const { mkdirSync } = require("node:fs");
 const { join } = require("node:path");
@@ -35,6 +37,50 @@ let origin;
 let quitting = false;
 let stopped = false;
 let failed = false;
+let updates;
+let stoppingBackend;
+const activityRequests = new Map();
+function stopBackend() {
+  if (stoppingBackend) return stoppingBackend;
+  if (!launcher || launcher.exitCode !== null) {
+    stopped = true;
+    return Promise.resolve();
+  }
+  stoppingBackend = new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      spawnSync(
+        join(process.env.SystemRoot || "C:\\Windows", "System32/taskkill.exe"),
+        ["/pid", String(launcher.pid), "/T", "/F"],
+        { windowsHide: true, stdio: "ignore" },
+      );
+    }, 8000);
+    timer.unref();
+    launcher.once("exit", () => {
+      clearTimeout(timer);
+      stopped = true;
+      resolve();
+    });
+    if (launcher.connected) launcher.send({ type: "stop" });
+    else launcher.kill();
+  });
+  return stoppingBackend;
+}
+function activity() {
+  if (!launcher?.connected || stopped || quitting) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const id = randomUUID();
+    const timer = setTimeout(() => {
+      activityRequests.delete(id);
+      resolve(null);
+    }, 2500);
+    timer.unref();
+    activityRequests.set(id, (active) => {
+      clearTimeout(timer);
+      resolve(active);
+    });
+    launcher.send({ type: "update-activity", id });
+  });
+}
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -52,13 +98,7 @@ if (!app.requestSingleInstanceLock()) {
     if (quitting) return;
     quitting = true;
     window?.hide();
-    if (launcher.connected) launcher.send({ type: "stop" });
-    const timer = setTimeout(() => {
-      launcher.kill();
-      stopped = true;
-      app.quit();
-    }, 8000);
-    timer.unref();
+    void stopBackend().then(() => app.quit());
   });
   app
     .whenReady()
@@ -96,6 +136,56 @@ async function start() {
   if (!resources) return fail();
   const port = await freePort();
   origin = `http://127.0.0.1:${port}`;
+  // Public update requests never inherit a developer or CI GitHub credential.
+  delete process.env.GH_TOKEN;
+  delete process.env.GITHUB_TOKEN;
+  const { NsisUpdater, CancellationToken } = require("electron-updater");
+  const { UpdateManager } = require("./updater.cjs");
+  const updateSource = require("./update-source.cjs");
+  const updater = new NsisUpdater(updateSource.feed);
+  updates = new UpdateManager({
+    updater,
+    source: updateSource,
+    currentVersion: app.getVersion(),
+    home: paths.shell,
+    publish: (state) => {
+      const item = Menu.getApplicationMenu()?.getMenuItemById(
+        "vizor-automatic-updates",
+      );
+      if (item) item.checked = state.automatic;
+      if (window && !window.isDestroyed())
+        window.webContents.send("vizor:update-state", state);
+    },
+    activity,
+    stopBackend,
+    makeToken: () => new CancellationToken(),
+    disabled: !app.isPackaged || process.env.VIZOR_DISABLE_UPDATES === "1",
+  });
+  function trusted(event) {
+    if (
+      !window ||
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      !localNavigation(event.senderFrame.url, origin)
+    )
+      throw new Error("Untrusted desktop request");
+  }
+  ipcMain.handle("vizor:update-state", (event) => {
+    trusted(event);
+    return updates.snapshot();
+  });
+  ipcMain.handle("vizor:update-check", (event) => {
+    trusted(event);
+    return updates.check();
+  });
+  ipcMain.handle("vizor:update-automatic", (event, enabled) => {
+    trusted(event);
+    return updates.automatic(enabled);
+  });
+  ipcMain.handle("vizor:update-restart", (event) => {
+    trusted(event);
+    return updates.restart();
+  });
   const ses = session.defaultSession;
   ses.setPermissionRequestHandler((contents, permission, callback) =>
     callback(
@@ -164,6 +254,25 @@ async function start() {
       {
         label: "Help",
         submenu: [
+          { label: "Check for updates", click: () => void updates.check() },
+          {
+            label: "Automatic updates",
+            id: "vizor-automatic-updates",
+            type: "checkbox",
+            checked: updates.snapshot().automatic,
+            click: (item) => {
+              void updates
+                .automatic(item.checked)
+                .catch(() =>
+                  dialog.showErrorBox(
+                    "Update preference",
+                    "The update preference couldn't be saved. Please try again.",
+                  ),
+                );
+            },
+          },
+          { label: "Restart to update", click: () => void updates.restart() },
+          { type: "separator" },
           {
             label: "Vizor guide",
             click: () =>
@@ -185,6 +294,7 @@ async function start() {
     show: false,
     icon: join(__dirname, "icon.png"),
     webPreferences: {
+      preload: join(__dirname, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -251,9 +361,22 @@ async function start() {
     clearTimeout(timeout);
     stopped = true;
     if (quitting) app.quit();
-    else fail();
+    else if (!updates?.installing) fail();
   });
   launcher.on("message", (message) => {
+    if (
+      message?.type === "update-activity" &&
+      activityRequests.has(message.id)
+    ) {
+      const done = activityRequests.get(message.id);
+      activityRequests.delete(message.id);
+      done(
+        Number.isSafeInteger(message.active) && message.active >= 0
+          ? message.active
+          : null,
+      );
+      return;
+    }
     if (message?.type !== "ready" || message.origin !== origin || quitting)
       return;
     clearTimeout(timeout);
@@ -262,6 +385,7 @@ async function start() {
       .then(() => {
         window.show();
         window.focus();
+        updates.start();
       })
       .catch(() => fail());
   });

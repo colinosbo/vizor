@@ -1,5 +1,7 @@
 # Start Vizor — no Node installation needed
 
+This guide covers the portable archives. For the Windows desktop installer, shortcuts and automatic updates, use the [Windows app guide](WINDOWS.md).
+
 1. Extract the **whole archive** into a folder you can write to. Do not run it inside the ZIP, Downloads preview, Program Files, a shared folder, or a cloud-synced folder.
 2. **Windows:** double-click **Start Vizor.cmd**. **macOS:** open **Start Vizor.command**. **Linux:** run `./start-vizor.sh` from a terminal.
 3. Your browser opens Vizor at **http://127.0.0.1:3000**. Keep the launcher window open. Press **Ctrl+C** there to stop.

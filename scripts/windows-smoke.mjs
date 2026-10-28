@@ -61,6 +61,7 @@ const environment = {
   ...process.env,
   PATH: emptyPath,
   VIZOR_DESKTOP_DATA_DIR: home,
+  VIZOR_DISABLE_UPDATES: "1",
 };
 for (const key of [
   "MASTER_KEY",
@@ -162,6 +163,20 @@ async function open() {
   assert.equal(
     await page.evaluate(() => typeof window.electronAPI),
     "undefined",
+  );
+  assert.deepEqual(
+    await page.evaluate(() => Object.keys(window.vizorDesktop).sort()),
+    [
+      "checkForUpdates",
+      "getUpdateState",
+      "onUpdateState",
+      "restartToUpdate",
+      "setAutomaticUpdates",
+    ],
+  );
+  assert.equal(
+    (await page.evaluate(() => window.vizorDesktop.getUpdateState())).state,
+    "disabled",
   );
   const state = await (await fetch(`${origin}/api/workspace`)).json();
   assert.equal(state.autopilot, false);

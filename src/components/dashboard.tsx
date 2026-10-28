@@ -33,6 +33,7 @@ import { OrchestratorPanel } from "./orchestrator-panel";
 import { ProposalQueue } from "./proposal-queue";
 import { SpendingView } from "./spending-view";
 import { AuditHistory } from "./audit-view";
+import { DesktopUpdates } from "./desktop-updates";
 export default function Dashboard() {
   const workspace = useWorkspace();
   const {
@@ -394,6 +395,7 @@ export default function Dashboard() {
             </span>
           </div>
         </header>
+        <DesktopUpdates />
         {!!data?.budgets.some((budget) => budget.warning) && (
           <div className="budget-banner" role="status">
             <ShieldCheck size={15} />
