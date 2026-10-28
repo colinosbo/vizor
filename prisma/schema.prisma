@@ -14,6 +14,8 @@ model User {
   credentials Credential[]
   agents Agent[]
   runs Run[]
+  templates AgentTemplate[]
+  workspaceLayout String @default("{}")
 }
 model Session {
   id String @id
@@ -45,6 +47,8 @@ model Agent {
   color String @default("mint")
   icon String @default("spark")
   demo Boolean @default(false)
+  paused Boolean @default(false)
+  archived Boolean @default(false)
   createdAt DateTime @default(now())
   conversation Conversation?
   @@index([userId])
@@ -77,6 +81,7 @@ model Run {
   clientId String
   assistantId String
   model String
+  provider String @default("anthropic")
   status String @default("running")
   inputTokens Int?
   outputTokens Int?
@@ -92,4 +97,13 @@ model RateLimit {
   id String @id
   count Int @default(1)
   expiresAt DateTime
+}
+model AgentTemplate {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name String
+  config String
+  createdAt DateTime @default(now())
+  @@index([userId])
 }

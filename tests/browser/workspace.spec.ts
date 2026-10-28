@@ -21,13 +21,19 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     await page
       .getByLabel("Your Anthropic API key")
       .fill("sk-ant-invalid-fixture-key");
-    await page.getByRole("button", { name: "Test connection" }).click();
+    await page
+      .locator('[data-provider="anthropic"]')
+      .getByRole("button", { name: "Test connection" })
+      .click();
     await expect(page.locator(".error-banner")).toContainText("authenticate");
     await expect(page.getByLabel("Your Anthropic API key")).toHaveValue("");
     await page
       .getByLabel("Your Anthropic API key")
       .fill("sk-ant-fixture-valid-1234");
-    await page.getByRole("button", { name: "Test connection" }).click();
+    await page
+      .locator('[data-provider="anthropic"]')
+      .getByRole("button", { name: "Test connection" })
+      .click();
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     await expect(page.getByText("•••• •••• •••• 1234")).toBeVisible();
     await page.getByRole("button", { name: "Open workspace" }).click();
@@ -133,7 +139,10 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     await page
       .getByLabel("New Anthropic API key")
       .fill("sk-ant-invalid-replacement");
-    await page.getByRole("button", { name: "Test connection" }).click();
+    await page
+      .locator('[data-provider="anthropic"]')
+      .getByRole("button", { name: "Test connection" })
+      .click();
     await expect(page.locator(".error-banner")).toContainText("authenticate");
     await page.getByRole("button", { name: "Cancel replacement" }).click();
     await expect(page.getByText("•••• •••• •••• 1234")).toBeVisible();
@@ -141,7 +150,10 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     await page
       .getByLabel("New Anthropic API key")
       .fill("sk-ant-fixture-replaced-5678");
-    await page.getByRole("button", { name: "Test connection" }).click();
+    await page
+      .locator('[data-provider="anthropic"]')
+      .getByRole("button", { name: "Test connection" })
+      .click();
     await expect(page.getByText("•••• •••• •••• 5678")).toBeVisible();
     await page.getByRole("button", { name: "Remove key", exact: true }).click();
     await page
@@ -159,10 +171,14 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     page,
   }) => {
     await page.goto("/");
+    await page.getByRole("button", { name: "API keys", exact: true }).click();
     await page
       .getByLabel("Your Anthropic API key")
       .fill("sk-ant-fixture-valid-1234");
-    await page.getByRole("button", { name: "Test connection" }).click();
+    await page
+      .locator('[data-provider="anthropic"]')
+      .getByRole("button", { name: "Test connection" })
+      .click();
     await page.getByRole("button", { name: "Open workspace" }).click();
     await page
       .getByLabel("Message Project partner", { exact: true })
@@ -170,7 +186,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     await page
       .getByLabel("Message Project partner", { exact: true })
       .press("Enter");
-    await expect(page.locator(".error-banner")).toContainText(
+    await expect(page.locator(".panel-error")).toContainText(
       "temporarily unavailable",
     );
     await expect(
@@ -185,7 +201,10 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     await page
       .getByLabel("New Anthropic API key")
       .fill("sk-ant-fixture-valid-1234");
-    await page.getByRole("button", { name: "Test connection" }).click();
+    await page
+      .locator('[data-provider="anthropic"]')
+      .getByRole("button", { name: "Test connection" })
+      .click();
     await page.getByRole("button", { name: "Open workspace" }).click();
     await page.route("**/api/providers/anthropic/models", (route) =>
       route.fulfill({

@@ -1,17 +1,70 @@
 import { z } from "zod";
 import { AppError } from "./errors";
+import { getProvider } from "../providers";
 export const agentSchema = z
   .object({
     name: z.string().trim().min(1).max(70),
+    provider: z.string().max(40).default("anthropic"),
     model: z
       .string()
-      .regex(/^claude-[a-zA-Z0-9.-]+$/)
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9.:-]*$/)
       .max(150),
     systemPrompt: z.string().max(16000),
     temperature: z.number().min(0).max(1),
     maxTokens: z.number().int().min(64).max(8192),
     color: z.enum(["mint", "amber", "blue", "rose"]),
     icon: z.enum(["spark", "code", "pen", "search"]),
+  })
+  .strict()
+  .superRefine((config, ctx) => {
+    try {
+      if (!getProvider(config.provider).acceptsModel(config.model))
+        ctx.addIssue({
+          code: "custom",
+          message: "Model does not belong to this provider",
+          path: ["model"],
+        });
+    } catch {
+      ctx.addIssue({
+        code: "custom",
+        message: "Unknown provider",
+        path: ["provider"],
+      });
+    }
+  });
+const ids = z
+  .array(z.string().min(1).max(100))
+  .max(1000)
+  .refine(
+    (value) => new Set(value).size === value.length,
+    "Repeated agent IDs",
+  );
+const panel = z
+  .object({
+    i: z.string().min(1).max(100),
+    x: z.number().int().min(0).max(11),
+    y: z.number().int().min(0).max(10000),
+    w: z.number().int().min(1).max(12),
+    h: z.number().int().min(2).max(40),
+  })
+  .strict()
+  .refine((value) => value.x + value.w <= 12, "Panel exceeds grid");
+export const layoutSchema = z
+  .object({
+    mode: z.enum(["1", "2", "4", "6", "tabs"]),
+    activeId: z.string().min(1).max(100).nullable(),
+    order: ids,
+    pinned: ids,
+    collapsed: ids,
+    layouts: z.record(
+      z.string().regex(/^(1|2|4|6|tabs)$/),
+      z
+        .array(panel)
+        .max(1000)
+        .refine(
+          (items) => new Set(items.map((item) => item.i)).size === items.length,
+        ),
+    ),
   })
   .strict();
 export const messageSchema = z

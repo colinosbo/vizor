@@ -120,6 +120,17 @@ export async function* frames(
 export const anthropic: Provider = {
   id: "anthropic",
   label: "Claude",
+  company: "Anthropic",
+  keyPrefix: "sk-ant-",
+  consoleUrl: "https://console.anthropic.com/",
+  keyInstructions: [
+    "Sign in at console.anthropic.com.",
+    "Go to API Keys → Create Key. Copy the key starting with sk-ant-.",
+    "Set up billing or credits under Plans & Billing.",
+  ],
+  subscription: "Claude Pro",
+  defaultModel: "claude-sonnet-4-6",
+  acceptsModel: (model) => /^claude-[a-zA-Z0-9.-]+$/.test(model),
   fallbackModels: [
     { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", temperature: false },
     {

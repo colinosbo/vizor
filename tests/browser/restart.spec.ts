@@ -10,12 +10,12 @@ test("real server restart preserves history and keys and recovers an interrupted
   const dbPath = `data/restart-${process.pid}.db`;
   const database = new Database(dbPath);
   database.pragma("journal_mode=WAL");
-  const migration = readdirSync("prisma/migrations").find((name) =>
-    name.endsWith("_init"),
-  )!;
-  database.exec(
-    readFileSync(`prisma/migrations/${migration}/migration.sql`, "utf8"),
-  );
+  for (const migration of readdirSync("prisma/migrations")
+    .filter((name) => /^\d/.test(name))
+    .sort())
+    database.exec(
+      readFileSync(`prisma/migrations/${migration}/migration.sql`, "utf8"),
+    );
   database.close();
   const env = {
     ...process.env,
@@ -68,7 +68,10 @@ test("real server restart preserves history and keys and recovers an interrupted
     await page
       .getByLabel("Your Anthropic API key")
       .fill("sk-ant-restart-fixture-1234");
-    await page.getByRole("button", { name: "Test connection" }).click();
+    await page
+      .locator('[data-provider="anthropic"]')
+      .getByRole("button", { name: "Test connection" })
+      .click();
     await page.getByRole("button", { name: "Open workspace" }).click();
     await page
       .getByLabel("Message My assistant", { exact: true })
@@ -77,6 +80,13 @@ test("real server restart preserves history and keys and recovers an interrupted
     await expect(
       page.getByRole("button", { name: "Regenerate response" }),
     ).toBeVisible();
+    await page
+      .getByRole("button", { name: "2-up layout", exact: true })
+      .click();
+    await page
+      .getByRole("button", { name: "Pin My assistant", exact: true })
+      .click();
+    await expect(page.getByText("Layout saved", { exact: true })).toBeVisible();
     await page
       .getByLabel("Message My assistant", { exact: true })
       .fill("[long] Crash recovery check");
@@ -100,6 +110,12 @@ test("real server restart preserves history and keys and recovers an interrupted
     await kill();
     await start();
     await page.reload();
+    await expect(
+      page.getByRole("button", { name: "2-up layout", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await expect(
+      page.getByRole("button", { name: "Unpin My assistant", exact: true }),
+    ).toBeVisible();
     await expect(page.getByRole("log")).toContainText("Saved before restart");
     await expect(page.getByRole("log")).toContainText(
       "This is a partial response",

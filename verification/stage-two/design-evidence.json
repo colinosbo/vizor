@@ -1,0 +1,50 @@
+{
+  "contract": "Stage two extends the approved graphite/mint workspace into independent agent panels. Primary job: direct and observe concurrent Claude/OpenAI conversations. Primary actions: create an agent, send to each provider, change layout, drag/resize, pin/collapse, and reuse role templates. Keep the existing sidebar and provider-key boundary. Fit default four-up panels to desktop space, retain composers, stack grids on narrow screens and provide keyboard equivalents for layout controls. Local reference: approved stage-one interface and user request to implement stage two.",
+  "targetViewports": ["1440x900", "390x844"],
+  "accessibility": {
+    "status": "pass",
+    "evidence": "Axe A/AA checks passed on provider onboarding, empty chat and two active panels. Keyboard focus, Escape, arrow-key resize, labelled per-agent controls and reduced-motion support checked. Not a complete assistive-technology certification."
+  },
+  "responsive": {
+    "status": "pass",
+    "evidence": "Inspected desktop concurrent/four-agent screenshots and mobile tab/grid screenshots. The default desktop grid fits its composers, narrow grids stack, and browser checks confirm document width never exceeds the viewport."
+  },
+  "contentStates": {
+    "loading": {
+      "status": "pass",
+      "evidence": "Provider tests show Testing connection, streams show Thinking/Stop, and layout changes show Saving until the server acknowledges them."
+    },
+    "empty": {
+      "status": "pass",
+      "evidence": "Disconnected providers offer setup; empty agents offer a composer; empty templates and archive explain their next action."
+    },
+    "error": {
+      "status": "pass",
+      "evidence": "Invalid keys preserve existing credentials, provider errors appear inside the affected panel, and labelled model fallbacks remain usable."
+    },
+    "partial": {
+      "status": "pass",
+      "evidence": "Stopped streams retain partial responses; another provider continues independently. Missing usage/costs stay labelled unavailable or partial."
+    },
+    "success": {
+      "status": "pass",
+      "evidence": "Connected cards show only last four key characters; created/saved/archived/restored agent actions and completed layout saves provide feedback."
+    },
+    "permission": {
+      "status": "pass",
+      "evidence": "Account login/logout is covered in the browser. Backend tests deny foreign layouts, agents, templates and runs, and stop a revoked event subscription before publishing further user data."
+    }
+  },
+  "renderedEvidence": [
+    {
+      "viewport": "1440x900",
+      "artifact": "four-agent-desktop.png",
+      "observation": "Four independent panels retain readable headers and composers, with per-agent icons and live usage/status, and the existing navigation."
+    },
+    {
+      "viewport": "390x844",
+      "artifact": "tabs-mobile.png",
+      "observation": "Horizontal tabs select one conversation, the mobile navigation collapses, text wraps and the composer stays inside the viewport."
+    }
+  ]
+}

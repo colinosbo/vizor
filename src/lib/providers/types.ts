@@ -19,6 +19,13 @@ export type StreamEvent =
 export interface Provider {
   id: string;
   label: string;
+  company: string;
+  keyPrefix: string;
+  consoleUrl: string;
+  keyInstructions: string[];
+  subscription: string;
+  defaultModel: string;
+  acceptsModel(model: string): boolean;
   fallbackModels: ProviderModel[];
   listModels(key: string, signal?: AbortSignal): Promise<ProviderModel[]>;
   validateKey(key: string, signal?: AbortSignal): Promise<void>;

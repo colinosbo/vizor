@@ -1,10 +1,13 @@
 // Loaded ONLY by the isolated test server via --require. Never imported by the app.
 const original = globalThis.fetch;
 globalThis.fetch = async (url, options = {}) => {
-  if (!String(url).startsWith("https://api.anthropic.com/v1/"))
+  const isOpenAI = String(url).startsWith("https://api.openai.com/v1/");
+  if (!isOpenAI && !String(url).startsWith("https://api.anthropic.com/v1/"))
     return original(url, options);
   options.signal?.throwIfAborted();
-  const key = new Headers(options.headers).get("x-api-key");
+  const key = new Headers(options.headers).get(
+    isOpenAI ? "authorization" : "x-api-key",
+  );
   if (key?.includes("invalid"))
     return Response.json(
       { error: { type: "authentication_error", message: "Invalid key" } },
@@ -21,6 +24,14 @@ globalThis.fetch = async (url, options = {}) => {
       { status: 400 },
     );
   if (String(url).includes("/models")) {
+    if (isOpenAI)
+      return Response.json({
+        data: [
+          { id: "gpt-4.1-mini" },
+          { id: "gpt-4.1" },
+          { id: "text-embedding-3-large" },
+        ],
+      });
     if (key?.includes("fallback"))
       return Response.json(
         { error: { type: "overloaded_error" } },
@@ -35,6 +46,65 @@ globalThis.fetch = async (url, options = {}) => {
     });
   }
   const body = JSON.parse(options.body);
+  if (isOpenAI) {
+    const last = body.input.at(-1)?.content ?? "";
+    if (!body.stream)
+      return Response.json({
+        status: "completed",
+        output: [
+          { type: "message", content: [{ type: "output_text", text: "OK" }] },
+        ],
+        usage: { input_tokens: 10, output_tokens: 1 },
+      });
+    const text = last.includes("[long]")
+      ? "OpenAI is streaming independently. ".repeat(35)
+      : `An OpenAI response to: ${last}`;
+    const encoder = new TextEncoder();
+    let stopped = false;
+    let timer;
+    return new Response(
+      new ReadableStream({
+        start(controller) {
+          let at = 0;
+          timer = setInterval(
+            () => {
+              if (options.signal?.aborted) {
+                clearInterval(timer);
+                if (!stopped) {
+                  stopped = true;
+                  controller.error(new DOMException("Aborted", "AbortError"));
+                }
+                return;
+              }
+              if (at < text.length) {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "response.output_text.delta", delta: text.slice(at, at + 15) })}\n\n`,
+                  ),
+                );
+                at += 15;
+              } else {
+                controller.enqueue(
+                  encoder.encode(
+                    `data: ${JSON.stringify({ type: "response.completed", response: { usage: { input_tokens: 35, output_tokens: 15 } } })}\n\n`,
+                  ),
+                );
+                clearInterval(timer);
+                stopped = true;
+                controller.close();
+              }
+            },
+            last.includes("[long]") ? 100 : 25,
+          );
+        },
+        cancel() {
+          stopped = true;
+          clearInterval(timer);
+        },
+      }),
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+  }
   if (!body.stream)
     return Response.json({
       content: [{ type: "text", text: "OK" }],

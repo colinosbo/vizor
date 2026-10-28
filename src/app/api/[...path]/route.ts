@@ -9,11 +9,23 @@ import {
   logout,
 } from "@/lib/server/security";
 import { AppError, safeError } from "@/lib/server/errors";
-import { readJson, agentSchema, messageSchema } from "@/lib/server/validation";
+import {
+  readJson,
+  agentSchema,
+  messageSchema,
+  layoutSchema,
+} from "@/lib/server/validation";
 import { workspace, defaultAgent, ownedAgent } from "@/lib/server/store";
 import { encryptKey, decryptKey } from "@/lib/server/crypto";
 import { getProvider } from "@/lib/providers";
 import { recoverRuns, startChat, stopOwner, stopRun } from "@/lib/server/chat";
+import { publish, eventStream } from "@/lib/server/events";
+import {
+  createAgent,
+  editAgent,
+  agentAction,
+  saveLayout,
+} from "@/lib/server/agents";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 async function handle(
@@ -55,6 +67,13 @@ async function handle(
       );
     }
     if (route === "auth/logout" && method === "POST") {
+      try {
+        const user = await owner(request);
+        stopOwner(user.id);
+        publish(user.id);
+      } catch {
+        /* Expired sessions can still clear their cookie. */
+      }
       await logout(request);
       return Response.json(
         { ok: true },
@@ -65,47 +84,85 @@ async function handle(
     await rateLimit(`requests:${user.id}`, 180);
     if (route === "workspace" && method === "GET")
       return Response.json(await workspace(user));
-    if (route === "providers/anthropic" && method === "POST") {
+    if (route === "events" && method === "GET") {
+      return eventStream(
+        user.id,
+        async () => {
+          try {
+            return (await owner(request)).id === user.id;
+          } catch {
+            return false;
+          }
+        },
+        request.signal,
+      );
+    }
+    if (route === "layout" && method === "PATCH") {
+      await saveLayout(user.id, await readJson(request, layoutSchema));
+      return Response.json({ ok: true });
+    }
+    if (path[0] === "providers" && path.length === 2 && method === "POST") {
+      const provider = getProvider(path[1]);
       await rateLimit(`connection:${user.id}`, 5);
       const input = await readJson(
         request,
         z
           .object({
-            key: z.string().trim().startsWith("sk-ant-").min(16).max(512),
+            key: z
+              .string()
+              .trim()
+              .startsWith(provider.keyPrefix)
+              .min(16)
+              .max(512)
+              .refine(
+                (value) =>
+                  provider.id !== "openai" || !value.startsWith("sk-ant-"),
+              ),
           })
           .strict(),
       );
-      const encrypted = encryptKey(input.key, user.id, "anthropic");
-      await getProvider("anthropic").validateKey(input.key, request.signal);
-      stopOwner(user.id);
+      const encrypted = encryptKey(input.key, user.id, provider.id);
+      await provider.validateKey(input.key, request.signal);
+      stopOwner(user.id, provider.id);
       await db.credential.upsert({
-        where: { userId_provider: { userId: user.id, provider: "anthropic" } },
+        where: { userId_provider: { userId: user.id, provider: provider.id } },
         create: {
           userId: user.id,
-          provider: "anthropic",
+          provider: provider.id,
           encrypted,
           last4: input.key.slice(-4),
         },
         update: { encrypted, last4: input.key.slice(-4) },
       });
+      publish(user.id);
       return Response.json({ connected: true, last4: input.key.slice(-4) });
     }
-    if (route === "providers/anthropic" && method === "DELETE") {
+    if (path[0] === "providers" && path.length === 2 && method === "DELETE") {
+      const provider = getProvider(path[1]);
       await db.credential.deleteMany({
-        where: { userId: user.id, provider: "anthropic" },
+        where: { userId: user.id, provider: provider.id },
       });
-      stopOwner(user.id);
+      stopOwner(user.id, provider.id);
+      publish(user.id);
       return Response.json({ connected: false, last4: null });
     }
-    if (route === "providers/anthropic/models" && method === "GET") {
+    if (
+      path[0] === "providers" &&
+      path[2] === "models" &&
+      path.length === 3 &&
+      method === "GET"
+    ) {
+      const provider = getProvider(path[1]);
       await rateLimit(`models:${user.id}`, 12);
       const key = await db.credential.findUnique({
-        where: { userId_provider: { userId: user.id, provider: "anthropic" } },
+        where: { userId_provider: { userId: user.id, provider: provider.id } },
       });
       if (!key)
-        throw new AppError("provider_required", "Connect Claude first.");
-      const value = decryptKey(key.encrypted, user.id, "anthropic");
-      const provider = getProvider("anthropic");
+        throw new AppError(
+          "provider_required",
+          `Connect ${provider.label} first.`,
+        );
+      const value = decryptKey(key.encrypted, user.id, provider.id);
       try {
         return Response.json({
           models: await provider.listModels(value, request.signal),
@@ -122,25 +179,72 @@ async function handle(
     }
     if (route === "agents" && method === "POST") {
       const input = await readJson(request, agentSchema);
-      const agent = await db.agent.create({
-        data: { userId: user.id, ...input, conversation: { create: {} } },
-        select: { id: true },
-      });
+      const agent = await createAgent(user.id, input);
       return Response.json(agent, { status: 201 });
     }
     if (path[0] === "agents" && path.length === 2 && method === "PATCH") {
       const input = await readJson(request, agentSchema);
-      const agent = await ownedAgent(user.id, path[1]);
-      if (agent.conversation?.activeRunId)
-        throw new AppError(
-          "busy",
-          "Stop the current response before changing agent settings.",
-          409,
-        );
-      await db.agent.updateMany({
-        where: { id: path[1], userId: user.id },
-        data: input,
+      await editAgent(user.id, path[1], input);
+      return Response.json({ ok: true });
+    }
+    if (
+      path[0] === "agents" &&
+      path.length === 3 &&
+      ["duplicate", "archive", "restore", "pause", "resume"].includes(
+        path[2],
+      ) &&
+      method === "POST"
+    ) {
+      return Response.json(
+        await agentAction(
+          user.id,
+          path[1],
+          path[2] as "duplicate" | "archive" | "restore" | "pause" | "resume",
+        ),
+      );
+    }
+    if (route === "templates" && method === "POST") {
+      const input = await readJson(
+        request,
+        z
+          .object({
+            name: z.string().trim().min(1).max(70),
+            agentId: z.string().min(1).max(100),
+            config: agentSchema.optional(),
+          })
+          .strict(),
+      );
+      const agent = await ownedAgent(user.id, input.agentId);
+      const config = agentSchema.parse(
+        input.config ?? {
+          name: agent.name,
+          provider: agent.provider,
+          model: agent.model,
+          systemPrompt: agent.systemPrompt,
+          temperature: agent.temperature,
+          maxTokens: agent.maxTokens,
+          color: agent.color,
+          icon: agent.icon,
+        },
+      );
+      const template = await db.agentTemplate.create({
+        data: {
+          userId: user.id,
+          name: input.name,
+          config: JSON.stringify(config),
+        },
+        select: { id: true },
       });
+      publish(user.id);
+      return Response.json(template, { status: 201 });
+    }
+    if (path[0] === "templates" && path.length === 2 && method === "DELETE") {
+      const result = await db.agentTemplate.deleteMany({
+        where: { id: path[1], userId: user.id },
+      });
+      if (!result.count)
+        throw new AppError("not_found", "This template was not found.", 404);
+      publish(user.id);
       return Response.json({ ok: true });
     }
     if (

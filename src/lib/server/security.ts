@@ -11,6 +11,12 @@ export function checkRequest(request: Request) {
       "This host is not allowed. Open the configured local address.",
       403,
     );
+  const suppliedOrigin = request.headers.get("origin");
+  if (
+    request.headers.get("sec-fetch-site") === "cross-site" ||
+    (suppliedOrigin !== null && suppliedOrigin !== origin.origin)
+  )
+    throw new AppError("origin", "Cross-site requests are not allowed.", 403);
   if (
     selfHost() &&
     !["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname)

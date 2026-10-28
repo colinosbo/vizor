@@ -1,4 +1,4 @@
-# Stage-one verification
+# Stage-one verification (historical baseline)
 
 Verified locally on Windows with Node 24.15.0. Report date: October 27, 2026 (America/Chicago).
 
@@ -43,4 +43,4 @@ Screenshots use invented test credentials and mock responses, not live Claude ou
 - Hosted PostgreSQL, multi-process execution, public deployment, OpenAI, orchestration, proposals, audit history, budgets, and autopilot are outside stage one.
 - Production CSP uses per-request nonces. Development additionally permits the inline styles/evaluation required by the development server. Neither mode permits browser connections to external providers; those requests run on the server.
 
-Stage two remains stopped for user review.
+Stage one was delivered for review. Current results are in [the stage-two report](stage-two/REPORT.md). The regression suite refreshes screenshots in this folder; the original captures remain in the stage-one Git commit.

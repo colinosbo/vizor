@@ -20,19 +20,24 @@ export default defineConfig({
       use: { baseURL: "http://127.0.0.1:3100" },
     },
     {
+      name: "stage-two",
+      testMatch: /stage-two\.spec\.ts/,
+      use: { baseURL: "http://127.0.0.1:3103" },
+    },
+    {
       name: "accounts",
       testMatch: /accounts\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:3101" },
     },
   ],
-  webServer: [3100, 3101].map((port) => ({
+  webServer: [3100, 3101, 3103].map((port) => ({
     command: `node scripts/test-server.mjs ${port}`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 90000,
     env: {
       MASTER_KEY: master,
-      SELF_HOST: port === 3100 ? "true" : "false",
+      SELF_HOST: port === 3101 ? "false" : "true",
       APP_ORIGIN: `http://127.0.0.1:${port}`,
       NEXT_TELEMETRY_DISABLED: "1",
       DATABASE_URL: `file:./data/browser-${port}-${process.pid}.db`,

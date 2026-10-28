@@ -1,6 +1,6 @@
 {
   "name": "vizor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
@@ -13,7 +13,11 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx prisma/seed.ts",
     "format": "prettier --write src tests scripts prisma/seed.ts *.ts *.json *.mjs README.md",
-    "format:check": "prettier --check src tests scripts prisma/seed.ts *.ts *.json *.mjs README.md"
+    "format:check": "prettier --check src tests scripts prisma/seed.ts *.ts *.json *.mjs README.md",
+    "predev": "node scripts/providers.mjs",
+    "prebuild": "node scripts/providers.mjs",
+    "pretest": "node scripts/providers.mjs",
+    "pretypecheck": "node scripts/providers.mjs"
   },
   "dependencies": {
     "@prisma/adapter-better-sqlite3": "7.10.1",
@@ -25,6 +29,7 @@
     "next": "16.4.3",
     "react": "19.3.1",
     "react-dom": "19.3.1",
+    "react-grid-layout": "2.3.0",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
     "zod": "4.6.7"

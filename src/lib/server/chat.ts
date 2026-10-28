@@ -8,7 +8,13 @@ import { getProvider } from "../providers";
 import { messageSchema } from "./validation";
 import { estimateCost } from "./pricing";
 import type { Usage } from "../providers/types";
-type Active = { userId: string; controller: AbortController };
+import { publish } from "./events";
+type Active = {
+  userId: string;
+  agentId: string;
+  provider: string;
+  controller: AbortController;
+};
 const runtime = globalThis as unknown as {
   vizorRuns?: Map<string, Active>;
   vizorRecovery?: Promise<void>;
@@ -44,9 +50,15 @@ export async function stopRun(userId: string, runId: string) {
   const current = active.get(runId);
   if (current?.userId === userId) current.controller.abort();
 }
-export function stopOwner(userId: string) {
+export function stopOwner(userId: string, provider?: string) {
   for (const entry of active.values())
-    if (entry.userId === userId) entry.controller.abort();
+    if (entry.userId === userId && (!provider || entry.provider === provider))
+      entry.controller.abort();
+}
+export function stopAgent(userId: string, agentId: string) {
+  for (const entry of active.values())
+    if (entry.userId === userId && entry.agentId === agentId)
+      entry.controller.abort();
 }
 export async function startChat(
   userId: string,
@@ -56,6 +68,12 @@ export async function startChat(
 ) {
   await recoverRuns();
   const agent = await ownedAgent(userId, agentId);
+  if (agent.archived || agent.paused)
+    throw new AppError(
+      "agent_inactive",
+      "Restore or resume this agent before sending a message.",
+      409,
+    );
   const conversation = agent.conversation!;
   const previous = await db.run.findUnique({
     where: { userId_clientId: { userId, clientId: input.clientId } },
@@ -79,18 +97,27 @@ export async function startChat(
   if (!credential)
     throw new AppError(
       "provider_required",
-      "Connect Claude in API keys before sending a message.",
+      `Connect ${getProvider(agent.provider).label} in API keys before sending a message.`,
       400,
     );
   const key = decryptKey(credential.encrypted, userId, agent.provider);
   const runId = randomUUID();
   const assistantId = randomUUID();
   const abort = new AbortController();
-  active.set(runId, { userId, controller: abort });
+  active.set(runId, {
+    userId,
+    agentId,
+    provider: agent.provider,
+    controller: abort,
+  });
   try {
     await db.$transaction(async (tx) => {
       const lock = await tx.conversation.updateMany({
-        where: { id: conversation.id, agent: { userId }, activeRunId: null },
+        where: {
+          id: conversation.id,
+          agent: { userId, paused: false, archived: false },
+          activeRunId: null,
+        },
         data: { activeRunId: runId },
       });
       if (!lock.count)
@@ -160,6 +187,7 @@ export async function startChat(
           clientId: input.clientId,
           assistantId,
           model: agent.model,
+          provider: agent.provider,
         },
       });
     });
@@ -177,6 +205,7 @@ export async function startChat(
     throw error;
   }
   const disconnect = () => abort.abort();
+  publish(userId);
   requestSignal?.addEventListener("abort", disconnect, { once: true });
   if (requestSignal?.aborted) abort.abort();
   const encoder = new TextEncoder();
@@ -207,6 +236,30 @@ export async function startChat(
           outputTokens: null,
           complete: false,
         };
+        const pushLive = () =>
+          publish(userId, {
+            type: "run",
+            run: {
+              agentId,
+              runId,
+              assistantId,
+              model: agent.model,
+              provider: agent.provider,
+              text,
+              status: "running",
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+              cost: estimateCost(
+                agent.model,
+                usage.inputTokens,
+                usage.outputTokens,
+                agent.provider,
+              ),
+              usageComplete: usage.complete,
+              errorCode,
+              createdAt: new Date().toISOString(),
+            },
+          });
         emit("start", { runId, assistantId });
         try {
           // Recheck after registering cancellation, so key deletion cannot race a new call.
@@ -221,7 +274,7 @@ export async function startChat(
           if (!present)
             throw new AppError(
               "provider_required",
-              "The Claude connection changed. Please try again.",
+              "The provider connection changed. Please try again.",
             );
           abort.signal.throwIfAborted();
           const messages = await db.message.findMany({
@@ -267,9 +320,11 @@ export async function startChat(
                   agent.model,
                   usage.inputTokens,
                   usage.outputTokens,
+                  agent.provider,
                 ),
               });
             }
+            pushLive();
             if (Date.now() - lastSave > 250) {
               await db.message.updateMany({
                 where: { id: assistantId, conversation: { agent: { userId } } },
@@ -306,6 +361,7 @@ export async function startChat(
                     agent.model,
                     usage.inputTokens,
                     usage.outputTokens,
+                    agent.provider,
                   ),
                   errorCode,
                   endedAt: new Date(),
@@ -321,6 +377,7 @@ export async function startChat(
               });
             });
             emit("done", { status, runId });
+            publish(userId);
           } catch {
             emit("error", {
               code: "persistence",

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { db } from "../src/lib/server/db";
@@ -48,9 +48,12 @@ const ctx = (path: string) => ({
 });
 beforeAll(async () => {
   const sqlite = new Database(process.env.DATABASE_URL!.slice(5));
-  sqlite.exec(
-    readFileSync("prisma/migrations/20261028022456_init/migration.sql", "utf8"),
-  );
+  for (const migration of readdirSync("prisma/migrations")
+    .filter((name) => /^\d/.test(name))
+    .sort())
+    sqlite.exec(
+      readFileSync(`prisma/migrations/${migration}/migration.sql`, "utf8"),
+    );
   sqlite.close();
   const aToken = await authenticate(
       "alice@test.local",
@@ -122,6 +125,17 @@ describe("real SQLite isolation and sessions", () => {
     bobCookie = cookie(bToken).split(";")[0];
   });
   it("blocks cross-origin mutations and unexpected hosts", () => {
+    expect(() =>
+      checkRequest(
+        new Request("http://127.0.0.1:3000/api/events", {
+          headers: {
+            host: "127.0.0.1:3000",
+            origin: "https://other.test",
+            "sec-fetch-site": "cross-site",
+          },
+        }),
+      ),
+    ).toThrow();
     expect(() =>
       checkRequest(
         new Request("http://evil.test", { headers: { host: "evil.test" } }),
