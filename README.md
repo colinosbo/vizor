@@ -11,7 +11,7 @@ A local workspace for running Claude and OpenAI conversations side by side, with
 
 **Node.js is included.** No Node, npm, Git, Docker, database service or Codex installation is required. The app is already compiled and launches without installing or downloading anything. Internet is needed for provider requests after you explicitly connect or chat. Keep the launcher window open; Ctrl+C stops it. Packages are unsigned portable apps, so operating-system security controls may require approval.
 
-See **[START-HERE.md](START-HERE.md)** for the full walkthrough, updates, backups and troubleshooting. Windows, macOS and Linux are the target platforms; [download verification](verification/distribution/REPORT.md) records actual test results.
+See **[START-HERE.md](START-HERE.md)** for the full walkthrough, updates, backups and troubleshooting. Windows, macOS and Linux are the target platforms; [portable download verification](verification/portable/REPORT.md) records actual test results. The older [v0.5.0 source download report](verification/distribution/REPORT.md) is retained for reference.
 
 The default address is **http://127.0.0.1:3000**. If you change the port in `.env`'s `APP_ORIGIN`, the launcher uses the new port. It binds only to `127.0.0.1`, refuses a busy port instead of stopping another app, and prevents concurrent setup from the same folder.
 
