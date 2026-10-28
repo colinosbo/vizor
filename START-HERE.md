@@ -17,6 +17,8 @@ Vizor runs on your own computer. You bring your own Claude/Anthropic or OpenAI A
 
 The first launch installs the pinned dependencies, creates your local database and private encryption key, builds the app, and opens your browser. This needs internet and may take several minutes. Later launches reuse the installation and build. You do not need Git, a database server, Docker, or Codex.
 
+The release also includes **SHA256SUMS.txt**. You can compare its ZIP hash with `Get-FileHash .\vizor-v0.5.0.zip -Algorithm SHA256` in Windows PowerShell, `shasum -a 256 vizor-v0.5.0.zip` on macOS, or `sha256sum vizor-v0.5.0.zip` on Linux.
+
 If the browser does not open, visit **http://127.0.0.1:3000**. Keep the launcher window open while using Vizor. Press **Ctrl+C** to stop it. Use the same launcher to start it again.
 
 ## Add your keys
@@ -53,6 +55,8 @@ To roll back, stop the new version and restore the **old code, database and matc
 | Permission or native-module error                          | Use a writable local folder and the normal Node.js 24 installation for your computer's architecture. Unsupported/older systems may lack native dependency builds. |
 
 macOS may require allowing a downloaded launcher in system security settings or using the documented Terminal command. The download is a source distribution with local setup, not a signed native installer. Supported targets are current Windows, macOS and Linux desktops with Node.js 24; see the release verification notes for what was actually tested.
+
+For a reproducible problem, open an [issue](https://github.com/colinosbo/vizor/issues). Do not attach API keys, `.env`, your database, private conversations or backups. Include your OS, Node.js version and a redacted error message instead.
 
 ## Rights
 
