@@ -64,6 +64,7 @@ npm run test:portable
 npm ci --prefix desktop
 npm run package:windows
 npm run test:windows
+npm run test:updates
 ```
 
 The installer smoke check refuses an existing Vizor installation or shortcut. Use a clean Windows account/runner. It installs into a temporary folder, checks shortcuts and the installed app, reinstalls over the same version, uninstalls, and confirms private data was retained. Provider calls are not made by this check; separate application/portable checks use mocks. Packaged inspection uses Chromium's explicitly requested local debug port; ordinary launches do not enable it.

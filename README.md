@@ -8,6 +8,8 @@ A local workspace for running Claude and OpenAI conversations side by side, with
 
 The Windows app and installer keep the approved orange Claude character inside a scope. See the [icon update verification](verification/icon-refresh/REPORT.md).
 
+The [v0.8.0 automatic update report](verification/automatic-updates/REPORT.md) records the signed-release checks, real Windows upgrade tests and verification boundaries.
+
 **Portable downloads** remain available for Windows, macOS and Linux:
 
 1. [Download the latest release](https://github.com/colinosbo/vizor/releases/latest). Choose **windows-x64**, **macos-arm64** (Apple silicon), **macos-x64** (Intel), or **linux-x64**.
