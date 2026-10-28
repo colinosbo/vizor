@@ -1,10 +1,23 @@
 # Vizor
 
-A private workspace for running AI conversations side by side. **Stages three and four, plus spending limits**, add a main orchestrator conversation, compact agent context, editable proposals, human approval and audit history. Claude/OpenAI chats, saved panel layouts, templates and archive/restore remain available. **Autopilot is off.**
+A local workspace for running Claude and OpenAI conversations side by side, with a main orchestrator, editable proposals, human approvals, audit history and optional spending limits. Everyone runs their own installation with their own provider keys and data. **Autopilot is off.**
 
-## Windows quick start
+## Download and run
 
-Use Node.js **24.11 or later in the Node 24 line** and npm 11+.
+1. Install **Node.js 24 LTS** (24.11+ in the 24.x line, with npm) from [nodejs.org](https://nodejs.org/en/download).
+2. [Download the latest release](https://github.com/colinosbo/vizor/releases/latest) and extract the complete ZIP into a writable local folder.
+3. On **Windows**, double-click **Start Vizor.cmd**. On **macOS**, open **Start Vizor.command**. On **Linux**, run `sh start-vizor.sh` from the extracted folder. `npm run launch` works on all supported systems.
+4. The launcher installs dependencies, creates your private local workspace, builds the app and opens your browser. Enter your own provider key in the app and set your spending limits.
+
+First setup needs internet and can take several minutes; later launches reuse the installation/build. Keep the launcher window open while using Vizor; Ctrl+C stops it. No Git, Docker, database service or Codex installation is required. This is a source download with automatic local setup, not a signed native installer.
+
+See **[START-HERE.md](START-HERE.md)** for the full walkthrough, updates, backups and troubleshooting. Windows, macOS and Linux are the target platforms; [download verification](verification/distribution/REPORT.md) records actual test results.
+
+The default address is **http://127.0.0.1:3000**. If you change the port in `.env`'s `APP_ORIGIN`, the launcher uses the new port. It binds only to `127.0.0.1`, refuses a busy port instead of stopping another app, and prevents concurrent setup from the same folder.
+
+Each first launch creates its own `.env` with a permanent encryption key, local SQLite database, generated Prisma client and migrated schema. No provider key is required to start. Missing/invalid keys in an existing configuration stop setup; existing encryption keys and data are not silently replaced. `--repair` reinstalls dependencies and rebuilds while preserving `.env` and data. There are no background update downloads.
+
+## Developer setup
 
 ```powershell
 npm ci
@@ -12,22 +25,20 @@ npm run setup
 npm run dev
 ```
 
-Open **http://127.0.0.1:3000**. Use this exact address rather than `localhost`: API requests check the configured host. Start commands bind only to this computer.
-
-Setup creates `.env` only if it does not exist, generates a permanent encryption key, creates SQLite storage, generates the Prisma client, and applies checked-in migrations. It never overwrites an existing master key. No provider key is required to start Vizor.
-
-For a production build:
+To run the production build manually, use:
 
 ```powershell
 npm run build
 npm start
 ```
 
+Manual start commands use port 3000. The launcher follows `APP_ORIGIN`; use it for a custom local port. The public `/api/health` route returns only the app name, version and readiness marker, with the same host/origin checks and no user data.
+
 For optional **Writing partner** and **Code reviewer** demo configurations, run `npm run db:seed`. This repeatable seed does not overwrite existing agents or create messages or provider keys. Demo configurations make normal provider calls after you connect a key.
 
 ### Upgrade from an earlier stage
 
-Stop the old app and back up the database and `.env`. Run `npm ci`, `npm run setup`, `npm run build`, then `npm start`. Migrations preserve users, credentials and conversation history and import existing run costs into the new ledger. This implementation saved a database backup at `data/backups/pre-orchestrator.db`; retain the original `.env` with it to decrypt saved credentials. Previous connection-test charges were not recorded and cannot be recovered automatically.
+Follow the [download update steps](START-HERE.md#updating): stop the old app, back up its database and `.env`, copy those into the new download, and run the launcher. For developer checkouts, run `npm ci`, `npm run setup`, `npm run build`, then `npm start`. Migrations preserve users, credentials and conversation history and import existing run costs into the ledger. Previous connection-test charges were not recorded and cannot be recovered automatically.
 
 ## Connect a provider
 
@@ -152,5 +163,9 @@ Live inference, billing eligibility and model access require your own key entere
 ## Later stages
 
 Stages three/four and provider spending limits are delivered here. Bounded autopilot, hourly/loop limits and a global kill switch for autonomous activity remain future work. User preference for that stage: bounded agent-triggered replies may be automatic; agent-management actions require approval. Its provenance/permission design still needs review before implementation. Hosted PostgreSQL and public deployment also remain separate work.
+
+## License
+
+**Rights reserved; not open source.** The included [LICENSE](LICENSE) permits downloading and running a personal or internal local workspace. Redistribution, modification, sublicensing and resale rights are reserved. Third-party dependencies retain their own licenses.
 
 References: [Anthropic models](https://platform.claude.com/docs/en/api/models/list), [Anthropic streaming](https://platform.claude.com/docs/en/build-with-claude/streaming), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [OpenAI Responses](https://developers.openai.com/api/docs/guides/text?api-mode=responses), [OpenAI models](https://developers.openai.com/api/reference/resources/models/methods/list), [OpenAI GPT-4.1 mini pricing](https://developers.openai.com/api/docs/models/gpt-4.1-mini), [Prisma SQLite](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/sqlite).

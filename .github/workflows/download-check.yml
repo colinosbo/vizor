@@ -1,0 +1,40 @@
+name: Download and local launch
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md", "LICENSE", "verification/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: download-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  download:
+    name: Fresh launch on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+      CHECKPOINT_DISABLE: "1"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+      - name: Start a clean download without provider credentials
+        run: node scripts/smoke.mjs
+      - name: Type checking and automated tests
+        run: |
+          npm run typecheck
+          npm test
+          npm run format:check

@@ -1,33 +1,35 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { mkdirSync, chmodSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import Database from "better-sqlite3";
-import "dotenv/config";
-mkdirSync("data", { recursive: true });
-if (!existsSync(".env")) {
-  writeFileSync(
-    ".env",
-    `DATABASE_URL="file:./data/vizor.db"\nSELF_HOST="true"\nAPP_ORIGIN="http://127.0.0.1:3000"\nMASTER_KEY="${randomBytes(32).toString("base64")}"\nNEXT_TELEMETRY_DISABLED="1"\nCHECKPOINT_DISABLE="1"\n`,
-    { mode: 0o600 },
-  );
+import { checkNode, ensureConfig, databasePath } from "./local-runtime.mjs";
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+try {
+  checkNode();
+  process.chdir(root);
+  const { config, created } = ensureConfig(root);
+  if (created)
+    console.log(
+      "Created .env with a permanent encryption key. Keep it with your backups.",
+    );
+  const path = databasePath(root, config.DATABASE_URL);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  const database = new Database(path);
+  database.pragma("journal_mode = WAL");
+  database.close();
+  if (process.platform !== "win32") chmodSync(path, 0o600);
+  const cli = "node_modules/prisma/build/index.js";
+  for (const args of [["generate"], ["migrate", "deploy"]])
+    execFileSync(process.execPath, [cli, ...args], {
+      cwd: root,
+      stdio: "inherit",
+      env: config,
+    });
   console.log(
-    "Created .env with a permanent encryption key. Keep it with your backups.",
+    "Workspace ready. Use the Start Vizor launcher or npm run launch to open the app.",
   );
+} catch (error) {
+  console.error(`Setup could not finish: ${error.message}`);
+  process.exitCode = 1;
 }
-const cli = "node_modules/prisma/build/index.js";
-// The Windows schema engine requires an existing SQLite file on first deploy.
-const databasePath = (process.env.DATABASE_URL ?? "file:./data/vizor.db").slice(
-  5,
-);
-const database = new Database(databasePath);
-database.pragma("journal_mode = WAL");
-database.close();
-execFileSync(process.execPath, [cli, "generate"], {
-  stdio: "inherit",
-  env: { ...process.env, CHECKPOINT_DISABLE: "1" },
-});
-execFileSync(process.execPath, [cli, "migrate", "deploy"], {
-  stdio: "inherit",
-  env: { ...process.env, CHECKPOINT_DISABLE: "1" },
-});
-console.log("Ready. Run npm run dev, then open http://127.0.0.1:3000.");
