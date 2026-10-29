@@ -247,8 +247,19 @@ function scan(folder) {
 scan(bundle);
 const output = join(
   artifacts,
-  `${name}.${process.platform === "win32" ? "zip" : "tar.gz"}`,
+  `${name}${
+    process.env.VIZOR_PORTABLE_ARTIFACT_SUFFIX
+      ? `-${process.env.VIZOR_PORTABLE_ARTIFACT_SUFFIX}`
+      : ""
+  }.${process.platform === "win32" ? "zip" : "tar.gz"}`,
 );
+if (
+  process.env.VIZOR_PORTABLE_ARTIFACT_SUFFIX &&
+  !/^[a-z0-9-]{1,40}$/i.test(process.env.VIZOR_PORTABLE_ARTIFACT_SUFFIX)
+)
+  throw new Error(
+    "Portable artifact suffix must use letters, numbers or dashes.",
+  );
 if (existsSync(output))
   throw new Error(
     "This package already exists. Move the previous artifact before creating another.",
