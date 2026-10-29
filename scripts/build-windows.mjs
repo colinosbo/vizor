@@ -99,6 +99,8 @@ if (
 )
   throw new Error("The app window does not contain the approved icon.");
 for (const file of [
+  "main.cjs",
+  "terminals.cjs",
   "preload.cjs",
   "updater.cjs",
   "update-policy.cjs",
@@ -133,6 +135,43 @@ if (
 const sha256 = createHash("sha256")
   .update(readFileSync(installer))
   .digest("hex");
+for (const file of [
+  "host.cjs",
+  "sessions.cjs",
+  "tools.cjs",
+  "isolated-pty.cjs",
+  "pty-worker.cjs",
+]) {
+  const packed = join(
+    dirname(installer),
+    "win-unpacked/resources/vizor/terminal-host",
+    file,
+  );
+  if (
+    !readFileSync(packed).equals(
+      readFileSync(join(root, "desktop/terminal-host", file)),
+    )
+  )
+    throw new Error(
+      "The packaged terminal helper does not match the tested source.",
+    );
+}
+const nativeTerminal = spawnSync(
+  join(dirname(installer), "win-unpacked/resources/vizor/runtime/node.exe"),
+  [
+    "-e",
+    "require(process.argv[1])",
+    join(
+      dirname(installer),
+      "win-unpacked/resources/vizor/terminal-host/node_modules/node-pty",
+    ),
+  ],
+  { windowsHide: true, stdio: "ignore" },
+);
+if (nativeTerminal.status !== 0)
+  throw new Error(
+    "The packaged native terminal dependency cannot load in the bundled Node runtime.",
+  );
 writeFileSync(`${installer}.sha256`, `${sha256}  ${basename(installer)}\n`);
 writeFileSync(
   join(root, "artifacts/windows-result.json"),
@@ -144,6 +183,7 @@ writeFileSync(
       executable,
       iconResourcesVerified: true,
       updateResourcesVerified: true,
+      terminalResourcesVerified: true,
       iconSourceSHA256: createHash("sha256")
         .update(readFileSync(join(root, "desktop/clawd-scope.png")))
         .digest("hex"),

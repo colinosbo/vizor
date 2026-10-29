@@ -21,7 +21,9 @@ export function OrchestratorPanel({
   onFocus: (id: string) => void;
 }) {
   const [settings, setSettings] = useState(false);
-  const active = workspace.agents.filter((a) => !a.archived);
+  const active = workspace.agents.filter(
+    (a) => !a.archived && (!a.engine || a.engine === "api"),
+  );
   const ids = active.map((a) => a.id).join("|");
   const scope = (
     workspace.contextScope ?? active.slice(0, 20).map((a) => a.id)

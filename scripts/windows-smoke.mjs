@@ -155,6 +155,7 @@ async function open() {
       .find((page) => page.url().startsWith("http://127.0.0.1:"));
     return !!page;
   }, "App did not load the local workspace");
+  await page.getByRole("button", { name: "API keys", exact: true }).click();
   await page.getByLabel("Your Anthropic API key").waitFor({ timeout: 30000 });
   origin = new URL(page.url()).origin;
   assert.equal(new URL(origin).hostname, "127.0.0.1");
@@ -172,6 +173,7 @@ async function open() {
       "onUpdateState",
       "restartToUpdate",
       "setAutomaticUpdates",
+      "terminals",
     ],
   );
   assert.equal(
@@ -179,6 +181,12 @@ async function open() {
     "disabled",
   );
   const state = await (await fetch(`${origin}/api/workspace`)).json();
+  assert.deepEqual(
+    (await page.evaluate(() => window.vizorDesktop.terminals.tools())).map(
+      (tool) => tool.engine,
+    ),
+    ["claude-code", "codex"],
+  );
   assert.equal(state.autopilot, false);
   assert.equal(state.selfHost, true);
   return page;

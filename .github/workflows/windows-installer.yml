@@ -46,7 +46,9 @@ jobs:
       - name: Build Windows installer
         run: |
           npm ci --prefix desktop
+          npm ci --prefix desktop/terminal-host --ignore-scripts
           npm run package:windows
+          npm run test:terminals
       - name: Install, launch, upgrade and uninstall the actual package
         run: npm run test:windows
       - name: Verify a real two-version automatic update

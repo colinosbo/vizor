@@ -162,7 +162,12 @@ for (const file of ["local-runtime.mjs", "portable-migrate.mjs"])
 cpSync(join(root, "prisma/migrations"), join(bundle, "migrations"), {
   recursive: true,
 });
-for (const file of ["LICENSE", "START-HERE.md"])
+for (const file of [
+  "LICENSE",
+  "START-HERE.md",
+  "WINDOWS.md",
+  "TERMINAL-AGENTS.md",
+])
   cpSync(join(root, file), join(bundle, file));
 // Retain notices even when file tracing omits license-only files.
 const licenses = join(bundle, "THIRD-PARTY-LICENSES");

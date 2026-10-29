@@ -34,6 +34,11 @@ import { proposalPayload } from "@/lib/server/orchestrator-tools";
 import { meteredSend, setBudget, usd } from "@/lib/server/budgets";
 import { audit } from "@/lib/server/audit";
 import {
+  terminalAgent,
+  terminalRecord,
+  recordTerminal,
+} from "@/lib/server/terminal-agents";
+import {
   createAgent,
   editAgent,
   agentAction,
@@ -95,6 +100,18 @@ async function handle(
     }
     const user = await owner(request);
     await rateLimit(`requests:${user.id}`, 180);
+    if (path[0] === "terminal-agents" && path.length === 2) {
+      if (method === "GET")
+        return Response.json(await terminalAgent(user.id, path[1]));
+      if (method === "PATCH") {
+        await recordTerminal(
+          user.id,
+          path[1],
+          await readJson(request, terminalRecord),
+        );
+        return Response.json({ ok: true });
+      }
+    }
     if (route === "workspace" && method === "GET")
       return Response.json(await workspace(user));
     if (route === "orchestrator" && method === "PATCH") {

@@ -95,6 +95,11 @@ export async function toolResult(
         .object({ config: agentSchema })
         .strict()
         .parse(call.arguments);
+      if (input.config.engine !== "api")
+        throw new AppError(
+          "terminal_manual",
+          "Create terminal agents directly from the dashboard.",
+        );
       payload = { action: "create_agent", config: input.config };
     } else if (["propose_message", "send_message"].includes(call.name)) {
       const input = z
@@ -136,7 +141,13 @@ export async function toolResult(
     if (
       "agentId" in payload &&
       !(await db.agent.findFirst({
-        where: { id: payload.agentId, userId, kind: "agent", archived: false },
+        where: {
+          id: payload.agentId,
+          userId,
+          kind: "agent",
+          archived: false,
+          engine: "api",
+        },
         select: { id: true },
       }))
     )

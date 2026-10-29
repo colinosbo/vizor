@@ -25,6 +25,11 @@ export default defineConfig({
       use: { baseURL: "http://127.0.0.1:3103" },
     },
     {
+      name: "terminals",
+      testMatch: /terminal-agents\.spec\.ts/,
+      use: { baseURL: "http://127.0.0.1:3105" },
+    },
+    {
       name: "orchestration",
       testMatch: /orchestration\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:3104" },
@@ -35,13 +40,14 @@ export default defineConfig({
       use: { baseURL: "http://127.0.0.1:3101" },
     },
   ],
-  webServer: [3100, 3101, 3103, 3104].map((port) => ({
+  webServer: [3100, 3101, 3103, 3104, 3105].map((port) => ({
     command: `node scripts/test-server.mjs ${port}`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,
     timeout: 90000,
     env: {
       MASTER_KEY: master,
+      VIZOR_TERMINALS: port === 3105 ? "1" : "0",
       SELF_HOST: port === 3101 ? "false" : "true",
       APP_ORIGIN: `http://127.0.0.1:${port}`,
       NEXT_TELEMETRY_DISABLED: "1",

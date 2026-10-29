@@ -28,6 +28,8 @@ export const baseConfig: AgentConfig = {
 export function agentConfig(agent: AgentView): AgentConfig {
   return {
     name: agent.name,
+    engine: agent.engine ?? "api",
+    projectPath: agent.projectPath ?? "",
     provider: agent.provider,
     model: agent.model,
     systemPrompt: agent.systemPrompt,
@@ -64,6 +66,9 @@ export function AgentEditor({
   const [config, setConfig] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const desktop =
+    typeof window !== "undefined" && !!window.vizorDesktop?.terminals;
+  const terminal = config.engine && config.engine !== "api";
   const [template, setTemplate] = useState(false);
   const [templateName, setTemplateName] = useState(agent?.name ?? "");
   const ref = useRef<HTMLElement>(null);
@@ -163,126 +168,193 @@ export function AgentEditor({
             </div>
             <div className="settings-divider" />
             <label>
-              Provider
+              Engine
               <select
-                aria-label="Provider"
-                value={config.provider}
-                onChange={(e) => {
-                  const next = providers.find((p) => p.id === e.target.value)!;
+                aria-label="Engine"
+                value={config.engine ?? "api"}
+                disabled={!!agent}
+                onChange={(e) =>
                   setConfig({
                     ...config,
-                    provider: next.id,
-                    model:
-                      models[next.id]?.models.find(
-                        (m) => m.id === next.defaultModel,
-                      )?.id ??
-                      models[next.id]?.models[0]?.id ??
-                      next.defaultModel,
-                  });
-                }}
-              >
-                {providers.map((p) => (
-                  <option key={p.id} value={p.id} disabled={!p.connected}>
-                    {p.label}
-                    {p.connected ? "" : " · connect key first"}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="field-heading">
-              <span>Model</span>
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => void refreshModels(config.provider)}
-                disabled={!provider?.connected}
-              >
-                <RotateCcw size={11} />
-                Refresh
-              </button>
-            </div>
-            <label>
-              <span className="sr-only">Model</span>
-              <select
-                aria-label="Model"
-                value={config.model}
-                onChange={(e) =>
-                  setConfig({ ...config, model: e.target.value })
+                    engine: e.target.value as AgentConfig["engine"],
+                    icon: e.target.value === "api" ? "spark" : "code",
+                  })
                 }
               >
-                {!list?.models.some((m) => m.id === config.model) && (
-                  <option value={config.model}>{config.model} · current</option>
+                <option value="api">API connection</option>
+                <option value="claude-code" disabled={!desktop}>
+                  Claude Code{desktop ? "" : " · Windows app"}
+                </option>
+                <option value="codex" disabled={!desktop}>
+                  Codex{desktop ? "" : " · Windows app"}
+                </option>
+              </select>
+            </label>
+            {terminal && (
+              <label>
+                Project folder
+                <div className="terminal-folder">
+                  <input
+                    aria-label="Project folder"
+                    value={config.projectPath ?? ""}
+                    readOnly
+                    placeholder="Choose a local folder"
+                  />
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={!!agent}
+                    onClick={async () => {
+                      const selected =
+                        await window.vizorDesktop?.terminals?.chooseFolder();
+                      if (selected)
+                        setConfig({ ...config, projectPath: selected });
+                    }}
+                  >
+                    Browse
+                  </button>
+                </div>
+                <small>
+                  The CLI handles its own sign-in, model, permissions and
+                  history. Use a new agent for a different project.
+                </small>
+              </label>
+            )}
+            {!terminal && (
+              <>
+                <label>
+                  Provider
+                  <select
+                    aria-label="Provider"
+                    value={config.provider}
+                    onChange={(e) => {
+                      const next = providers.find(
+                        (p) => p.id === e.target.value,
+                      )!;
+                      setConfig({
+                        ...config,
+                        provider: next.id,
+                        model:
+                          models[next.id]?.models.find(
+                            (m) => m.id === next.defaultModel,
+                          )?.id ??
+                          models[next.id]?.models[0]?.id ??
+                          next.defaultModel,
+                      });
+                    }}
+                  >
+                    {providers.map((p) => (
+                      <option key={p.id} value={p.id} disabled={!p.connected}>
+                        {p.label}
+                        {p.connected ? "" : " · connect key first"}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="field-heading">
+                  <span>Model</span>
+                  <button
+                    type="button"
+                    className="text-button"
+                    onClick={() => void refreshModels(config.provider)}
+                    disabled={!provider?.connected}
+                  >
+                    <RotateCcw size={11} />
+                    Refresh
+                  </button>
+                </div>
+                <label>
+                  <span className="sr-only">Model</span>
+                  <select
+                    aria-label="Model"
+                    value={config.model}
+                    onChange={(e) =>
+                      setConfig({ ...config, model: e.target.value })
+                    }
+                  >
+                    {!list?.models.some((m) => m.id === config.model) && (
+                      <option value={config.model}>
+                        {config.model} · current
+                      </option>
+                    )}
+                    {list?.models.map((m) => (
+                      <option value={m.id} key={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {list?.fallback && (
+                  <div className="field-note warning">
+                    Fallback list · {list.message}
+                  </div>
                 )}
-                {list?.models.map((m) => (
-                  <option value={m.id} key={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {list?.fallback && (
-              <div className="field-note warning">
-                Fallback list · {list.message}
-              </div>
-            )}
-            <label>
-              System prompt
-              <textarea
-                aria-label="System prompt"
-                rows={6}
-                maxLength={16000}
-                value={config.systemPrompt}
-                onChange={(e) =>
-                  setConfig({ ...config, systemPrompt: e.target.value })
-                }
-              />
-              <small>Give your agent a role and a way to work.</small>
-            </label>
-            <label>
-              <span className="range-heading">
-                Temperature<span>{config.temperature.toFixed(1)}</span>
-              </span>
-              <input
-                aria-label="Temperature"
-                type="range"
-                min={0}
-                max={1}
-                step={0.1}
-                disabled={!model?.temperature}
-                value={config.temperature}
-                onChange={(e) =>
-                  setConfig({ ...config, temperature: Number(e.target.value) })
-                }
-              />
-              <small>
-                {model?.temperature
-                  ? "Lower is more focused. Higher is more exploratory."
-                  : "Temperature is managed by this model."}
-              </small>
-            </label>
-            <label>
-              Maximum output tokens
-              <input
-                type="number"
-                min={64}
-                max={8192}
-                step={1}
-                required
-                value={config.maxTokens}
-                onChange={(e) =>
-                  setConfig({ ...config, maxTokens: Number(e.target.value) })
-                }
-              />
-            </label>
-            {active && (
-              <p className="field-note warning">
-                Stop the current response before changing settings.
-              </p>
-            )}
-            {!provider?.connected && (
-              <p className="field-note warning">
-                Connect this provider in API keys before saving.
-              </p>
+                <label>
+                  System prompt
+                  <textarea
+                    aria-label="System prompt"
+                    rows={6}
+                    maxLength={16000}
+                    value={config.systemPrompt}
+                    onChange={(e) =>
+                      setConfig({ ...config, systemPrompt: e.target.value })
+                    }
+                  />
+                  <small>Give your agent a role and a way to work.</small>
+                </label>
+                <label>
+                  <span className="range-heading">
+                    Temperature<span>{config.temperature.toFixed(1)}</span>
+                  </span>
+                  <input
+                    aria-label="Temperature"
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.1}
+                    disabled={!model?.temperature}
+                    value={config.temperature}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        temperature: Number(e.target.value),
+                      })
+                    }
+                  />
+                  <small>
+                    {model?.temperature
+                      ? "Lower is more focused. Higher is more exploratory."
+                      : "Temperature is managed by this model."}
+                  </small>
+                </label>
+                <label>
+                  Maximum output tokens
+                  <input
+                    type="number"
+                    min={64}
+                    max={8192}
+                    step={1}
+                    required
+                    value={config.maxTokens}
+                    onChange={(e) =>
+                      setConfig({
+                        ...config,
+                        maxTokens: Number(e.target.value),
+                      })
+                    }
+                  />
+                </label>
+                {active && (
+                  <p className="field-note warning">
+                    Stop the current response before changing settings.
+                  </p>
+                )}
+                {!provider?.connected && (
+                  <p className="field-note warning">
+                    Connect this provider in API keys before saving.
+                  </p>
+                )}
+              </>
             )}
             {error && (
               <div className="error-box" role="alert">
@@ -291,42 +363,44 @@ export function AgentEditor({
             )}
             {agent && (
               <>
-                <div className="usage-details">
-                  <div className="eyebrow">THIS CONVERSATION</div>
-                  <div>
-                    <span>Reported tokens</span>
-                    <strong>
-                      {agent.conversation.runs
-                        .reduce(
-                          (n, r) =>
-                            n + (r.inputTokens ?? 0) + (r.outputTokens ?? 0),
-                          0,
+                {!terminal && (
+                  <div className="usage-details">
+                    <div className="eyebrow">THIS CONVERSATION</div>
+                    <div>
+                      <span>Reported tokens</span>
+                      <strong>
+                        {agent.conversation.runs
+                          .reduce(
+                            (n, r) =>
+                              n + (r.inputTokens ?? 0) + (r.outputTokens ?? 0),
+                            0,
+                          )
+                          .toLocaleString()}
+                      </strong>
+                    </div>
+                    <div>
+                      <span>Estimated cost</span>
+                      <strong>
+                        {money(
+                          agent.conversation.runs.reduce(
+                            (n, r) => n + (r.cost ?? 0),
+                            0,
+                          ),
+                        )}
+                        {agent.conversation.runs.some(
+                          (r) => r.cost == null || !r.usageComplete,
                         )
-                        .toLocaleString()}
-                    </strong>
+                          ? " + unknown"
+                          : ""}
+                      </strong>
+                    </div>
                   </div>
-                  <div>
-                    <span>Estimated cost</span>
-                    <strong>
-                      {money(
-                        agent.conversation.runs.reduce(
-                          (n, r) => n + (r.cost ?? 0),
-                          0,
-                        ),
-                      )}
-                      {agent.conversation.runs.some(
-                        (r) => r.cost == null || !r.usageComplete,
-                      )
-                        ? " + unknown"
-                        : ""}
-                    </strong>
-                  </div>
-                </div>
+                )}
                 <div className="editor-actions">
                   <button
                     type="button"
                     className="secondary"
-                    disabled={busy || !provider?.connected}
+                    disabled={busy || (!terminal && !provider?.connected)}
                     onClick={() =>
                       void onAction(agent.id, "duplicate").catch((e) =>
                         setError(e.message),
@@ -412,7 +486,11 @@ export function AgentEditor({
           <div className="panel-footer">
             <button
               className="primary"
-              disabled={busy || active || !provider?.connected}
+              disabled={
+                busy ||
+                active ||
+                (terminal ? !config.projectPath : !provider?.connected)
+              }
             >
               {busy ? (
                 <LoaderCircle size={16} className="spin" />

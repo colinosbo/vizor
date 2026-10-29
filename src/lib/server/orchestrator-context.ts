@@ -63,7 +63,7 @@ export async function compactAgent(
   recentCount = 4,
 ) {
   const agent = await db.agent.findFirst({
-    where: { id, userId, kind: "agent", archived: false },
+    where: { id, userId, kind: "agent", archived: false, engine: "api" },
     include: {
       conversation: {
         include: {
@@ -121,7 +121,7 @@ export async function compactAgent(
 }
 export async function orchestratorContext(userId: string, ids?: string[]) {
   const all = await db.agent.findMany({
-    where: { userId, kind: "agent", archived: false },
+    where: { userId, kind: "agent", archived: false, engine: "api" },
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });

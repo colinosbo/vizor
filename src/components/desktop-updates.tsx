@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import type { TerminalBridge } from "@/lib/terminal-types";
 type UpdateState = {
   state: string;
   currentVersion: string;
@@ -11,6 +12,7 @@ type UpdateState = {
 declare global {
   interface Window {
     vizorDesktop?: {
+      terminals?: TerminalBridge;
       getUpdateState(): Promise<UpdateState>;
       checkForUpdates(): Promise<UpdateState>;
       setAutomaticUpdates(enabled: boolean): Promise<UpdateState>;

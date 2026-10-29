@@ -338,7 +338,7 @@ function ProposalEditor({
               }
             >
               {workspace.agents
-                .filter((a) => !a.archived)
+                .filter((a) => !a.archived && (!a.engine || a.engine === "api"))
                 .map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}

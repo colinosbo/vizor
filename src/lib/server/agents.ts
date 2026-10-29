@@ -6,6 +6,19 @@ import { stopAgent } from "./chat";
 import { publish } from "./events";
 import { AppError } from "./errors";
 import { audit } from "./audit";
+import { selfHost } from "./security";
+import { randomUUID } from "node:crypto";
+function requireEngine(config: z.infer<typeof agentSchema>) {
+  if (
+    config.engine !== "api" &&
+    (!selfHost() || process.env.VIZOR_TERMINALS !== "1")
+  )
+    throw new AppError(
+      "desktop_required",
+      "Terminal agents are available in the Windows desktop app.",
+      403,
+    );
+}
 export async function requireProvider(userId: string, provider: string) {
   const key = await db.credential.findUnique({
     where: { userId_provider: { userId, provider } },
@@ -19,12 +32,19 @@ export async function requireProvider(userId: string, provider: string) {
 }
 export async function createAgent(
   userId: string,
-  config: z.infer<typeof agentSchema>,
+  input: z.input<typeof agentSchema>,
 ) {
-  await requireProvider(userId, config.provider);
+  const config = agentSchema.parse(input);
+  requireEngine(config);
+  if (config.engine === "api") await requireProvider(userId, config.provider);
   const agent = await db.$transaction(async (tx) => {
     const created = await tx.agent.create({
-      data: { userId, ...config, conversation: { create: {} } },
+      data: {
+        userId,
+        ...config,
+        nativeSessionId: config.engine === "claude-code" ? randomUUID() : null,
+        conversation: { create: {} },
+      },
       select: { id: true },
     });
     await audit(
@@ -43,11 +63,23 @@ export async function createAgent(
 export async function editAgent(
   userId: string,
   id: string,
-  config: z.infer<typeof agentSchema>,
+  input: z.input<typeof agentSchema>,
 ) {
-  if ((await ownedAgent(userId, id)).kind !== "agent")
+  const config = agentSchema.parse(input);
+  const previous = await ownedAgent(userId, id);
+  if (previous.kind !== "agent")
     throw new AppError("not_found", "This agent was not found.", 404);
-  await requireProvider(userId, config.provider);
+  requireEngine(config);
+  if (
+    previous.engine !== config.engine ||
+    previous.projectPath !== config.projectPath
+  )
+    throw new AppError(
+      "engine_locked",
+      "Create a new agent to use a different engine or project.",
+      409,
+    );
+  if (config.engine === "api") await requireProvider(userId, config.provider);
   await db.$transaction(async (tx) => {
     const result = await tx.agent.updateMany({
       where: { id, userId, conversation: { activeRunId: null } },
@@ -81,6 +113,8 @@ export async function agentAction(
   if (action === "duplicate") {
     const config = agentSchema.parse({
       name: `${agent.name.slice(0, 64)} copy`,
+      engine: agent.engine,
+      projectPath: agent.projectPath,
       provider: agent.provider,
       model: agent.model,
       systemPrompt: agent.systemPrompt,

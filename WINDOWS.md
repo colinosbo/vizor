@@ -2,10 +2,10 @@
 
 ## Install and open
 
-1. Download **Vizor-Setup-0.8.0-x64.exe** from the [latest release](https://github.com/colinosbo/vizor/releases/latest). Versions before 0.8.0 need this one final manual install to gain the updater.
+1. Download **Vizor-Setup-0.9.0-x64.exe** from the [latest release](https://github.com/colinosbo/vizor/releases/latest). Existing v0.8.0 installations can use **Help → Check for updates**.
 2. Run it and accept the included license. Vizor installs for your Windows user; you do not need to install Node or run commands.
 3. Open **Vizor** from your desktop or Start menu. It opens in its own app window.
-4. Connect your own Anthropic or OpenAI API key. API usage is billed separately from chat subscriptions; a connection test can incur a small provider charge. Set your spending limits in the app.
+4. Choose **New agent**, select **Claude Code**, **Codex**, or an **API connection**, and select a project for terminal agents. Use **Set up / sign in** if a CLI is missing or needs login. API agents use your own Anthropic/OpenAI key; API billing is separate from chat subscriptions.
 
 The installer is for Windows 11 on Intel/AMD 64-bit PCs. It includes the app, its browser engine and Node runtime. No Git, Docker, Node installation or database service is needed. Windows ARM is not verified. **The download is unsigned**, so Windows may show an unknown-publisher/SmartScreen warning. Only continue if you trust the release and its checksum; managed computers may block unsigned apps.
 
@@ -17,6 +17,8 @@ The installer is for Windows 11 on Intel/AMD 64-bit PCs. It includes the app, it
 - The app picks an available local port automatically and listens only on 127.0.0.1. It can run alongside a separate browser/portable installation without taking over that app's port.
 - External HTTPS links open in your normal browser. The app window stays on your local workspace. Camera, microphone, remote images and downloads are blocked inside the app; copy buttons can write to your clipboard.
 - Autopilot is off. Orchestrator proposals still require your approval. No telemetry or additional paid services are enabled.
+- Claude Code and Codex open their real native terminal interfaces. Each has its own session and project. Use **Resume**, **Interrupt**, **Stop**, or settings to rename/archive. Board layout and session IDs survive restarts; terminal processes never restart automatically. See [Terminal agents](TERMINAL-AGENTS.md).
+- Closing with live terminals asks whether to stop them and quit. Updates wait for terminals to close. A native CLI can run subprocesses and edit files under its own permissions; the project folder is a starting directory, not a security boundary.
 
 ## Your keys and conversations
 
@@ -26,6 +28,8 @@ Program files install under `%LOCALAPPDATA%\Programs\vizor-desktop`. Saved infor
 - `data\`: SQLite conversations, agent settings, encrypted provider keys and spending history.
 
 The separate `shell` folder stores the app window's browser profile. Do not share any of these folders. Before a backup, quit Vizor and copy **both `.env` and the whole `data` folder** to a private backup location. Losing `.env` makes saved provider keys unreadable. Never replace its master key after saving keys.
+
+Terminal conversations and CLI authentication stay in each tool's own profile (normally `%USERPROFILE%\.claude` and `%USERPROFILE%\.codex`, or the tool's configured home). Back those up privately following the tool's guidance if you want to move terminal history. Vizor stores session identifiers, not a second copy of native history or subscription credentials. Managed native executables live under `%LOCALAPPDATA%\Vizor\tools`.
 
 ## Update or uninstall
 
@@ -62,7 +66,9 @@ npm run build:portable
 npm run package:portable
 npm run test:portable
 npm ci --prefix desktop
+npm ci --prefix desktop/terminal-host --ignore-scripts
 npm run package:windows
+npm run test:terminals
 npm run test:windows
 npm run test:updates
 ```

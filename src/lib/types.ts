@@ -11,6 +11,11 @@ export type PublicMessage = {
 export type AgentView = {
   id: string;
   name: string;
+  engine?: "api" | "claude-code" | "codex";
+  projectPath?: string;
+  nativeSessionId?: string | null;
+  terminalStarted?: boolean;
+  terminalState?: string;
   provider: string;
   model: string;
   systemPrompt: string;
@@ -59,6 +64,8 @@ export type Workspace = {
 export type AgentConfig = Pick<
   AgentView,
   | "name"
+  | "engine"
+  | "projectPath"
   | "provider"
   | "model"
   | "systemPrompt"

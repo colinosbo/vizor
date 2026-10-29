@@ -27,6 +27,10 @@ export async function recoverRuns() {
   await (runtime.vizorRecovery ??= (async () => {
     await recoverSpending();
     await db.$transaction(async (tx) => {
+      await tx.agent.updateMany({
+        where: { engine: { not: "api" }, terminalState: "running" },
+        data: { terminalState: "stopped" },
+      });
       const abandoned = await tx.run.findMany({ where: { status: "running" } });
       for (const run of abandoned) {
         await tx.message.updateMany({
@@ -104,6 +108,12 @@ export async function startChat(
 ) {
   await recoverRuns();
   const agent = await ownedAgent(userId, agentId);
+  if (agent.engine !== "api")
+    throw new AppError(
+      "terminal_manual",
+      "Open this agent's terminal to send instructions directly.",
+      403,
+    );
   if ((agent.kind === "orchestrator") !== !!options.orchestrator)
     throw new AppError("not_found", "This agent was not found.", 404);
   if (options.proposalId) {

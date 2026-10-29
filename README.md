@@ -1,10 +1,14 @@
 # Vizor
 
-A local workspace for running Claude and OpenAI conversations side by side, with a main orchestrator, editable proposals, human approvals, audit history and optional spending limits. Everyone runs their own installation with their own provider keys and data. **Autopilot is off.**
+A local dashboard for your agents. Run real Claude Code and Codex terminals alongside your API conversations, give each agent its own project, and switch between them while they work. Everyone runs their own installation with their own accounts and data. **Autopilot is off.**
 
 ## Download and run
 
-**Windows:** download **[Vizor-Setup-0.8.0-x64.exe](https://github.com/colinosbo/vizor/releases/download/v0.8.0/Vizor-Setup-0.8.0-x64.exe)** once, then open **Vizor** from your desktop or Start menu shortcut. From v0.8.0 onward, installed copies check GitHub for stable releases, authenticate and download updates automatically, then install when the app closes. They never force a restart. **Help → Check for updates** checks immediately; **Help → Automatic updates** controls the saved preference. See the [Windows guide](WINDOWS.md) and [release workflow guide](UPDATE-RELEASES.md). The installer remains unsigned and Windows may show a publisher warning.
+**Windows:** download **[Vizor-Setup-0.9.0-x64.exe](https://github.com/colinosbo/vizor/releases/download/v0.9.0/Vizor-Setup-0.9.0-x64.exe)** once, then open **Vizor** from your desktop or Start menu shortcut. Installed v0.8.0 copies can update automatically. **Help → Check for updates** checks immediately. Updates wait for running replies and terminal sessions; closing with live terminals asks you to stop them first. See the [Windows guide](WINDOWS.md) and [release workflow guide](UPDATE-RELEASES.md). The installer remains unsigned and Windows may show a publisher warning.
+
+Choose **New agent → Claude Code or Codex → Browse** to pick a project. **Set up / sign in** installs a checksum-verified official native tool if needed and opens its own sign-in interface. **Resume** opens that agent's terminal; **Interrupt** sends Ctrl+C; **Stop** closes only that terminal and keeps its native session. You can also rename, archive, arrange, resize and focus panels. Up to eight terminal processes can run at once. Reopening the app restores the board with terminals stopped until you resume them. See [Terminal agents](TERMINAL-AGENTS.md) and the [verification report](verification/terminal-agents/REPORT.md).
+
+Terminal agents use the account selected inside each CLI and retain native permission prompts. No API key is required for them. API agents and credits remain available under **API keys**; Vizor's dollar caps apply only to API calls. The orchestrator does not control or read terminal conversations in this release.
 
 The Windows app and installer keep the approved orange Claude character inside a scope. See the [icon update verification](verification/icon-refresh/REPORT.md).
 
@@ -17,7 +21,7 @@ The [v0.8.0 automatic update report](verification/automatic-updates/REPORT.md) r
 3. On **Windows**, double-click **Start Vizor.cmd**. On **macOS**, open **Start Vizor.command**. On **Linux**, run `./start-vizor.sh`.
 4. Vizor opens in your browser. Enter your own provider key in the app and set your spending limits.
 
-**Node.js is included.** No Node, npm, Git, Docker, database service or Codex installation is required. The app is already compiled and launches without installing or downloading anything. Internet is needed for provider requests after you explicitly connect or chat. Keep the launcher window open; Ctrl+C stops it. Packages are unsigned portable apps, so operating-system security controls may require approval.
+**Node.js is included.** No Node, npm, Git, Docker or database service installation is required. Portable downloads retain API functionality; terminal agents require the Windows desktop installer. The portable app is already compiled and launches without installing or downloading anything. Internet is needed for provider requests after you explicitly connect or chat. Keep the launcher window open; Ctrl+C stops it. Packages are unsigned portable apps, so operating-system security controls may require approval.
 
 See **[START-HERE.md](START-HERE.md)** for the full walkthrough, updates, backups and troubleshooting. Windows, macOS and Linux are the target platforms; [portable download verification](verification/portable/REPORT.md) records actual test results. The older [v0.5.0 source download report](verification/distribution/REPORT.md) is retained for reference.
 

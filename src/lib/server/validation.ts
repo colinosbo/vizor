@@ -4,6 +4,8 @@ import { getProvider } from "../providers";
 export const agentSchema = z
   .object({
     name: z.string().trim().min(1).max(70),
+    engine: z.enum(["api", "claude-code", "codex"]).default("api"),
+    projectPath: z.string().max(4096).default(""),
     provider: z.string().max(40).default("anthropic"),
     model: z
       .string()
@@ -17,6 +19,18 @@ export const agentSchema = z
   })
   .strict()
   .superRefine((config, ctx) => {
+    if (config.engine !== "api") {
+      if (
+        !/^[a-zA-Z]:[\\/]/.test(config.projectPath) ||
+        config.projectPath.includes("\0")
+      )
+        ctx.addIssue({
+          code: "custom",
+          message: "Choose a local project folder.",
+          path: ["projectPath"],
+        });
+      return;
+    }
     try {
       if (!getProvider(config.provider).acceptsModel(config.model))
         ctx.addIssue({

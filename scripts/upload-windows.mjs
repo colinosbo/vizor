@@ -12,6 +12,9 @@ const realUpdate = JSON.parse(
   readFileSync("artifacts/real-update-smoke-result.json", "utf8"),
 );
 const id = process.env.VIZOR_RELEASE_ID;
+const terminals = JSON.parse(
+  readFileSync("artifacts/terminal-smoke-result.json", "utf8"),
+);
 if (
   !/^\d+$/.test(id ?? "") ||
   process.env.GITHUB_REPOSITORY !== "colinosbo/vizor" ||
@@ -39,6 +42,13 @@ requireDesktop("./update-policy.cjs").verifyManifest(
 );
 if (
   !check.passed ||
+  !terminals.passed ||
+  !terminals.realConpty ||
+  !terminals.bundledNode ||
+  !terminals.noNodeOnPath ||
+  !terminals.ownedCleanup ||
+  terminals.sourceCommit !== result.sourceCommit ||
+  !result.terminalResourcesVerified ||
   !check.install ||
   !check.desktopShortcut ||
   !check.upgradePersistence ||

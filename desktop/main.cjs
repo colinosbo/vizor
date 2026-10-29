@@ -38,6 +38,7 @@ let quitting = false;
 let stopped = false;
 let failed = false;
 let updates;
+let terminals;
 let stoppingBackend;
 const activityRequests = new Map();
 function stopBackend() {
@@ -53,19 +54,22 @@ function stopBackend() {
         ["/pid", String(launcher.pid), "/T", "/F"],
         { windowsHide: true, stdio: "ignore" },
       );
-    }, 8000);
+    }, 12000);
     timer.unref();
     launcher.once("exit", () => {
       clearTimeout(timer);
       stopped = true;
       resolve();
     });
-    if (launcher.connected) launcher.send({ type: "stop" });
-    else launcher.kill();
+    void (terminals?.close() ?? Promise.resolve()).finally(() => {
+      if (launcher.connected) launcher.send({ type: "stop" });
+      else launcher.kill();
+    });
   });
   return stoppingBackend;
 }
 function activity() {
+  if (terminals?.count()) return Promise.resolve(terminals.count());
   if (!launcher?.connected || stopped || quitting) return Promise.resolve(null);
   return new Promise((resolve) => {
     const id = randomUUID();
@@ -96,6 +100,18 @@ if (!app.requestSingleInstanceLock()) {
     if (stopped || !launcher || launcher.exitCode !== null) return;
     event.preventDefault();
     if (quitting) return;
+    if (terminals?.count()) {
+      const choice = dialog.showMessageBoxSync(window, {
+        type: "question",
+        title: "Stop terminal agents and quit?",
+        message:
+          "Your terminal agents are still open. Stop them and close Vizor? Saved CLI sessions can be resumed next time.",
+        buttons: ["Keep working", "Stop agents and quit"],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      if (choice !== 1) return;
+    }
     quitting = true;
     window?.hide();
     void stopBackend().then(() => app.quit());
@@ -143,6 +159,16 @@ async function start() {
   const { UpdateManager } = require("./updater.cjs");
   const updateSource = require("./update-source.cjs");
   const updater = new NsisUpdater(updateSource.feed);
+  const { DesktopTerminals } = require("./terminals.cjs");
+  terminals = new DesktopTerminals({
+    resources,
+    home: paths.home,
+    origin,
+    emit: (value) => {
+      if (window && !window.isDestroyed())
+        window.webContents.send("vizor:terminal-event", value);
+    },
+  });
   updates = new UpdateManager({
     updater,
     source: updateSource,
@@ -173,6 +199,21 @@ async function start() {
   ipcMain.handle("vizor:update-state", (event) => {
     trusted(event);
     return updates.snapshot();
+  });
+  ipcMain.handle("vizor:terminal", (event, action, args) => {
+    trusted(event);
+    if (process.platform !== "win32")
+      throw Error("Windows desktop is required");
+    return terminals.request(action, args);
+  });
+  ipcMain.handle("vizor:terminal-folder", async (event) => {
+    trusted(event);
+    await terminals.ready();
+    const result = await dialog.showOpenDialog(window, {
+      title: "Choose agent project",
+      properties: ["openDirectory"],
+    });
+    return result.canceled ? null : result.filePaths[0];
   });
   ipcMain.handle("vizor:update-check", (event) => {
     trusted(event);
@@ -324,12 +365,19 @@ async function start() {
   window.on("closed", () => {
     window = undefined;
   });
+  window.on("close", (event) => {
+    if (!quitting && terminals?.count()) {
+      event.preventDefault();
+      app.quit();
+    }
+  });
   const environment = {
     ...process.env,
     VIZOR_WORKSPACE: paths.workspace,
     APP_ORIGIN: origin,
     NEXT_TELEMETRY_DISABLED: "1",
     CHECKPOINT_DISABLE: "1",
+    VIZOR_TERMINALS: "1",
   };
   // Installed workspaces always use their own persistent configuration, not a developer's shell variables.
   for (const key of [

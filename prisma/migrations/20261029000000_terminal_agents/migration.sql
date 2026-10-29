@@ -1,0 +1,5 @@
+ALTER TABLE "Agent" ADD COLUMN "engine" TEXT NOT NULL DEFAULT 'api';
+ALTER TABLE "Agent" ADD COLUMN "projectPath" TEXT NOT NULL DEFAULT '';
+ALTER TABLE "Agent" ADD COLUMN "nativeSessionId" TEXT;
+ALTER TABLE "Agent" ADD COLUMN "terminalStarted" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Agent" ADD COLUMN "terminalState" TEXT NOT NULL DEFAULT 'stopped';

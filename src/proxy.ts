@@ -2,7 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   const development = process.env.NODE_ENV !== "production";
-  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'${development ? " 'unsafe-eval'" : ""}; style-src 'self'${development ? " 'unsafe-inline'" : ` 'nonce-${nonce}'`}; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`;
+  // xterm creates per-terminal style elements at runtime. Script execution stays
+  // nonce-protected; only the local desktop terminal surface allows those styles.
+  const terminalStyles = process.env.VIZOR_TERMINALS === "1";
+  const policy = `default-src 'self'; script-src 'self' 'nonce-${nonce}'${development ? " 'unsafe-eval'" : ""}; style-src 'self'${development || terminalStyles ? " 'unsafe-inline'" : ` 'nonce-${nonce}'`}; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'`;
   const headers = new Headers(request.headers);
   headers.set("x-nonce", nonce);
   headers.set("Content-Security-Policy", policy);

@@ -62,6 +62,8 @@ export default function Dashboard() {
     | "audit"
   >("workspace");
   const [mobileNav, setMobileNav] = useState(false);
+  const [desktop, setDesktop] = useState(false);
+  useEffect(() => setDesktop(!!window.vizorDesktop?.terminals), []);
   const [editor, setEditor] = useState<{
     id?: string;
     initial: AgentConfig;
@@ -101,6 +103,8 @@ export default function Dashboard() {
       : baseConfig.model;
     return {
       ...baseConfig,
+      engine: desktop && !connected ? "claude-code" : "api",
+      projectPath: "",
       provider: provider?.id ?? "anthropic",
       model,
       name: active.length ? "New agent" : "My assistant",
@@ -133,6 +137,16 @@ export default function Dashboard() {
     id: string,
     name: "duplicate" | "archive" | "pause" | "resume" | "restore",
   ) {
+    const terminal = window.vizorDesktop?.terminals;
+    if (
+      terminal &&
+      ["archive", "pause"].includes(name) &&
+      agents.find((a) => a.id === id)?.engine !== "api"
+    ) {
+      const snapshot = await terminal.snapshot(id);
+      if (snapshot.state === "running" && snapshot.token)
+        await terminal.stop(id, snapshot.token);
+    }
     const result = await api<{ id: string }>(`agents/${id}/${name}`, "POST");
     if (name === "duplicate") await onSaved(result.id);
     else {
@@ -150,7 +164,7 @@ export default function Dashboard() {
   }
   async function openWorkspace() {
     try {
-      if (!active.length) {
+      if (!active.length && !desktop) {
         const result = await api<{ id: string }>("agents", "POST", newConfig());
         await onSaved(result.id);
       } else navigate("workspace");
@@ -290,11 +304,16 @@ export default function Dashboard() {
                 <span className="agent-nav-name">
                   {agent.name}
                   <small>
-                    {
-                      data?.providers.find((p) => p.id === agent.provider)
-                        ?.label
-                    }{" "}
-                    · {agentStatus(agent, workspace.pending[agent.id])}
+                    {agent.engine && agent.engine !== "api"
+                      ? agent.engine === "codex"
+                        ? "Codex"
+                        : "Claude Code"
+                      : data?.providers.find((p) => p.id === agent.provider)
+                          ?.label}{" "}
+                    ·{" "}
+                    {agent.engine && agent.engine !== "api"
+                      ? "Terminal"
+                      : agentStatus(agent, workspace.pending[agent.id])}
                   </small>
                 </span>
                 <span
@@ -449,7 +468,7 @@ export default function Dashboard() {
             </button>
           </div>
         ) : view === "keys" ||
-          (view === "workspace" && !connected && !agents.length) ? (
+          (view === "workspace" && !desktop && !connected && !agents.length) ? (
           <ProviderSettings
             providers={data.providers}
             onChange={async () => {
@@ -597,11 +616,11 @@ export default function Dashboard() {
               {workspace.connected ? "Live workspace" : "Reconnecting…"}
             </span>
             <span>
-              {totalTokens.toLocaleString()} reported tokens
+              API · {totalTokens.toLocaleString()} reported tokens
               <span className="footer-separator">/</span>
               {runs.length
                 ? `${money(totalCost)}${unknown ? " + unknown" : ""} estimated`
-                : "No usage yet"}
+                : "No API usage yet"}
               <span className="footer-separator">/</span>
               <span title={`Text prices checked ${data.pricingDate}`}>USD</span>
             </span>

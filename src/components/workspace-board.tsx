@@ -18,6 +18,7 @@ import type {
 } from "@/lib/types";
 import type { useWorkspace } from "./use-workspace";
 import { AgentPanel } from "./agent-panel";
+import { TerminalPanel } from "./terminal-panel";
 type WorkspaceState = ReturnType<typeof useWorkspace>;
 export function WorkspaceBoard({
   workspace,
@@ -183,36 +184,50 @@ export function WorkspaceBoard({
     );
     persist(items);
   }
-  const panel = (agent: AgentView) => (
-    <AgentPanel
-      agent={agent}
-      provider={data!.providers.find((p) => p.id === agent.provider)!}
-      modelName={
-        models[agent.provider]?.models.find((m) => m.id === agent.model)
-          ?.name ?? agent.model
-      }
-      compact={!single}
-      pinned={layout.pinned.includes(agent.id)}
-      collapsed={layout.collapsed.includes(agent.id)}
-      pending={!!pending[agent.id]}
-      error={chatErrors[agent.id]}
-      onEdit={() => onEdit(agent)}
-      onPin={() => toggle("pinned", agent.id)}
-      onCollapse={() => toggle("collapsed", agent.id)}
-      onFocus={() =>
-        updateLayout({
-          ...layout,
-          mode: "1",
-          activeId: agent.id,
-          collapsed: layout.collapsed.filter((id) => id !== agent.id),
-        })
-      }
-      onMove={(direction) => move(agent.id, direction)}
-      send={(text, mode, messageId) => send(agent.id, text, mode, messageId)}
-      stop={() => stop(agent)}
-      notify={setNotice}
-    />
-  );
+  const panel = (agent: AgentView) =>
+    agent.engine && agent.engine !== "api" ? (
+      <TerminalPanel
+        agent={agent}
+        collapsed={layout.collapsed.includes(agent.id)}
+        pinned={layout.pinned.includes(agent.id)}
+        onEdit={() => onEdit(agent)}
+        onPin={() => toggle("pinned", agent.id)}
+        onCollapse={() => toggle("collapsed", agent.id)}
+        onMove={(direction) => move(agent.id, direction)}
+        onFocus={() =>
+          updateLayout({ ...layout, activeId: agent.id, mode: "1" })
+        }
+      />
+    ) : (
+      <AgentPanel
+        agent={agent}
+        provider={data!.providers.find((p) => p.id === agent.provider)!}
+        modelName={
+          models[agent.provider]?.models.find((m) => m.id === agent.model)
+            ?.name ?? agent.model
+        }
+        compact={!single}
+        pinned={layout.pinned.includes(agent.id)}
+        collapsed={layout.collapsed.includes(agent.id)}
+        pending={!!pending[agent.id]}
+        error={chatErrors[agent.id]}
+        onEdit={() => onEdit(agent)}
+        onPin={() => toggle("pinned", agent.id)}
+        onCollapse={() => toggle("collapsed", agent.id)}
+        onFocus={() =>
+          updateLayout({
+            ...layout,
+            mode: "1",
+            activeId: agent.id,
+            collapsed: layout.collapsed.filter((id) => id !== agent.id),
+          })
+        }
+        onMove={(direction) => move(agent.id, direction)}
+        send={(text, mode, messageId) => send(agent.id, text, mode, messageId)}
+        stop={() => stop(agent)}
+        notify={setNotice}
+      />
+    );
   return (
     <div className="workspace-board">
       <div className="board-heading">
@@ -222,7 +237,8 @@ export function WorkspaceBoard({
           <p>
             {active.length} {active.length === 1 ? "agent" : "agents"}
             <span>·</span>
-            {agents.filter((a) => a.conversation.activeRunId).length} thinking
+            {agents.filter((a) => a.conversation.activeRunId).length} API
+            replies running
             <span>·</span>
             <span
               className={
@@ -352,7 +368,9 @@ export function WorkspaceBoard({
               <Plus size={30} />
             </span>
             <h2>Meet your first agent.</h2>
-            <p>Give it a role, bring a question, and see where it goes.</p>
+            <p>
+              Choose an engine, give it a project or a role, and start a task.
+            </p>
             <button className="primary" onClick={onNew}>
               Create an agent
             </button>
@@ -371,7 +389,7 @@ export function WorkspaceBoard({
               containerPadding={[0, 0]}
               layout={grid}
               draggableHandle=".panel-grip"
-              draggableCancel="textarea,input,select,.panel-controls,.send-button"
+              draggableCancel="textarea,input,select,.panel-controls,.send-button,.terminal-surface,.terminal-copy,.terminal-title"
               isDraggable={!narrow}
               isResizable={!narrow}
               onDragStop={persist}

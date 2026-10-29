@@ -44,6 +44,11 @@ model Agent {
   userId String
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   name String
+  engine String @default("api")
+  projectPath String @default("")
+  nativeSessionId String?
+  terminalStarted Boolean @default(false)
+  terminalState String @default("stopped")
   provider String @default("anthropic")
   model String
   systemPrompt String

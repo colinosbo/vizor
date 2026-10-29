@@ -27,7 +27,13 @@ export async function editProposal(
   if (
     "agentId" in payload &&
     !(await db.agent.findFirst({
-      where: { id: payload.agentId, userId, kind: "agent", archived: false },
+      where: {
+        id: payload.agentId,
+        userId,
+        kind: "agent",
+        archived: false,
+        engine: "api",
+      },
       select: { id: true },
     }))
   )
@@ -152,6 +158,11 @@ export async function approveProposal(
       );
       let subjectId: string;
       if (payload.action === "create_agent") {
+        if (payload.config.engine !== "api")
+          throw new AppError(
+            "terminal_manual",
+            "Create terminal agents directly from the dashboard.",
+          );
         if (
           !(await tx.credential.findUnique({
             where: {
@@ -176,6 +187,7 @@ export async function approveProposal(
             userId,
             kind: "agent",
             archived: false,
+            engine: "api",
           },
           select: { id: true },
         });

@@ -10,6 +10,7 @@ module.exports = {
   files: [
     "main.cjs",
     "policy.cjs",
+    "terminals.cjs",
     "preload.cjs",
     "updater.cjs",
     "update-policy.cjs",
@@ -19,6 +20,28 @@ module.exports = {
     "package.json",
   ],
   extraResources: [
+    {
+      from: path.join(__dirname, "terminal-host/node_modules/node-pty"),
+      to: "vizor/terminal-host/node_modules/node-pty",
+      filter: [
+        "package.json",
+        "LICENSE",
+        "lib/**/*",
+        "prebuilds/win32-x64/**/*",
+        "!**/*.pdb",
+      ],
+    },
+    {
+      from: path.join(__dirname, "terminal-host"),
+      to: "vizor/terminal-host",
+      filter: [
+        "**/*",
+        "!**/*.pdb",
+        "!**/src{,/**/*}",
+        "!**/deps{,/**/*}",
+        "!**/test{,/**/*}",
+      ],
+    },
     {
       from: process.env.VIZOR_INSTALLER_BUNDLE,
       to: "vizor",

@@ -4,13 +4,13 @@ Automatic updates apply to the installed Windows app from v0.8.0 onward. Older i
 
 ## What users receive
 
-The installed app checks shortly after startup and every six hours. It accepts newer stable versions only. It downloads an authenticated update in the background and installs on normal app quit, after the owned local server stops. A visible notice offers **Restart now**, which defers while any generation is running. No forced restart is scheduled. Users can opt out in **Help → Automatic updates**.
+The installed app checks shortly after startup and every six hours. It accepts newer stable versions only. It downloads an authenticated update in the background and installs on normal app quit, after the owned local server stops. A visible notice offers **Restart now**, which defers while any generation or terminal process is running. Closing with open terminal agents asks whether to stop them first. No forced restart is scheduled. Users can opt out in **Help → Automatic updates**.
 
 An offline, incomplete or untrusted release produces a recoverable update notice and leaves the app usable. An installer is never downloaded before the detached Ed25519 manifest signature, version, filename, size and SHA-512 match the app's pinned release identity and updater metadata. The standard updater additionally verifies the downloaded file checksum. No update credentials are shipped in the app.
 
 ## Release procedure
 
-1. Bump the root and desktop package versions and both lockfiles together. Keep the stable `major.minor.patch` format and the existing application ID/data paths.
+1. Bump the root, desktop and terminal-host package versions and their lockfiles together. Keep the stable `major.minor.patch` format and the existing application ID/data paths.
 2. Commit and push the reviewed code to main. Create a **draft** GitHub release tagged `v<version>` and target that exact commit SHA.
 3. Dispatch **Build portable releases** and **Windows desktop installer** on main, passing the draft release ID and exact commit SHA.
 4. The Windows workflow compiles/tests/packages, verifies real installation and a two-version automatic-update fixture, then signs the tested installer metadata using the repository secret `VIZOR_UPDATE_SIGNING_KEY`. Only after those checks does it upload the release files.
