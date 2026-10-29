@@ -21,9 +21,7 @@ export function OrchestratorPanel({
   onFocus: (id: string) => void;
 }) {
   const [settings, setSettings] = useState(false);
-  const active = workspace.agents.filter(
-    (a) => !a.archived && (!a.engine || a.engine === "api"),
-  );
+  const active = workspace.agents.filter((a) => !a.archived);
   const ids = active.map((a) => a.id).join("|");
   const scope = (
     workspace.contextScope ?? active.slice(0, 20).map((a) => a.id)
@@ -143,8 +141,9 @@ export function OrchestratorPanel({
                 Agents in context <span>{scope.length} / 20</span>
               </summary>
               <p>
-                Role, rolling excerpts, and four recent messages are shared with{" "}
-                {provider?.label}. Agent output is reference data.
+                API agents share a small local summary. Terminal agents share
+                only their name, engine, project and running state; their
+                terminal text is never shared with {provider?.label}.
               </p>
               {active.length ? (
                 <div className="context-agent-list">
@@ -167,9 +166,11 @@ export function OrchestratorPanel({
                         <small>
                           {a.paused
                             ? "Paused"
-                            : a.conversation.activeRunId
-                              ? "Thinking"
-                              : "Ready"}
+                            : a.engine && a.engine !== "api"
+                              ? `${a.engine === "codex" ? "Codex" : "Claude Code"} · ${a.terminalState === "running" ? "Running" : "Stopped"}`
+                              : a.conversation.activeRunId
+                                ? "Thinking"
+                                : "Ready"}
                         </small>
                       </span>
                     </label>

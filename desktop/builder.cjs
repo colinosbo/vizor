@@ -9,6 +9,7 @@ module.exports = {
   directories: { output: "../artifacts/windows-installer" },
   files: [
     "main.cjs",
+    "startup.cjs",
     "policy.cjs",
     "terminals.cjs",
     "preload.cjs",
@@ -20,6 +21,7 @@ module.exports = {
     "package.json",
   ],
   extraResources: [
+    { from: path.join(__dirname, "../public/intro"), to: "intro" },
     {
       from: path.join(__dirname, "terminal-host/node_modules/node-pty"),
       to: "vizor/terminal-host/node_modules/node-pty",

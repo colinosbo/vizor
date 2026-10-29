@@ -21,6 +21,7 @@ model User {
   budgets ProviderBudget[]
   budgetMonths BudgetMonth[]
   spending SpendEntry[]
+  terminalDispatches TerminalDispatch[]
 }
 model Session {
   id String @id
@@ -64,6 +65,7 @@ model Agent {
   summaryThroughPosition Int @default(-1)
   createdAt DateTime @default(now())
   conversation Conversation?
+  terminalDispatches TerminalDispatch[]
   @@index([userId])
 }
 model Conversation {
@@ -143,6 +145,23 @@ model Proposal {
   updatedAt DateTime @updatedAt
   @@unique([runId, toolCallId])
   @@index([userId, status, createdAt])
+}
+model TerminalDispatch {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  agentId String
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  proposalId String @unique
+  text String
+  status String @default("ready")
+  error String?
+  claimedAt DateTime?
+  deliveredAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, status, createdAt])
+  @@index([agentId, status])
 }
 model AuditEntry {
   id String @id @default(cuid())

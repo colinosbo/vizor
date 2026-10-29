@@ -43,6 +43,7 @@ test("native orchestration, human approval, audit history and provider spending 
     ).toEqual([]);
   };
   await page.goto("/");
+  await expect(page.locator(".startup-intro")).toHaveCount(0);
   await page
     .getByLabel("Your Anthropic API key")
     .fill("sk-ant-orchestrator-fixture-1234");
@@ -288,6 +289,7 @@ test("native orchestration, human approval, audit history and provider spending 
     "monthly budget is exhausted",
   );
   await page.reload();
+  await expect(page.locator(".startup-intro")).toHaveCount(0);
   expect((await state()).autopilot).toBe(false);
   expect(
     (await state()).budgets.every((b: { limit: number }) => b.limit === 0),

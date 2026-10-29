@@ -19,6 +19,7 @@ export const actionLabel: Record<string, string> = {
   rename_agent: "Rename an agent",
   pause_agent: "Pause an agent",
   archive_agent: "Archive an agent",
+  dispatch_terminal: "Send a terminal task",
 };
 export function ProposalQueue({
   workspace,
@@ -173,6 +174,59 @@ function ProposalCard({
     "agentId" in payload
       ? workspace.agents.find((a) => a.id === payload.agentId)
       : undefined;
+  const dispatch = workspace.data?.terminalDispatches.find(
+    (item) => item.proposalId === proposal.id,
+  );
+  async function launchTerminalTask() {
+    const bridge = window.vizorDesktop?.terminals;
+    if (!bridge || payload.action !== "dispatch_terminal") {
+      setError("Open the Windows desktop app to send this task.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    let claimed = false;
+    try {
+      const task = await api<{ agentId: string; text: string }>(
+        `terminal-dispatches/${proposal.id}/claim`,
+        "POST",
+      );
+      claimed = true;
+      let next = await bridge.snapshot(task.agentId);
+      if (next.state !== "running") {
+        next = await bridge.start(task.agentId);
+        if (next.conflict) {
+          if (
+            !confirm(
+              "Another coding agent is open in this project. Their edits can conflict. Start this agent too?",
+            )
+          )
+            throw Error(
+              "Task not sent. The project conflict was not approved.",
+            );
+          next = await bridge.start(task.agentId, true);
+        }
+      }
+      if (next.state !== "running" || !next.token)
+        throw Error(
+          "The terminal did not start. Use Set up / sign in, then retry.",
+        );
+      await bridge.input(task.agentId, next.token, `${task.text}\r`);
+      await api(`terminal-dispatches/${proposal.id}/complete`, "POST");
+      await workspace.reload();
+      workspace.setNotice("Task sent to the selected terminal agent.");
+    } catch (e) {
+      const message = (e as Error).message;
+      if (claimed)
+        await api(`terminal-dispatches/${proposal.id}/release`, "POST", {
+          reason: message,
+        }).catch(() => {});
+      setError(message);
+      await workspace.reload();
+    } finally {
+      setBusy(false);
+    }
+  }
   async function decide(action: "approve" | "reject") {
     setBusy(true);
     setError("");
@@ -208,7 +262,8 @@ function ProposalCard({
           ? payload.config.name
           : (agent?.name ?? "Unavailable agent")}
       </h3>
-      {payload.action === "send_message" ? (
+      {payload.action === "send_message" ||
+      payload.action === "dispatch_terminal" ? (
         <p className="proposal-text">{payload.text}</p>
       ) : payload.action === "rename_agent" ? (
         <p className="proposal-text">
@@ -278,6 +333,23 @@ function ProposalCard({
             <X size={15} />
           </button>
         </div>
+      ) : payload.action === "dispatch_terminal" &&
+        dispatch?.status === "ready" ? (
+        <button
+          className="primary"
+          disabled={busy}
+          onClick={() => void launchTerminalTask()}
+        >
+          {busy ? (
+            <LoaderCircle className="spin" size={14} />
+          ) : (
+            <ArrowRight size={14} />
+          )}
+          Start &amp; send
+        </button>
+      ) : payload.action === "dispatch_terminal" &&
+        dispatch?.status === "delivered" ? (
+        <p className="field-note">Task sent to this terminal agent.</p>
       ) : agent && onFocus ? (
         <button className="text-button" onClick={() => onFocus(agent.id)}>
           Open agent
@@ -338,7 +410,13 @@ function ProposalEditor({
               }
             >
               {workspace.agents
-                .filter((a) => !a.archived && (!a.engine || a.engine === "api"))
+                .filter(
+                  (a) =>
+                    !a.archived &&
+                    (payload.action === "dispatch_terminal"
+                      ? a.engine === "claude-code" || a.engine === "codex"
+                      : !a.engine || a.engine === "api"),
+                )
                 .map((agent) => (
                   <option key={agent.id} value={agent.id}>
                     {agent.name}
@@ -347,9 +425,12 @@ function ProposalEditor({
             </select>
           </label>
         )}
-        {payload.action === "send_message" && (
+        {(payload.action === "send_message" ||
+          payload.action === "dispatch_terminal") && (
           <label>
-            Message
+            {payload.action === "dispatch_terminal"
+              ? "Terminal task"
+              : "Message"}
             <textarea
               aria-label="Proposal message"
               rows={7}

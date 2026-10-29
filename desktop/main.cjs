@@ -40,6 +40,7 @@ let failed = false;
 let updates;
 let terminals;
 let stoppingBackend;
+let startup;
 const activityRequests = new Map();
 function stopBackend() {
   if (stoppingBackend) return stoppingBackend;
@@ -113,6 +114,7 @@ if (!app.requestSingleInstanceLock()) {
       if (choice !== 1) return;
     }
     quitting = true;
+    startup?.dispose();
     window?.hide();
     void stopBackend().then(() => app.quit());
   });
@@ -199,6 +201,10 @@ async function start() {
   ipcMain.handle("vizor:update-state", (event) => {
     trusted(event);
     return updates.snapshot();
+  });
+  ipcMain.handle("vizor:startup-ready", (event) => {
+    trusted(event);
+    return startup?.finish();
   });
   ipcMain.handle("vizor:terminal", (event, action, args) => {
     trusted(event);
@@ -345,6 +351,7 @@ async function start() {
       devTools: false,
     },
   });
+  startup = require("./startup.cjs").createStartup(window);
   window.webContents.setWindowOpenHandler(({ url }) => {
     openExternal(url);
     return { action: "deny" };
@@ -431,9 +438,11 @@ async function start() {
     window
       .loadURL(origin)
       .then(() => {
-        window.show();
-        window.focus();
         updates.start();
+        // Reveal even when workspace hydration or its request fails to settle.
+        const reveal = setTimeout(() => void startup?.finish(), 15000);
+        reveal.unref();
+        window.once("closed", () => clearTimeout(reveal));
       })
       .catch(() => fail());
   });

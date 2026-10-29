@@ -12,6 +12,7 @@ type UpdateState = {
 declare global {
   interface Window {
     vizorDesktop?: {
+      startupReady?(): Promise<void>;
       terminals?: TerminalBridge;
       getUpdateState(): Promise<UpdateState>;
       checkForUpdates(): Promise<UpdateState>;

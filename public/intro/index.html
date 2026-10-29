@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <title>Opening Vizor</title>
+    <link rel="stylesheet" href="intro.css" />
+    <script src="intro.js" defer></script>
+  </head>
+  <body>
+    <main class="intro" aria-label="Opening Vizor">
+      <div class="scene" aria-hidden="true">
+        <svg
+          class="comets"
+          viewBox="0 0 320 320"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <linearGradient id="comet-color">
+              <stop stop-color="#e98b57" stop-opacity="0" />
+              <stop offset="1" stop-color="#ffc592" />
+            </linearGradient>
+          </defs>
+          <g class="comet comet-a">
+            <path d="M40 160a120 120 0 0 1 120-120" />
+            <circle cx="160" cy="40" r="2.5" />
+          </g>
+          <g class="comet comet-b">
+            <path d="M40 160a120 120 0 0 1 120-120" />
+            <circle cx="160" cy="40" r="2" />
+          </g>
+          <g class="comet comet-c">
+            <path d="M40 160a120 120 0 0 1 120-120" />
+            <circle cx="160" cy="40" r="1.5" />
+          </g>
+        </svg>
+        <div class="sparks"></div>
+        <div class="lock-ripple"></div>
+        <div class="orbit orbit-one"></div>
+        <div class="orbit orbit-two"></div>
+        <div class="mascot">
+          <svg
+            class="clawd"
+            viewBox="0 0 180 120"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <g class="pixels"></g>
+            <g class="eyes" fill="#241c18">
+              <path d="M55 38h10v25H55zM115 38h10v25h-10z" />
+            </g>
+          </svg>
+          <div class="ground"></div>
+        </div>
+        <div class="scope">
+          <svg
+            class="reticle"
+            viewBox="0 0 320 320"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <circle class="scope-outer" cx="160" cy="160" r="143" />
+            <circle class="scope-inner" cx="160" cy="160" r="133" />
+            <circle class="scope-track" cx="160" cy="160" r="153" />
+            <g class="scope-ticks">
+              <path d="M160 10v30M310 160h-30M160 310v-30M10 160h30" />
+            </g>
+            <g class="scope-guides">
+              <path d="M160 48v12M272 160h-12M160 272v-12M48 160h12" />
+            </g>
+          </svg>
+          <span class="lock-corner corner-a"></span
+          ><span class="lock-corner corner-b"></span>
+          <span class="lock-corner corner-c"></span
+          ><span class="lock-corner corner-d"></span>
+          <span class="scope-label">IN FOCUS</span>
+        </div>
+      </div>
+      <div class="identity">
+        <h1>vizor<span>.</span></h1>
+        <p role="status" aria-live="polite">Finding your focus</p>
+      </div>
+    </main>
+  </body>
+</html>

@@ -57,6 +57,7 @@ export type Workspace = {
   pricingDate: string;
   orchestrator: AgentView | null;
   proposals: ProposalView[];
+  terminalDispatches: TerminalDispatchView[];
   pendingProposalCount: number;
   budgets: BudgetView[];
   autopilot: false;
@@ -124,6 +125,7 @@ export type LiveEvent =
   | { type: "unauthorized" };
 export type ProposalPayload =
   | { action: "send_message"; agentId: string; text: string }
+  | { action: "dispatch_terminal"; agentId: string; text: string }
   | { action: "create_agent"; config: AgentConfig }
   | { action: "rename_agent"; agentId: string; name: string }
   | { action: "pause_agent" | "archive_agent"; agentId: string };
@@ -137,6 +139,14 @@ export type ProposalView = {
   approvedBy: boolean;
   createdAt: string;
   resultRunId: string | null;
+  error: string | null;
+};
+export type TerminalDispatchView = {
+  id: string;
+  proposalId: string;
+  agentId: string;
+  text: string;
+  status: "ready" | "claimed" | "delivered" | "failed";
   error: string | null;
 };
 export type BudgetView = {

@@ -8,6 +8,7 @@ import { publish } from "./events";
 import type { ToolCall } from "../providers/types";
 export const proposalActions = [
   "send_message",
+  "dispatch_terminal",
   "create_agent",
   "rename_agent",
   "pause_agent",
@@ -17,6 +18,13 @@ export const proposalPayload = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("send_message"),
+      agentId: z.string().min(1).max(100),
+      text: z.string().trim().min(1).max(32000),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("dispatch_terminal"),
       agentId: z.string().min(1).max(100),
       text: z.string().trim().min(1).max(32000),
     })
@@ -114,6 +122,19 @@ export async function toolResult(
         agentId: input.agent_id,
         text: input.text,
       };
+    } else if (call.name === "dispatch_terminal") {
+      const input = z
+        .object({
+          agent_id: z.string().min(1).max(100),
+          text: z.string().trim().min(1).max(32000),
+        })
+        .strict()
+        .parse(call.arguments);
+      payload = {
+        action: "dispatch_terminal",
+        agentId: input.agent_id,
+        text: input.text,
+      };
     } else if (call.name === "rename_agent") {
       const input = z
         .object({
@@ -138,6 +159,7 @@ export async function toolResult(
       };
     } else
       throw new AppError("tool_unsupported", "This tool is not available.");
+    const terminalDispatch = payload.action === "dispatch_terminal";
     if (
       "agentId" in payload &&
       !(await db.agent.findFirst({
@@ -146,7 +168,7 @@ export async function toolResult(
           userId,
           kind: "agent",
           archived: false,
-          engine: "api",
+          engine: terminalDispatch ? { in: ["claude-code", "codex"] } : "api",
         },
         select: { id: true },
       }))

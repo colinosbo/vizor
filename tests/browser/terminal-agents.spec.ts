@@ -69,6 +69,7 @@ test("desktop terminal agents need no API key and keep independent sessions acro
     };
   });
   await page.goto("/");
+  await expect(page.locator(".startup-intro")).toHaveCount(0);
   for (const [name, engine] of [
     ["Terminal Claude", "claude-code"],
     ["Terminal Codex", "codex"],

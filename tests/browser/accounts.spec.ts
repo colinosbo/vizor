@@ -4,6 +4,7 @@ test("registration, login, logout and private account workspace", async ({
   page,
 }) => {
   await page.goto("/");
+  await expect(page.locator(".startup-intro")).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Welcome back." }),
   ).toBeVisible();

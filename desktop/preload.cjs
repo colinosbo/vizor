@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require("electron");
 if (process.isMainFrame)
   contextBridge.exposeInMainWorld("vizorDesktop", {
+    startupReady: () => ipcRenderer.invoke("vizor:startup-ready"),
     terminals: {
       tools: () => ipcRenderer.invoke("vizor:terminal", "tools"),
       install: (engine) =>

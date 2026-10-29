@@ -12,6 +12,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     page.on("request", (request) => outgoing.push(request.url()));
     mkdirSync(evidenceRoot, { recursive: true });
     await page.goto("/");
+    await expect(page.locator(".startup-intro")).toHaveCount(0);
     await expect(
       page.getByRole("heading", { name: /Your ideas/ }),
     ).toBeVisible();
@@ -84,6 +85,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     );
     await expect(page.locator(".markdown img")).toHaveCount(0);
     await page.reload();
+    await expect(page.locator(".startup-intro")).toHaveCount(0);
     await expect(page.getByRole("log")).toContainText(
       "Help me plan my next project",
     );
@@ -172,6 +174,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     page,
   }) => {
     await page.goto("/");
+    await expect(page.locator(".startup-intro")).toHaveCount(0);
     await page.getByRole("button", { name: "API keys", exact: true }).click();
     await page
       .getByLabel("Your Anthropic API key")

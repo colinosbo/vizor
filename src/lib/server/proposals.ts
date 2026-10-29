@@ -24,6 +24,7 @@ export async function editProposal(
       "proposal_target",
       "Editing cannot change a proposal’s action.",
     );
+  const terminalDispatch = payload.action === "dispatch_terminal";
   if (
     "agentId" in payload &&
     !(await db.agent.findFirst({
@@ -32,7 +33,7 @@ export async function editProposal(
         userId,
         kind: "agent",
         archived: false,
-        engine: "api",
+        engine: terminalDispatch ? { in: ["claude-code", "codex"] } : "api",
       },
       select: { id: true },
     }))
@@ -130,6 +131,67 @@ export async function approveProposal(
       alreadyReviewed: true,
     };
   const payload = proposalPayload.parse(JSON.parse(existing.payload));
+  if (payload.action === "dispatch_terminal") {
+    await db.$transaction(async (tx) => {
+      const claim = await tx.proposal.updateMany({
+        where: { id, userId, status: "pending", version },
+        data: {
+          status: "approved",
+          approvedBy: userId,
+          approvedAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      if (!claim.count)
+        throw new AppError(
+          "proposal_changed",
+          "This proposal changed or was already reviewed. Refresh the queue.",
+          409,
+        );
+      const agent = await tx.agent.findFirst({
+        where: {
+          id: payload.agentId,
+          userId,
+          kind: "agent",
+          archived: false,
+          engine: { in: ["claude-code", "codex"] },
+        },
+        select: { id: true },
+      });
+      if (!agent)
+        throw new AppError(
+          "not_found",
+          "The terminal agent is unavailable.",
+          404,
+        );
+      await tx.terminalDispatch.create({
+        data: {
+          userId,
+          agentId: agent.id,
+          proposalId: id,
+          text: payload.text,
+        },
+      });
+      await audit(
+        userId,
+        "proposal.approved",
+        agent.id,
+        { action: payload.action, version, payload },
+        { proposalId: id, approvedBy: userId },
+        tx,
+      );
+      await audit(
+        userId,
+        "terminal_task.ready",
+        agent.id,
+        {},
+        { actor: "orchestrator", proposalId: id, approvedBy: userId },
+        tx,
+      );
+    });
+    publish(userId);
+    return { id, status: "approved", runId: null };
+  }
   if (payload.action !== "send_message") {
     let stopId: string | undefined;
     await db.$transaction(async (tx) => {

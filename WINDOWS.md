@@ -2,7 +2,7 @@
 
 ## Install and open
 
-1. Download **Vizor-Setup-0.9.0-x64.exe** from the [latest release](https://github.com/colinosbo/vizor/releases/latest). Existing v0.8.0 installations can use **Help → Check for updates**.
+1. Download the current **Vizor-Setup-*-x64.exe** from the [latest release](https://github.com/colinosbo/vizor/releases/latest). Existing installed copies can use **Help → Check for updates**.
 2. Run it and accept the included license. Vizor installs for your Windows user; you do not need to install Node or run commands.
 3. Open **Vizor** from your desktop or Start menu. It opens in its own app window.
 4. Choose **New agent**, select **Claude Code**, **Codex**, or an **API connection**, and select a project for terminal agents. Use **Set up / sign in** if a CLI is missing or needs login. API agents use your own Anthropic/OpenAI key; API billing is separate from chat subscriptions.

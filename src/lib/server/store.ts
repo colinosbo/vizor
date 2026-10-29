@@ -135,6 +135,19 @@ export async function workspace(user: { id: string; email: string }) {
         payload: JSON.parse(proposal.payload),
         approvedBy: proposal.approvedBy === user.id,
       })),
+    terminalDispatches: await db.terminalDispatch.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        proposalId: true,
+        agentId: true,
+        text: true,
+        status: true,
+        error: true,
+      },
+    }),
     budgets: await budgetViews(user.id),
     autopilot: false,
   };

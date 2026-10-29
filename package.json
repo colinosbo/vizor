@@ -1,6 +1,6 @@
 {
   "name": "vizor",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
@@ -13,6 +13,7 @@
     "test:portable": "node scripts/portable-smoke.mjs",
     "package:windows": "node scripts/build-windows.mjs",
     "test:windows": "node scripts/windows-smoke.mjs",
+    "test:startup": "node scripts/startup-smoke.mjs",
     "test:terminals": "node scripts/terminal-smoke.mjs",
     "test:updates": "node scripts/update-smoke.mjs",
     "release:sign-update": "node scripts/sign-update.mjs",

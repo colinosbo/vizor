@@ -39,6 +39,12 @@ import {
   recordTerminal,
 } from "@/lib/server/terminal-agents";
 import {
+  claimTerminalDispatch,
+  completeTerminalDispatch,
+  recoverTerminalDispatches,
+  releaseTerminalDispatch,
+} from "@/lib/server/terminal-dispatches";
+import {
   createAgent,
   editAgent,
   agentAction,
@@ -53,6 +59,7 @@ async function handle(
   try {
     checkRequest(request);
     await recoverRuns();
+    await recoverTerminalDispatches();
     const { path } = await context.params;
     const route = path.join("/");
     const method = request.method;
@@ -109,6 +116,27 @@ async function handle(
           path[1],
           await readJson(request, terminalRecord),
         );
+        return Response.json({ ok: true });
+      }
+    }
+    if (
+      path[0] === "terminal-dispatches" &&
+      path.length === 3 &&
+      method === "POST"
+    ) {
+      const proposalId = path[1];
+      if (path[2] === "claim")
+        return Response.json(await claimTerminalDispatch(user.id, proposalId));
+      if (path[2] === "complete") {
+        await completeTerminalDispatch(user.id, proposalId);
+        return Response.json({ ok: true });
+      }
+      if (path[2] === "release") {
+        const input = await readJson(
+          request,
+          z.object({ reason: z.string().trim().min(1).max(500) }).strict(),
+        );
+        await releaseTerminalDispatch(user.id, proposalId, input.reason);
         return Response.json({ ok: true });
       }
     }

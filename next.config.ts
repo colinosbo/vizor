@@ -24,6 +24,10 @@ const config: NextConfig = {
           },
         ],
       },
+      {
+        source: "/intro/index.html",
+        headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }],
+      },
     ];
   },
 };

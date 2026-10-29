@@ -173,6 +173,7 @@ async function open() {
       "onUpdateState",
       "restartToUpdate",
       "setAutomaticUpdates",
+      "startupReady",
       "terminals",
     ],
   );

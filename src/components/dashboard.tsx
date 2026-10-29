@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Archive,
   Bot,
@@ -34,7 +34,10 @@ import { ProposalQueue } from "./proposal-queue";
 import { SpendingView } from "./spending-view";
 import { AuditHistory } from "./audit-view";
 import { DesktopUpdates } from "./desktop-updates";
+import { StartupIntro } from "./startup-intro";
 export default function Dashboard() {
+  const [introVisible, setIntroVisible] = useState(true);
+  const finishIntro = useCallback(() => setIntroVisible(false), []);
   const workspace = useWorkspace();
   const {
     data,
@@ -172,9 +175,18 @@ export default function Dashboard() {
       setError((e as Error).message);
     }
   }
-  if (auth) return <AuthForm onLogin={reload} />;
-  return (
-    <div className="app-shell">
+  const content = auth ? (
+    <div
+      inert={introVisible}
+      className={introVisible ? "startup-pending" : undefined}
+    >
+      <AuthForm onLogin={reload} />
+    </div>
+  ) : (
+    <div
+      className={`app-shell${introVisible ? " startup-pending" : ""}`}
+      inert={introVisible}
+    >
       {mobileNav && (
         <button
           className="nav-scrim"
@@ -642,6 +654,12 @@ export default function Dashboard() {
         )}
       </main>
     </div>
+  );
+  return (
+    <>
+      <StartupIntro ready={!loading} onComplete={finishIntro} />
+      {content}
+    </>
   );
 }
 function AuthForm({ onLogin }: { onLogin: () => Promise<unknown> }) {

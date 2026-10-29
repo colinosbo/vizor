@@ -20,6 +20,7 @@ test("both providers, concurrent live observers, saved layouts, templates and li
     page.getByRole("region", { name: `${name} panel`, exact: true });
   const state = async () => (await page.request.get("/api/workspace")).json();
   await page.goto("/");
+  await expect(page.locator(".startup-intro")).toHaveCount(0);
   await page
     .getByLabel("Your OpenAI API key")
     .fill("sk-openai-fixture-valid-1234");
@@ -71,6 +72,7 @@ test("both providers, concurrent live observers, saved layouts, templates and li
   await expect(button("2-up layout")).toHaveAttribute("aria-pressed", "true");
   const observer = await context.newPage();
   await observer.goto("/");
+  await expect(observer.locator(".startup-intro")).toHaveCount(0);
   await expect(
     observer.getByRole("region", { name: "Writer panel", exact: true }),
   ).toBeVisible();
@@ -188,6 +190,7 @@ test("both providers, concurrent live observers, saved layouts, templates and li
   await expect(button("Expand Writer")).toBeVisible();
   await expect(page.getByText("Layout saved", { exact: true })).toBeVisible();
   await page.reload();
+  await expect(page.locator(".startup-intro")).toHaveCount(0);
   await expect(button("Unpin GPT partner")).toBeVisible();
   await expect(button("Expand Writer")).toBeVisible();
   await button("Expand Writer").click();

@@ -28,6 +28,12 @@ import {
   editProposal,
   rejectProposal,
 } from "../src/lib/server/proposals";
+import {
+  claimTerminalDispatch,
+  completeTerminalDispatch,
+  recoverTerminalDispatches,
+  releaseTerminalDispatch,
+} from "../src/lib/server/terminal-dispatches";
 import { startChat, recoverRuns } from "../src/lib/server/chat";
 import { anthropic } from "../src/lib/providers/anthropic";
 import { GET, POST, PATCH, DELETE } from "../src/app/api/[...path]/route";
@@ -58,6 +64,25 @@ async function newAgent(userId = alice, name = "Writer") {
   return (
     await db.agent.create({
       data: { ...defaultAgent, name, userId, conversation: { create: {} } },
+    })
+  ).id;
+}
+async function newTerminalAgent(
+  userId = alice,
+  name = "Builder",
+  engine: "claude-code" | "codex" = "claude-code",
+) {
+  return (
+    await db.agent.create({
+      data: {
+        ...defaultAgent,
+        name,
+        userId,
+        engine,
+        projectPath: "C:\\projects\\vizor",
+        nativeSessionId: randomUUID(),
+        conversation: { create: {} },
+      },
     })
   ).id;
 }
@@ -265,6 +290,106 @@ describe("orchestrator context and approval boundaries", () => {
     await expect(approveProposal(alice, id, 1)).rejects.toMatchObject({
       code: "proposal_changed",
     });
+  });
+  it("keeps terminal text private while queueing an approved task for one owned terminal only", async () => {
+    const builder = await newTerminalAgent();
+    const context = await orchestratorContext(alice, [builder]);
+    expect(context.agents[0]).toMatchObject({
+      id: builder,
+      engine: "claude-code",
+      recent: [],
+    });
+    expect(JSON.stringify(context)).not.toContain("fixture-only-test");
+    const before = await db.message.count();
+    const result = await toolResult(
+      alice,
+      runId,
+      {
+        id: randomUUID(),
+        name: "dispatch_terminal",
+        arguments: { agent_id: builder, text: "Create the project README." },
+      },
+      [builder],
+    );
+    expect(result).toMatchObject({
+      requiresHumanApproval: true,
+      executed: false,
+    });
+    const proposal = await db.proposal.findUniqueOrThrow({
+      where: { id: (result as { proposalId: string }).proposalId },
+    });
+    expect(proposal.status).toBe("pending");
+    expect(
+      await db.terminalDispatch.count({ where: { proposalId: proposal.id } }),
+    ).toBe(0);
+    await approveProposal(alice, proposal.id, 0);
+    expect(await db.message.count()).toBe(before);
+    const dispatch = await db.terminalDispatch.findUniqueOrThrow({
+      where: { proposalId: proposal.id },
+    });
+    expect(dispatch).toMatchObject({
+      agentId: builder,
+      status: "ready",
+      text: "Create the project README.",
+    });
+    await expect(claimTerminalDispatch(bob, proposal.id)).rejects.toMatchObject(
+      { status: 404 },
+    );
+    expect(await claimTerminalDispatch(alice, proposal.id)).toMatchObject({
+      agentId: builder,
+      text: "Create the project README.",
+    });
+    await releaseTerminalDispatch(alice, proposal.id, "Terminal not signed in");
+    expect(
+      (
+        await db.terminalDispatch.findUniqueOrThrow({
+          where: { proposalId: proposal.id },
+        })
+      ).status,
+    ).toBe("ready");
+    await claimTerminalDispatch(alice, proposal.id);
+    await completeTerminalDispatch(alice, proposal.id);
+    expect(
+      (
+        await db.terminalDispatch.findUniqueOrThrow({
+          where: { proposalId: proposal.id },
+        })
+      ).status,
+    ).toBe("delivered");
+  });
+  it("refuses a terminal task aimed at an API agent", async () => {
+    const result = await toolResult(
+      alice,
+      runId,
+      {
+        id: randomUUID(),
+        name: "dispatch_terminal",
+        arguments: { agent_id: writer, text: "Do not send this" },
+      },
+      [writer],
+    );
+    expect(result).toHaveProperty("error");
+  });
+  it("releases an abandoned terminal delivery for a later retry", async () => {
+    const builder = await newTerminalAgent();
+    const proposal = await queue("dispatch_terminal", {
+      agent_id: builder,
+      text: "Retry this task",
+    });
+    await approveProposal(alice, proposal.id, 0);
+    await db.terminalDispatch.update({
+      where: { proposalId: proposal.id },
+      data: {
+        status: "claimed",
+        claimedAt: new Date(Date.now() - 3 * 60_000),
+      },
+    });
+    await recoverTerminalDispatches();
+    expect(
+      await db.terminalDispatch.findUniqueOrThrow({
+        where: { proposalId: proposal.id },
+      }),
+    ).toMatchObject({ status: "ready" });
   });
   it("edit versions prevent stale approval and preserve the human's revised text", async () => {
     const p = await queue("propose_message", {

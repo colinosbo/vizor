@@ -65,6 +65,7 @@ test("real server restart preserves history and keys and recovers an interrupted
   try {
     await start();
     await page.goto("http://127.0.0.1:3102");
+    await expect(page.locator(".startup-intro")).toHaveCount(0);
     await page
       .getByLabel("Your Anthropic API key")
       .fill("sk-ant-restart-fixture-1234");
@@ -150,6 +151,7 @@ test("real server restart preserves history and keys and recovers an interrupted
     await kill();
     await start();
     await page.reload();
+    await expect(page.locator(".startup-intro")).toHaveCount(0);
     const restored = await (
       await page.request.get("http://127.0.0.1:3102/api/workspace")
     ).json();

@@ -100,6 +100,7 @@ if (
   throw new Error("The app window does not contain the approved icon.");
 for (const file of [
   "main.cjs",
+  "startup.cjs",
   "terminals.cjs",
   "preload.cjs",
   "updater.cjs",
@@ -114,6 +115,15 @@ for (const file of [
   if (!Buffer.from(packed).equals(readFileSync(join(root, "desktop", file))))
     throw new Error(
       "The packaged update code does not match the production source.",
+    );
+}
+for (const file of ["index.html", "intro.css", "intro.js"]) {
+  const packed = join(dirname(installer), "win-unpacked/resources/intro", file);
+  if (
+    !readFileSync(packed).equals(readFileSync(join(root, "public/intro", file)))
+  )
+    throw new Error(
+      "The packaged opening animation does not match the source.",
     );
 }
 const feed = requireDesktop("js-yaml").load(
