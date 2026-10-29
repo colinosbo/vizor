@@ -165,6 +165,20 @@ test("desktop terminal agents need no API key and keep independent sessions acro
     "API spending caps do not cover this terminal",
   );
   await cards
+    .last()
+    .getByRole("button", { name: "Collapse Terminal Codex" })
+    .click();
+  await page.evaluate(async () => {
+    const agents = (await (await fetch("/api/workspace")).json()).agents;
+    const id = agents.find((a: any) => a.name === "Terminal Codex").id;
+    await window.vizorDesktop!.terminals!.stop(id, id);
+  });
+  await expect(cards.last()).toContainText("Stopped");
+  await cards
+    .last()
+    .getByRole("button", { name: "Expand Terminal Codex" })
+    .click();
+  await cards
     .first()
     .getByRole("button", { name: "Move Terminal Claude panel" })
     .focus();

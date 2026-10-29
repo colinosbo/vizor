@@ -53,6 +53,16 @@ function completeCodex(directory) {
       statSync(join(directory, file)).isFile(),
   );
 }
+function packageHashes(directory) {
+  return Object.fromEntries(
+    codexFiles.map((file) => [
+      file,
+      createHash("sha256")
+        .update(readFileSync(join(directory, file)))
+        .digest("hex"),
+    ]),
+  );
+}
 function findTool(engine, home, env = process.env) {
   const release = spec(engine);
   const directory = location(engine, home),
@@ -147,7 +157,7 @@ function installBytes(engine, home, bytes) {
     rmSync(archive);
     writeFileSync(
       join(staging, "vizor-verified.json"),
-      JSON.stringify({ sha256: release.sha256 }),
+      JSON.stringify({ sha256: release.sha256, files: packageHashes(staging) }),
     );
     // Only the resolved, managed binary directory; never a selected project.
     if (existsSync(directory)) rmSync(directory, { recursive: true });
@@ -164,10 +174,16 @@ async function installTool(engine, home, progress = () => {}) {
     existing = join(directory, release.file);
   let cached = false;
   try {
+    const receipt =
+      release.archive && completeCodex(directory)
+        ? JSON.parse(
+            readFileSync(join(directory, "vizor-verified.json"), "utf8"),
+          )
+        : null;
     cached = release.archive
-      ? completeCodex(directory) &&
-        JSON.parse(readFileSync(join(directory, "vizor-verified.json"), "utf8"))
-          .sha256 === release.sha256
+      ? receipt?.sha256 === release.sha256 &&
+        JSON.stringify(receipt.files) ===
+          JSON.stringify(packageHashes(directory))
       : existsSync(existing) &&
         createHash("sha256").update(readFileSync(existing)).digest("hex") ===
           release.sha256;

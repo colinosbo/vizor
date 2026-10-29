@@ -201,8 +201,10 @@ export function TerminalPanel({
       bridge?.onEvent((event) => {
         if (event.type === "install" && event.engine === engine)
           setProgress(event.progress ?? null);
+        if (event.type === "state" && event.agentId === agent.id)
+          setState(event);
       }),
-    [bridge, engine],
+    [bridge, engine, agent.id],
   );
   async function start() {
     if (!bridge) return;
