@@ -93,6 +93,7 @@ const desktop = JSON.parse(
 );
 for (const file of [
   "main.cjs",
+  "startup.cjs",
   "policy.cjs",
   "terminals.cjs",
   "preload.cjs",
