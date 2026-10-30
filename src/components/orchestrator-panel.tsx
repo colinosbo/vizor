@@ -16,9 +16,13 @@ type WorkspaceState = ReturnType<typeof useWorkspace>;
 export function OrchestratorPanel({
   workspace,
   onFocus,
+  onNew,
+  onConnections,
 }: {
   workspace: WorkspaceState;
   onFocus: (id: string) => void;
+  onNew: () => void;
+  onConnections: () => void;
 }) {
   const [settings, setSettings] = useState(false);
   const active = workspace.agents.filter((a) => !a.archived);
@@ -43,9 +47,9 @@ export function OrchestratorPanel({
     <div className="orchestrator-view">
       <div className="orchestrator-heading">
         <div>
-          <div className="eyebrow">THE BIG PICTURE</div>
-          <h1>One conversation. More perspective.</h1>
-          <p>Your agents’ progress, and the next moves you approve.</p>
+          <div className="eyebrow">PLAN · DELEGATE · REVIEW</div>
+          <h1>What are we building?</h1>
+          <p>Give your team a direction. Review tasks before they run.</p>
         </div>
         <span className="approval-only">
           <ShieldCheck size={14} />
@@ -57,10 +61,10 @@ export function OrchestratorPanel({
           <span className="welcome-mark">
             <Sparkles size={28} />
           </span>
-          <h2>Meet your orchestrator.</h2>
+          <h2>Set up your team lead.</h2>
           <p>
-            Choose its model. It can summarize your agents and draft their next
-            steps.
+            The orchestrator uses your API connection to plan work and propose
+            tasks for your agents. You approve each action.
           </p>
           <button
             className="primary"
@@ -71,7 +75,9 @@ export function OrchestratorPanel({
             <ArrowRight size={15} />
           </button>
           {!workspace.data?.providers.some((p) => p.connected) && (
-            <p>Connect a provider in API keys first.</p>
+            <button className="secondary" onClick={onConnections}>
+              Connect an API key
+            </button>
           )}
         </div>
       ) : (
@@ -136,14 +142,34 @@ export function OrchestratorPanel({
             />
           </div>
           <aside className="orchestrator-context">
+            <details className="team-guide" open={!active.length}>
+              <summary>How delegation works</summary>
+              <div className="team-guide-heading">
+                <strong>Your workflow</strong>
+                <button className="text-button" onClick={onNew}>
+                  Add agent <ArrowRight size={13} />
+                </button>
+              </div>
+              <ol>
+                <li>Select the agents for this task.</li>
+                <li>Describe your project in the conversation.</li>
+                <li>
+                  Review approvals. For terminal tasks, click{" "}
+                  <strong>Start &amp; send</strong>.
+                </li>
+              </ol>
+              <p>
+                Orchestrator: API usage. Coding terminals: the account signed
+                into each tool.
+              </p>
+            </details>
             <details className="context-picker" open>
               <summary>
-                Agents in context <span>{scope.length} / 20</span>
+                Selected agents <span>{scope.length} / 20</span>
               </summary>
               <p>
-                API agents share a small local summary. Terminal agents share
-                only their name, engine, project and running state; their
-                terminal text is never shared with {provider?.label}.
+                API conversations share summaries. Terminals share project and
+                process status only; the orchestrator cannot read their output.
               </p>
               {active.length ? (
                 <div className="context-agent-list">
@@ -177,7 +203,9 @@ export function OrchestratorPanel({
                   ))}
                 </div>
               ) : (
-                <p>Create an agent to add its progress.</p>
+                <button className="secondary" onClick={onNew}>
+                  Create your first agent
+                </button>
               )}
             </details>
             <ProposalQueue workspace={workspace} compact onFocus={onFocus} />

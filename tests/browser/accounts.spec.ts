@@ -18,7 +18,9 @@ test("registration, login, logout and private account workspace", async ({
   await page
     .getByRole("button", { name: "Create account", exact: true })
     .click();
-  await expect(page.getByRole("heading", { name: /Your ideas/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Connect your API" }),
+  ).toBeVisible();
   await page.screenshot({
     path: `${evidenceRoot}/account-workspace.png`,
     fullPage: true,
@@ -35,7 +37,9 @@ test("registration, login, logout and private account workspace", async ({
     .getByLabel("Password", { exact: true })
     .fill("a-long-browser-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page.getByRole("heading", { name: /Your ideas/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Connect your API" }),
+  ).toBeVisible();
   const state = await (await page.request.get("/api/workspace")).json();
   expect(state.agents).toEqual([]);
   expect(state.provider.connected).toBe(false);

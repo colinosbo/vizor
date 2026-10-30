@@ -232,13 +232,20 @@ export function WorkspaceBoard({
     <div className="workspace-board">
       <div className="board-heading">
         <div>
-          <div className="eyebrow">YOUR WORKSPACE</div>
-          <h1>A little more perspective.</h1>
+          <div className="eyebrow">YOUR TEAM, IN ONE PLACE</div>
+          <h1>Agent board</h1>
           <p>
             {active.length} {active.length === 1 ? "agent" : "agents"}
             <span>·</span>
             {agents.filter((a) => a.conversation.activeRunId).length} API
             replies running
+            <span>·</span>
+            {
+              active.filter(
+                (a) => a.engine !== "api" && a.terminalState === "running",
+              ).length
+            }{" "}
+            terminals open
             <span>·</span>
             <span
               className={
@@ -367,9 +374,10 @@ export function WorkspaceBoard({
             <span className="welcome-mark">
               <Plus size={30} />
             </span>
-            <h2>Meet your first agent.</h2>
+            <h2>Build your team.</h2>
             <p>
-              Choose an engine, give it a project or a role, and start a task.
+              Add a Claude Code or Codex agent to work in a project, or an API
+              agent for conversation. Each gets its own panel and history.
             </p>
             <button className="primary" onClick={onNew}>
               Create an agent

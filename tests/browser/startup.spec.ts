@@ -83,16 +83,19 @@ test("intro locks into the orange character and waits for the workspace before r
   await page.goto("/");
   const intro = page.frameLocator(".startup-intro");
   await expect(intro.locator(".scope-label")).toHaveCSS("opacity", "1");
-  await expect(intro.locator(".pixels rect").nth(30)).toHaveCSS(
+  await expect(intro.locator(".body-shape")).toHaveCSS(
     "fill",
-    "rgb(233, 139, 87)",
+    /url\(.*#clawd-orange/,
   );
+  await expect(intro.locator(".body-shape")).toHaveCSS("opacity", "1");
+  await expect(intro.locator(".pixels")).toHaveCSS("opacity", "0");
   await expect(page.locator(".app-shell")).toHaveAttribute("inert", "");
   await expect(intro.getByRole("button")).toHaveCount(0);
   await expect(page.locator("iframe.startup-intro")).toHaveCount(1);
   release();
   await expect(page.locator(".startup-intro")).toHaveCount(0);
   await expect(page.locator(".app-shell")).not.toHaveAttribute("inert", "");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "API keys", exact: true }).click();
   await expect(page.locator(".startup-intro")).toHaveCount(0);
 });
@@ -102,10 +105,12 @@ test("reduced motion uses the static orange mascot and a short fade", async ({
 }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/intro/index.html");
-  await expect(page.locator(".pixels rect").first()).toHaveCSS(
+  await expect(page.locator(".body-shape")).toHaveCSS(
     "fill",
-    "rgb(233, 139, 87)",
+    /url\(.*#clawd-orange/,
   );
+  await expect(page.locator(".body-shape")).toHaveCSS("opacity", "1");
+  await expect(page.locator(".pixels")).toHaveCSS("opacity", "0");
   expect(
     await page
       .locator(".mascot")

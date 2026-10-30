@@ -50,6 +50,7 @@ test("both providers, concurrent live observers, saved layouts, templates and li
     (await state()).providers.find((p: { id: string }) => p.id === "anthropic")
       .connected,
   ).toBe(false);
+  await button("Settings").click();
   await button("API keys").click();
   await page
     .getByLabel("Your Anthropic API key")
@@ -199,6 +200,7 @@ test("both providers, concurrent live observers, saved layouts, templates and li
   await page.getByLabel("Template name", { exact: true }).fill("Writing role");
   await button("Save template").click();
   await page.keyboard.press("Escape");
+  await button("Settings").click();
   await page.getByRole("button", { name: /Templates/ }).click();
   await expect(
     page.getByRole("heading", { name: "Writing role", exact: true }),
@@ -220,15 +222,13 @@ test("both providers, concurrent live observers, saved layouts, templates and li
   await button("Save changes").click();
   await button("Agent settings for Research analyst").click();
   await button("Archive agent").click();
-  await page
-    .locator(".sidebar")
-    .getByRole("button", { name: /Archive/ })
-    .click();
+  await button("Settings").click();
+  await button("Archive").click();
   await expect(
     page.getByRole("heading", { name: "Research analyst", exact: true }),
   ).toBeVisible();
   await button("Restore agent").click();
-  await page.getByRole("button", { name: /Conversations/ }).click();
+  await page.getByRole("button", { name: /Agent board/ }).click();
   await button("Agent settings for Writer").click();
   await button("Pause agent").click();
   await expect(button("Resume agent")).toBeVisible();

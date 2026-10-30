@@ -76,7 +76,7 @@ export function ProposalQueue({
             <span className="eyebrow-line" />
             YOU MAKE THE CALL
           </div>
-          <h1>Review the next move.</h1>
+          <h1>Approvals</h1>
           <p>Every draft stays here until you approve it. Autopilot is off.</p>
         </>
       )}
@@ -149,7 +149,7 @@ export function ProposalQueue({
         </div>
       )}
       {compact && pending.length > 4 && (
-        <p className="queue-more">{pending.length - 4} more in Proposals</p>
+        <p className="queue-more">{pending.length - 4} more in Approvals</p>
       )}
       <div className="queue-footnote">
         Approvals are recorded in Audit history.

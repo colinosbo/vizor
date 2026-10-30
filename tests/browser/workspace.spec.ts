@@ -14,7 +14,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     await page.goto("/");
     await expect(page.locator(".startup-intro")).toHaveCount(0);
     await expect(
-      page.getByRole("heading", { name: /Your ideas/ }),
+      page.getByRole("heading", { name: "Connect your API" }),
     ).toBeVisible();
     await page.screenshot({
       path: `${evidenceRoot}/onboarding-desktop.png`,
@@ -137,6 +137,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
       ),
     ).toBe(true);
     await page.getByRole("button", { name: "Open navigation" }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "API keys", exact: true }).click();
     await page.getByRole("button", { name: "Replace", exact: true }).click();
     await page
@@ -175,6 +176,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
   }) => {
     await page.goto("/");
     await expect(page.locator(".startup-intro")).toHaveCount(0);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "API keys", exact: true }).click();
     await page
       .getByLabel("Your Anthropic API key")
@@ -200,6 +202,7 @@ test.describe.serial("local workspace with mock Anthropic transport", () => {
     await expect(page.getByRole("dialog")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).not.toBeVisible();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "API keys", exact: true }).click();
     await page.getByRole("button", { name: "Replace", exact: true }).click();
     await page

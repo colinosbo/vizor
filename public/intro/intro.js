@@ -83,16 +83,6 @@
           ],
           { duration: timing.assemble, easing: easing.speedRamp },
         );
-        void animate(
-          pixel,
-          [
-            { fill: "#f0e9df" },
-            {
-              fill: y > 7 ? "#cd7046" : x < 3 || x > 14 ? "#dd7b4b" : "#e98b57",
-            },
-          ],
-          { duration: timing.color, delay: timing.assemble - 350 },
-        );
       }
       index++;
     }
@@ -106,6 +96,40 @@
       duration: timing.color,
       delay: 100,
     });
+    // Crossfade the assembling pixels into one seamless gradient silhouette.
+    // A single path avoids per-tile color patches and anti-aliased grid seams.
+    void animate($(".pixels"), [{ opacity: 1 }, { opacity: 0 }], {
+      duration: timing.color,
+      delay: timing.assemble - 350,
+    });
+    void animate($(".body-shape"), [{ opacity: 0 }, { opacity: 1 }], {
+      duration: timing.color,
+      delay: timing.assemble - 350,
+    });
+    void animate($(".body-rim"), [{ opacity: 0 }, { opacity: 0.5 }], {
+      duration: timing.color,
+      delay: timing.assemble - 350,
+    });
+    void animate(
+      $(".sheen"),
+      [
+        { opacity: 0, transform: "translateX(0)" },
+        { opacity: 0.65, offset: 0.28 },
+        { opacity: 0, transform: "translateX(330px)" },
+      ],
+      { duration: timing.scope + 220, delay: timing.assemble },
+    );
+    for (const [i, actor] of [$(".accent-orbit"), $(".satellites")].entries()) {
+      void animate(
+        actor,
+        [
+          { opacity: 0, transform: `rotate(${i ? -80 : 100}deg) scale(0.55)` },
+          { opacity: i ? 0.8 : 0.5, offset: 0.3 },
+          { opacity: 0, transform: `rotate(${i ? 460 : -420}deg) scale(1.18)` },
+        ],
+        { duration: timing.assemble + 320, easing: easing.speedRamp },
+      );
+    }
     for (const [i, comet] of [
       ...document.querySelectorAll(".comet"),
     ].entries()) {
@@ -203,11 +227,29 @@
       ],
       { duration: timing.scope },
     );
-    for (let i = 0; i < 12; i++) {
+    void animate(
+      $(".echo-ripple"),
+      [
+        { opacity: 0, transform: "scale(0.88)" },
+        { opacity: 0.5, offset: 0.16 },
+        { opacity: 0, transform: "scale(1.85)" },
+      ],
+      { duration: timing.scope + 120, delay: 70 },
+    );
+    void animate(
+      $(".starburst"),
+      [
+        { opacity: 0, transform: "scale(0.3) rotate(-15deg)" },
+        { opacity: 0.55, offset: 0.25 },
+        { opacity: 0, transform: "scale(1.7) rotate(15deg)" },
+      ],
+      { duration: timing.scope },
+    );
+    for (let i = 0; i < 24; i++) {
       const spark = document.createElement("span");
       spark.className = "spark";
       $(".sparks").append(spark);
-      const angle = (i * Math.PI) / 6 + Math.PI / 12;
+      const angle = (i * Math.PI) / 12 + Math.PI / 24;
       const x = Math.cos(angle),
         y = Math.sin(angle);
       void animate(
@@ -220,10 +262,10 @@
           { opacity: 0.85, offset: 0.16 },
           {
             opacity: 0,
-            transform: `translate(${x * 185}px, ${y * 185}px) scale(0.2) rotate(90deg)`,
+            transform: `translate(${x * (i % 2 ? 215 : 185)}px, ${y * (i % 2 ? 215 : 185)}px) scale(0.2) rotate(135deg)`,
           },
         ],
-        { duration: timing.scope },
+        { duration: timing.scope, delay: (i % 3) * 20 },
       );
     }
     await Promise.all([
@@ -291,6 +333,15 @@
         duration: fade ? timing.fade : timing.lock,
       });
       if (!fade) {
+        void animate(
+          $(".starburst"),
+          [
+            { opacity: 0, transform: "scale(0.5) rotate(0deg)" },
+            { opacity: 0.5, offset: 0.18 },
+            { opacity: 0, transform: "scale(3.4) rotate(35deg)" },
+          ],
+          { duration: timing.scope, easing: easing.reveal },
+        );
         void animate(
           $(".mascot"),
           [

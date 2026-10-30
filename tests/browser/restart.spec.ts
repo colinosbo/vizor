@@ -179,7 +179,7 @@ test("real server restart preserves history and keys and recovers an interrupted
     ).toBe(true);
     await page
       .locator(".sidebar")
-      .getByRole("button", { name: /^Conversations/ })
+      .getByRole("button", { name: /^Agent board/ })
       .click();
     await expect(
       page.getByRole("button", { name: "2-up layout", exact: true }),
@@ -195,6 +195,7 @@ test("real server restart preserves history and keys and recovers an interrupted
     await expect(
       page.getByRole("button", { name: "Send message" }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
     await page.getByRole("button", { name: "API keys", exact: true }).click();
     await expect(page.getByText("•••• •••• •••• 1234")).toBeVisible();
   } finally {

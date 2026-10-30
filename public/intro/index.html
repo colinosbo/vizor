@@ -40,6 +40,29 @@
         </svg>
         <div class="sparks"></div>
         <div class="lock-ripple"></div>
+        <div class="echo-ripple"></div>
+        <svg
+          class="accent-orbits"
+          viewBox="0 0 320 320"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <g class="accent-orbit">
+            <circle cx="160" cy="160" r="171" />
+            <circle cx="160" cy="160" r="119" />
+          </g>
+          <g class="satellites">
+            <path
+              d="M160 -19l4 7-4 7-4-7zM339 160l-7 4-7-4 7-4zM160 339l-4-7 4-7 4 7zM-19 160l7-4 7 4-7 4z"
+            />
+          </g>
+        </svg>
+        <svg
+          class="starburst"
+          viewBox="0 0 320 320"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path d="M160 90v140M90 160h140M128 128l64 64M128 192l64-64" />
+        </svg>
         <div class="orbit orbit-one"></div>
         <div class="orbit orbit-two"></div>
         <div class="mascot">
@@ -48,7 +71,45 @@
             viewBox="0 0 180 120"
             xmlns="http://www.w3.org/2000/svg"
           >
+            <defs>
+              <linearGradient
+                id="clawd-orange"
+                gradientUnits="userSpaceOnUse"
+                x1="20"
+                y1="5"
+                x2="160"
+                y2="115"
+              >
+                <stop stop-color="#ffd09a" />
+                <stop offset="0.28" stop-color="#ffa257" />
+                <stop offset="0.62" stop-color="#f27d38" />
+                <stop offset="1" stop-color="#b94223" />
+              </linearGradient>
+              <linearGradient id="clawd-sheen">
+                <stop stop-color="#fff2d6" stop-opacity="0" />
+                <stop offset="0.5" stop-color="#fff2d6" stop-opacity="0.6" />
+                <stop offset="1" stop-color="#fff2d6" stop-opacity="0" />
+              </linearGradient>
+              <path
+                id="clawd-outline"
+                d="M30 5H150V15H160V25H170V65H180V95H170V85H160V95H150V115H130V95H120V115H100V95H80V115H60V95H50V115H30V95H20V85H10V95H0V65H10V25H20V15H30Z"
+              />
+              <clipPath id="clawd-clip"><use href="#clawd-outline" /></clipPath>
+            </defs>
             <g class="pixels"></g>
+            <use
+              class="body-shape"
+              href="#clawd-outline"
+              fill="url(#clawd-orange)"
+            />
+            <g clip-path="url(#clawd-clip)">
+              <path
+                class="sheen"
+                d="M-110 0H-65L-5 120H-50Z"
+                fill="url(#clawd-sheen)"
+              />
+            </g>
+            <use class="body-rim" href="#clawd-outline" />
             <g class="eyes" fill="#241c18">
               <path d="M55 38h10v25H55zM115 38h10v25h-10z" />
             </g>

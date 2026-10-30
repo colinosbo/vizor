@@ -53,6 +53,53 @@ body {
   transform-box: fill-box;
   transform-origin: center;
 }
+.body-shape,
+.body-rim,
+.sheen {
+  opacity: 0;
+}
+.body-rim {
+  fill: none;
+  stroke: #ffd6a9;
+  stroke-width: 0.7;
+}
+.accent-orbits,
+.starburst {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.accent-orbit,
+.satellites {
+  opacity: 0;
+  transform-origin: 160px 160px;
+}
+.accent-orbit {
+  fill: none;
+  stroke: #ffb56e;
+  stroke-width: 1;
+  stroke-dasharray: 90 48 6 40;
+}
+.accent-orbit circle + circle {
+  stroke: #ffe2bd;
+  stroke-width: 0.6;
+  stroke-dasharray: 26 70;
+}
+.satellites {
+  fill: #ffc88b;
+  filter: drop-shadow(0 0 4px #e98b5780);
+}
+.starburst {
+  opacity: 0;
+  transform-origin: center;
+  fill: none;
+  stroke: #ffe1b4;
+  stroke-width: 1.3;
+  filter: drop-shadow(0 0 5px #ed924d80);
+}
 .eyes {
   opacity: 0;
   transform-origin: 90px 50px;
@@ -119,10 +166,22 @@ body {
   background: #ffc592;
   opacity: 0;
 }
+.spark:nth-child(even) {
+  border-radius: 50%;
+  background: #ffedd3;
+}
 .lock-ripple {
   position: absolute;
   inset: 17px;
   border: 1px solid #e98b57;
+  border-radius: 50%;
+  opacity: 0;
+  pointer-events: none;
+}
+.echo-ripple {
+  position: absolute;
+  inset: 17px;
+  border: 1px solid #ffd5a3;
   border-radius: 50%;
   opacity: 0;
   pointer-events: none;
@@ -276,8 +335,11 @@ h1 span {
   *::after {
     animation: none !important;
   }
-  .pixels rect {
-    fill: var(--orange);
+  .pixels {
+    opacity: 0;
+  }
+  .body-shape {
+    opacity: 1;
   }
   .scope,
   .eyes,

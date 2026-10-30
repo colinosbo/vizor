@@ -196,7 +196,9 @@ export function AgentPanel({
                   <span />
                   <Sparkles size={compact ? 22 : 27} />
                 </div>
-                <div className="eyebrow">ROOM TO THINK</div>
+                <div className="eyebrow">
+                  {coordinator ? "START WITH A GOAL" : "READY FOR YOUR TASK"}
+                </div>
                 <h3>
                   {coordinator
                     ? "What should we work on?"
@@ -204,7 +206,7 @@ export function AgentPanel({
                 </h3>
                 <p>
                   {coordinator ? (
-                    "Ask for a progress summary or draft directions for your agents."
+                    "Describe what you want to build, the project, and what success looks like. I’ll help break it into tasks for your selected agents."
                   ) : (
                     <>
                       {compact ? (

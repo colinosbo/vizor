@@ -31,18 +31,14 @@ export function ProviderSettings({
           : "LET’S GET YOU SET UP"}
       </div>
       <h1>
-        {providers.some((p) => p.connected) ? (
-          "Your connections."
-        ) : (
-          <>
-            Your ideas.
-            <br />A little more <span>possibility.</span>
-          </>
-        )}
+        {providers.some((p) => p.connected)
+          ? "API connections"
+          : "Connect your API"}
       </h1>
       <p className="page-intro">
-        Connect Claude, ChatGPT, or both. Each agent uses the provider you
-        choose.
+        Connect Anthropic or OpenAI for the orchestrator and API chat agents.
+        API usage is billed separately from subscriptions. Claude Code and Codex
+        terminal agents sign in inside their own tools.
       </p>
       <div className="provider-cards">
         {providers.map((provider) => (
@@ -124,8 +120,8 @@ function ProviderCard({
       <p className="provider-subtitle">by {provider.company}</p>
       <p className="connection-description">
         {provider.id === "anthropic"
-          ? "A thoughtful partner for writing, building, and working through what’s next."
-          : "A capable partner for reasoning, coding, and exploring your next idea."}
+          ? "Use Claude models with your Anthropic API credits. Choose a model for each API agent or the orchestrator."
+          : "Use OpenAI models with your OpenAI API balance. Choose a model for each API agent or the orchestrator."}
       </p>
       {provider.connected && !replace ? (
         <>

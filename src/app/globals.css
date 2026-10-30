@@ -140,12 +140,13 @@
   --font-sans: "Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif;
 }
 :root {
-  --bg: #17181b;
-  --panel: #202125;
-  --raised: #28292e;
-  --panel-deep: #121316;
-  --line: #3a3c43;
-  --line-strong: #50535d;
+  color-scheme: dark;
+  --bg: #191919;
+  --panel: #222222;
+  --raised: #2c2c2c;
+  --panel-deep: #141414;
+  --line: #383838;
+  --line-strong: #525252;
   --text: #f4f4f5;
   --muted: #b3b4bd;
   --faint: #9a9ca6;
@@ -160,6 +161,25 @@
 }
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: #505050 transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: #505050;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #707070;
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
 }
 html,
 body {
@@ -257,7 +277,7 @@ a {
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  padding: 30px 16px 0;
+  padding: 24px 14px 0;
 }
 .brand {
   display: flex;
@@ -291,7 +311,7 @@ a {
   border: 1px solid var(--line);
   border-radius: 7px;
   padding: 11px 9px;
-  margin: 34px 0 29px;
+  margin: 24px 0 14px;
   background: var(--panel);
 }
 .workspace-avatar {
@@ -344,8 +364,8 @@ a {
   background: transparent;
   text-align: left;
   color: var(--muted);
-  font-size: 12px;
-  margin-bottom: 4px;
+  font-size: 13px;
+  margin-bottom: 3px;
 }
 .nav-item:hover,
 .agent-nav:hover {
@@ -372,7 +392,7 @@ a {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 32px;
+  margin-top: 20px;
   margin-bottom: 10px;
   padding-right: 3px;
 }
@@ -2925,7 +2945,7 @@ input[type="range"] {
 }
 /* Orchestration: clear human approval, compact context, and visible spending. */
 .sidebar {
-  overflow-y: auto;
+  overflow: hidden;
 }
 .approval-dot {
   margin-left: auto;
@@ -3026,8 +3046,8 @@ input[type="range"] {
   font-size: 28px;
 }
 .coordinator-panel .panel-top .agent-symbol {
-  color: #b5c8ed;
-  background: #28344a;
+  color: var(--accent-soft);
+  background: var(--accent-dark);
 }
 .orchestrator-context {
   min-width: 0;
@@ -3780,4 +3800,217 @@ summary:focus-visible,
 }
 .stop-button:hover:not(:disabled) {
   background: var(--raised);
+}
+
+/* Shared workspace hierarchy: primary work first, supporting detail second. */
+.sidebar-create {
+  width: 100%;
+  justify-content: center;
+  margin-bottom: 24px;
+  flex-shrink: 0;
+}
+.sidebar-bottom {
+  flex-shrink: 0;
+}
+.agent-list {
+  min-height: 0;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  max-width: 960px;
+  margin-top: 30px;
+}
+.settings-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: var(--text-soft);
+}
+.settings-card:hover {
+  border-color: var(--accent-line);
+  background: var(--raised);
+}
+.settings-card > svg {
+  flex-shrink: 0;
+  color: var(--accent-soft);
+}
+.settings-card > span {
+  flex: 1;
+}
+.settings-card strong {
+  display: block;
+  font-size: 15px;
+  font-weight: 550;
+}
+.settings-card small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 7px;
+}
+@media (max-width: 700px) {
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-card {
+    padding: 18px;
+  }
+}
+@media (max-height: 740px) {
+  .sidebar {
+    padding-top: 14px;
+  }
+  .sidebar .workspace-picker {
+    display: none;
+  }
+  .sidebar-create {
+    margin: 16px 0;
+  }
+  .sidebar .agent-caption {
+    margin-top: 12px;
+  }
+  .sidebar-bottom {
+    margin-top: 10px;
+  }
+  .sidebar .profile {
+    min-height: 55px;
+  }
+}
+@media (max-height: 480px) {
+  .sidebar {
+    overflow-y: auto;
+  }
+  .sidebar .agent-list {
+    flex: 0 0 auto;
+  }
+}
+.nav-item + .nav-caption {
+  margin-top: 22px;
+}
+.sidebar > .nav-item,
+.sidebar > .nav-caption,
+.sidebar > .workspace-picker,
+.sidebar > .brand {
+  flex-shrink: 0;
+}
+.board-heading h1,
+.orchestrator-heading h1 {
+  font-size: clamp(25px, 2.2vw, 32px);
+  font-weight: 600;
+  letter-spacing: -1px;
+}
+.board-heading p {
+  flex-wrap: wrap;
+  row-gap: 5px;
+}
+.agent-panel,
+.terminal-panel {
+  box-shadow: 0 6px 24px #0000001a;
+}
+.panel-top,
+.terminal-panel .agent-panel-header {
+  background: #ffffff02;
+}
+.orchestrator-heading p,
+.context-picker > p,
+.queue-empty p,
+.proposal-origin,
+.queue-footnote {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.orchestrator-shortcuts {
+  flex-wrap: wrap;
+}
+.orchestrator-shortcuts button {
+  font-size: 12px;
+  min-height: 38px;
+}
+.context-picker summary,
+.context-agent-list label {
+  font-size: 13px;
+}
+.context-agent-list label {
+  padding: 10px 6px;
+  border-radius: 6px;
+}
+.context-agent-list label:hover {
+  background: var(--raised);
+}
+.context-agent-list small {
+  font-size: 11px;
+}
+.team-guide {
+  border: 1px solid var(--line);
+  border-top: 2px solid var(--accent);
+  background: var(--panel);
+  border-radius: 10px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.team-guide-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  margin-top: 16px;
+}
+.team-guide summary {
+  cursor: pointer;
+  color: var(--text-soft);
+  font-size: 13px;
+}
+.team-guide ol {
+  padding-left: 20px;
+  margin: 16px 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.team-guide li + li {
+  margin-top: 8px;
+}
+.team-guide li::marker {
+  color: var(--accent-soft);
+}
+.team-guide p {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.proposal-actions {
+  flex-wrap: wrap;
+}
+.terminal-toolbar button {
+  min-height: 34px;
+}
+@media (max-width: 640px) {
+  .board-heading,
+  .orchestrator-heading {
+    flex-wrap: wrap;
+  }
+  .orchestrator-heading h1 {
+    max-width: none;
+  }
+  .orchestrator-heading .approval-only {
+    font-size: 11px;
+  }
+  .board-heading p {
+    font-size: 11px;
+  }
+  .orchestrator-shortcuts button {
+    flex: 1;
+  }
 }

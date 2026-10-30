@@ -9,7 +9,6 @@ import {
   ArrowRight,
   Bookmark,
   Check,
-  ChevronDown,
   ChevronRight,
   KeyRound,
   LoaderCircle,
@@ -19,6 +18,7 @@ import {
   Plus,
   RotateCcw,
   ShieldCheck,
+  Settings2,
   Trash2,
   X,
 } from "lucide-react";
@@ -63,7 +63,42 @@ export default function Dashboard() {
     | "proposals"
     | "spending"
     | "audit"
+    | "settings"
   >("workspace");
+  const settingsPages = [
+    {
+      id: "keys",
+      label: "API keys",
+      description: "Connect providers and manage your saved keys.",
+      icon: KeyRound,
+    },
+    {
+      id: "spending",
+      label: "Spending limits",
+      description: "Set API budgets and review usage.",
+      icon: Wallet,
+    },
+    {
+      id: "audit",
+      label: "Audit history",
+      description: "Review actions and approval decisions.",
+      icon: History,
+    },
+    {
+      id: "templates",
+      label: "Templates",
+      description: "Manage reusable agent configurations.",
+      icon: Bookmark,
+    },
+    {
+      id: "archive",
+      label: "Archive",
+      description: "Find and restore archived agents.",
+      icon: Archive,
+    },
+  ] as const;
+  const inSettings =
+    view === "settings" || settingsPages.some((page) => page.id === view);
   const [mobileNav, setMobileNav] = useState(false);
   const [desktop, setDesktop] = useState(false);
   useEffect(() => setDesktop(!!window.vizorDesktop?.terminals), []);
@@ -200,7 +235,7 @@ export default function Dashboard() {
           <span>
             vizor<span className="brand-dot">.</span>
           </span>
-          <span className="version">BETA</span>
+          <span className="version">{desktop ? "DESKTOP" : "LOCAL"}</span>
         </a>
         <div className="workspace-picker">
           <span className="workspace-avatar">V</span>
@@ -210,8 +245,14 @@ export default function Dashboard() {
               {data?.selfHost === false ? "Private account" : "Local workspace"}
             </small>
           </div>
-          <ChevronDown size={14} />
         </div>
+        <button
+          className="primary sidebar-create"
+          aria-label="Create new agent"
+          onClick={newAgent}
+        >
+          <Plus size={16} /> New agent
+        </button>
         <div className="nav-caption">WORKSPACE</div>
         <button
           className={`nav-item ${view === "orchestrator" ? "active" : ""}`}
@@ -226,59 +267,16 @@ export default function Dashboard() {
           onClick={() => navigate("workspace")}
         >
           <MessageSquare size={17} />
-          Conversations<span className="nav-number">{active.length}</span>
-        </button>
-        <button
-          className={`nav-item ${view === "keys" ? "active" : ""}`}
-          onClick={() => navigate("keys")}
-        >
-          <KeyRound size={17} />
-          API keys{connected && <span className="tiny-dot" />}
+          Agent board<span className="nav-number">{active.length}</span>
         </button>
         <button
           className={`nav-item ${view === "proposals" ? "active" : ""}`}
           onClick={() => navigate("proposals")}
         >
           <ClipboardCheck size={17} />
-          Proposals
+          Approvals
           {data?.proposals.some((p) => p.status === "pending") && (
             <span className="nav-number">{data.pendingProposalCount}</span>
-          )}
-        </button>
-        <button
-          className={`nav-item ${view === "spending" ? "active" : ""}`}
-          onClick={() => navigate("spending")}
-        >
-          <Wallet size={17} />
-          Spending limits
-        </button>
-        <button
-          className={`nav-item ${view === "audit" ? "active" : ""}`}
-          onClick={() => navigate("audit")}
-        >
-          <History size={17} />
-          Audit history
-        </button>
-        <button
-          className={`nav-item ${view === "templates" ? "active" : ""}`}
-          onClick={() => navigate("templates")}
-        >
-          <Bookmark size={17} />
-          Templates
-          {data?.templates.length ? (
-            <span className="nav-number">{data.templates.length}</span>
-          ) : null}
-        </button>
-        <button
-          className={`nav-item ${view === "archive" ? "active" : ""}`}
-          onClick={() => navigate("archive")}
-        >
-          <Archive size={17} />
-          Archive
-          {agents.some((a) => a.archived) && (
-            <span className="nav-number">
-              {agents.filter((a) => a.archived).length}
-            </span>
           )}
         </button>
         <div className="agent-caption">
@@ -324,12 +322,14 @@ export default function Dashboard() {
                           ?.label}{" "}
                     ·{" "}
                     {agent.engine && agent.engine !== "api"
-                      ? "Terminal"
+                      ? agent.terminalState === "running"
+                        ? "Running"
+                        : "Stopped"
                       : agentStatus(agent, workspace.pending[agent.id])}
                   </small>
                 </span>
                 <span
-                  className={`agent-dot ${agent.conversation.activeRunId ? "working" : ""}`}
+                  className={`agent-dot ${agent.conversation.activeRunId || agent.terminalState === "running" ? "working" : ""}`}
                 />
               </button>
             ))}
@@ -342,12 +342,13 @@ export default function Dashboard() {
           )}
         </div>
         <div className="sidebar-bottom">
-          <div className="local-note">
-            <ShieldCheck size={16} />
-            <div>
-              Private by default<small>Stored on this computer</small>
-            </div>
-          </div>
+          <button
+            className={`nav-item ${inSettings ? "active" : ""}`}
+            onClick={() => navigate("settings")}
+          >
+            <Settings2 size={17} />
+            Settings
+          </button>
           <div className="profile">
             <span className="profile-avatar">
               {data?.selfHost === false ? data.email[0].toUpperCase() : "Y"}
@@ -390,24 +391,36 @@ export default function Dashboard() {
             <span className="breadcrumb-icon">
               <MessageSquare size={15} />
             </span>
-            <span>Workspace</span>
+            {inSettings && view !== "settings" ? (
+              <button
+                className="text-button"
+                aria-label="Back to settings"
+                onClick={() => navigate("settings")}
+              >
+                Settings
+              </button>
+            ) : (
+              <span>Workspace</span>
+            )}
             <ChevronRight size={13} />
             <strong>
-              {view === "orchestrator"
-                ? "Orchestrator"
-                : view === "proposals"
-                  ? "Proposals"
-                  : view === "spending"
-                    ? "Spending limits"
-                    : view === "audit"
-                      ? "Audit history"
-                      : view === "workspace"
-                        ? "Conversations"
-                        : view === "keys"
-                          ? "API keys"
-                          : view === "templates"
-                            ? "Templates"
-                            : "Archive"}
+              {view === "settings"
+                ? "Settings"
+                : view === "orchestrator"
+                  ? "Orchestrator"
+                  : view === "proposals"
+                    ? "Approvals"
+                    : view === "spending"
+                      ? "Spending limits"
+                      : view === "audit"
+                        ? "Audit history"
+                        : view === "workspace"
+                          ? "Agent board"
+                          : view === "keys"
+                            ? "API keys"
+                            : view === "templates"
+                              ? "Templates"
+                              : "Archive"}
             </strong>
           </div>
           <div className="topbar-right">
@@ -479,6 +492,29 @@ export default function Dashboard() {
               Try again
             </button>
           </div>
+        ) : view === "settings" ? (
+          <div className="collection-view settings-view">
+            <div className="page-eyebrow">YOUR WORKSPACE</div>
+            <h1>Settings</h1>
+            <p>Connections, budgets, and workspace management.</p>
+            <div className="settings-grid">
+              {settingsPages.map(({ id, label, description, icon: Icon }) => (
+                <button
+                  key={id}
+                  className="settings-card"
+                  aria-label={label}
+                  onClick={() => navigate(id)}
+                >
+                  <Icon size={21} />
+                  <span>
+                    <strong>{label}</strong>
+                    <small>{description}</small>
+                  </span>
+                  <ChevronRight size={17} />
+                </button>
+              ))}
+            </div>
+          </div>
         ) : view === "keys" ||
           (view === "workspace" && !desktop && !connected && !agents.length) ? (
           <ProviderSettings
@@ -491,7 +527,12 @@ export default function Dashboard() {
             onError={setError}
           />
         ) : view === "orchestrator" ? (
-          <OrchestratorPanel workspace={workspace} onFocus={select} />
+          <OrchestratorPanel
+            workspace={workspace}
+            onFocus={select}
+            onNew={newAgent}
+            onConnections={() => navigate("keys")}
+          />
         ) : view === "proposals" ? (
           <ProposalQueue workspace={workspace} onFocus={select} />
         ) : view === "spending" ? (
@@ -504,7 +545,7 @@ export default function Dashboard() {
               <span className="eyebrow-line" />
               YOUR REUSABLE ROLES
             </div>
-            <h1>A good starting point.</h1>
+            <h1>Agent templates</h1>
             <p>
               Save an agent’s setup from its settings. Start fresh with the same
               role.
@@ -570,7 +611,7 @@ export default function Dashboard() {
               <span className="eyebrow-line" />
               KEEP THE CONTEXT
             </div>
-            <h1>On the shelf.</h1>
+            <h1>Archived agents</h1>
             <p>
               Archived agents keep their conversations. Restore them whenever
               you need.
@@ -592,8 +633,9 @@ export default function Dashboard() {
                       <div>
                         <h2>{agent.name}</h2>
                         <p>
-                          {agent.model} · {agent.conversation.messages.length}{" "}
-                          messages
+                          {agent.engine && agent.engine !== "api"
+                            ? `${agent.engine === "codex" ? "Codex" : "Claude Code"} · Saved terminal session`
+                            : `${agent.model} · ${agent.conversation.messages.length} messages`}
                         </p>
                       </div>
                       <button

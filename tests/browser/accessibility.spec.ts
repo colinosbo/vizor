@@ -5,7 +5,9 @@ test("onboarding has labelled controls, contrast, visible keyboard focus and a n
 }) => {
   await page.goto("/");
   await expect(page.locator(".startup-intro")).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: /Your ideas/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Connect your API" }),
+  ).toBeVisible();
   const results = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
     .analyze();

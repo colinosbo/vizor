@@ -13,12 +13,26 @@ test("native orchestration, human approval, audit history and provider spending 
     page.getByRole("button", { name, exact: true });
   const state = async () => (await page.request.get("/api/workspace")).json();
   const navigate = async (name: string) => {
+    const settingsPage = [
+      "API keys",
+      "Spending limits",
+      "Audit history",
+      "Templates",
+      "Archive",
+    ].includes(name);
     if (await button("Open navigation").isVisible())
       await button("Open navigation").click();
     await page
       .locator(".sidebar")
-      .getByRole("button", { name: new RegExp(`^${name}`) })
+      .getByRole("button", {
+        name: new RegExp(`^${settingsPage ? "Settings" : name}`),
+      })
       .click();
+    if (settingsPage)
+      await page
+        .locator(".settings-grid")
+        .getByRole("button", { name, exact: true })
+        .click();
     if (await button("Open navigation").isVisible())
       await expect
         .poll(() =>
@@ -109,7 +123,7 @@ test("native orchestration, human approval, audit history and provider spending 
   );
   expect(await duplicate.json()).toMatchObject({ alreadyReviewed: true });
   expect((await state()).agents[0].conversation.runs).toHaveLength(1);
-  await navigate("Conversations");
+  await navigate("Agent board");
   await expect(page.getByRole("log")).toContainText(
     /Orchestrator.*Approved by you/,
   );
@@ -134,7 +148,7 @@ test("native orchestration, human approval, audit history and provider spending 
   await expect.poll(async () => (await state()).agents.length).toBe(2);
   await ask("Rename the writer.");
   await ask("Pause the writer.");
-  await navigate("Proposals");
+  await navigate("Approvals");
   await expect(page.locator(".proposal-card")).toHaveCount(2);
   await button("Approve 2").click();
   await expect.poll(async () => (await state()).pendingProposalCount).toBe(0);
@@ -197,7 +211,7 @@ test("native orchestration, human approval, audit history and provider spending 
     path: `${evidenceRoot}/orchestration/orchestrator-mobile.png`,
     fullPage: true,
   });
-  await navigate("Proposals");
+  await navigate("Approvals");
   await page.screenshot({
     path: `${evidenceRoot}/orchestration/proposals-mobile.png`,
     fullPage: true,
