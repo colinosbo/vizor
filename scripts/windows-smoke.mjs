@@ -155,6 +155,7 @@ async function open() {
       .find((page) => page.url().startsWith("http://127.0.0.1:"));
     return !!page;
   }, "App did not load the local workspace");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "API keys", exact: true }).click();
   await page.getByLabel("Your Anthropic API key").waitFor({ timeout: 30000 });
   origin = new URL(page.url()).origin;

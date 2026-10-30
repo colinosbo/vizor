@@ -239,6 +239,7 @@ async function open(version) {
     .contexts()[0]
     .pages()
     .find((page) => page.url().startsWith("http://127.0.0.1:"));
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("button", { name: "API keys", exact: true }).click();
   await page.getByLabel("Your Anthropic API key").waitFor();
   origin = new URL(page.url()).origin;
