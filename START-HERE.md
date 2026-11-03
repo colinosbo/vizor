@@ -7,7 +7,7 @@ The instructions below cover the **browser-only portable archives**, which use s
 1. Extract the **whole archive** into a folder you can write to. Do not run it inside the ZIP, Downloads preview, Program Files, a shared folder, or a cloud-synced folder.
 2. **Windows:** double-click **Start Vizor.cmd**. **macOS:** open **Start Vizor.command**. **Linux:** run `./start-vizor.sh` from a terminal.
 3. Your browser opens Vizor at **http://127.0.0.1:3000**. Keep the launcher window open. Press **Ctrl+C** there to stop.
-4. Connect your own Claude or OpenAI API key in the app. API usage is billed by the provider separately from chat subscriptions. Connection tests can incur a small charge. Autopilot is off.
+4. Connect your own Claude or OpenAI API key in the app. API usage is billed by the provider separately from chat subscriptions. Connection tests can incur a small charge. New accounts start in full auto mode; turn it off under Team & approvals to approve things yourself.
 
 Everything needed to run the app, including Node.js, is included. There is no npm install, build, or first-launch download. You need internet only for provider requests after you explicitly connect or chat. Nothing is uploaded to Vizor or GitHub. Use a current browser.
 

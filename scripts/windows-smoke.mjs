@@ -189,7 +189,7 @@ async function open() {
     ),
     ["claude-code", "codex"],
   );
-  assert.equal(state.autopilot, false);
+  assert.equal(state.autopilot, true);
   assert.equal(state.selfHost, true);
   return page;
 }

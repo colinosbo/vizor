@@ -223,7 +223,7 @@ export async function launch(args = process.argv.slice(2)) {
     }
     if (ready) {
       console.log(
-        `Ready: ${origin}\nEnter your own provider keys inside the app. Autopilot is off.`,
+        `Ready: ${origin}\nEnter your own provider keys inside the app. New accounts start in full auto mode; change it under Team & approvals.`,
       );
       if (!args.includes("--no-open")) openBrowser(origin);
     }

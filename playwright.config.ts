@@ -58,6 +58,7 @@ export default defineConfig({
       SELF_HOST: port === 3101 ? "false" : "true",
       APP_ORIGIN: `http://127.0.0.1:${port}`,
       NEXT_TELEMETRY_DISABLED: "1",
+      VIZOR_DEFAULT_APPROVAL: "manual",
       DATABASE_URL: `file:./data/browser-${port}-${process.pid}.db`,
     },
   })),

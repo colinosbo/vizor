@@ -82,7 +82,7 @@ try {
   assert.equal(response.status, 200);
   const workspace = await response.json();
   assert.equal(workspace.selfHost, true);
-  assert.equal(workspace.autopilot, false);
+  assert.equal(workspace.autopilot, true);
   assert.equal(workspace.agents.length, 0);
   assert.equal(workspace.orchestrator, null);
   assert(
@@ -108,7 +108,7 @@ try {
   assert.equal(setup.status, 0);
   assert.equal(readFileSync(join(root, ".env"), "utf8"), keyBefore);
   console.log(
-    "DOWNLOAD SMOKE PASSED: fresh install, production startup, empty private workspace, no keys, autopilot off, and repeat setup preserves the encryption key.",
+    "DOWNLOAD SMOKE PASSED: fresh install, production startup, empty private workspace, no keys, full auto on for new accounts, and repeat setup preserves the encryption key.",
   );
 } finally {
   await stop();
