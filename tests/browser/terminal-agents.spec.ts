@@ -1,4 +1,134 @@
 import { test, expect } from "@playwright/test";
+
+test("approving a terminal task delivers it automatically and routes input once", async ({
+  page,
+}) => {
+  const state = await (await page.request.get("/api/workspace")).json();
+  const created = await page.request.post("/api/agents", {
+    headers: { origin: "http://127.0.0.1:3105" },
+    data: {
+      name: "Dispatch fixture",
+      engine: "claude-code",
+      projectPath: "C:\\Dispatch fixture",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      systemPrompt: "Fixture",
+      temperature: 0.4,
+      maxTokens: 512,
+      color: "amber",
+      icon: "code",
+    },
+  });
+  expect(created.ok()).toBe(true);
+  const agentId = (await created.json()).id;
+  const fresh = await (await page.request.get("/api/workspace")).json();
+  let approved = false,
+    delivered = false;
+  const proposal = {
+    id: "dispatch-ui-fixture",
+    action: "dispatch_terminal",
+    agentId,
+    status: "pending",
+    version: 0,
+    createdAt: new Date().toISOString(),
+    resultRunId: null,
+    error: null,
+    approvedBy: false,
+    payload: {
+      action: "dispatch_terminal",
+      agentId,
+      text: "Read-only fixture task",
+    },
+  };
+  await page.route("**/api/workspace", (route) =>
+    route.fulfill({
+      json: {
+        ...fresh,
+        proposals: [
+          {
+            ...proposal,
+            status: approved ? "approved" : "pending",
+            approvedBy: approved,
+          },
+        ],
+        pendingProposalCount: approved ? 0 : 1,
+        terminalDispatches: approved
+          ? [
+              {
+                id: "dispatch-fixture",
+                proposalId: proposal.id,
+                agentId,
+                text: proposal.payload.text,
+                status: delivered ? "delivered" : "ready",
+                error: null,
+              },
+            ]
+          : [],
+      },
+    }),
+  );
+  await page.route("**/api/proposals/*/approve", (route) => {
+    approved = true;
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.route("**/api/terminal-dispatches/*/claim", (route) =>
+    route.fulfill({ json: { agentId, text: proposal.payload.text } }),
+  );
+  await page.route("**/api/terminal-dispatches/*/complete", (route) => {
+    delivered = true;
+    return route.fulfill({ json: { ok: true } });
+  });
+  await page.addInitScript(() => {
+    const update = async () => ({
+      state: "idle" as const,
+      automatic: true,
+      currentVersion: "0.10.4",
+    });
+    (window as any).__sent = [];
+    window.vizorDesktop = {
+      getUpdateState: update,
+      checkForUpdates: update,
+      setAutomaticUpdates: update,
+      restartToUpdate: async () => ({ ok: false }),
+      onUpdateState: () => () => {},
+      terminals: {
+        snapshot: async (id: string) => ({
+          agentId: id,
+          state: "running",
+          token: id,
+        }),
+        input: async (id: string, token: string, text: string) => {
+          (window as any).__sent.push({ id, token, text });
+        },
+        onEvent: () => () => {},
+        sendTask: async (id: string, token: string, text: string) => {
+          if (id !== token) throw Error("Wrong session");
+          (window as any).__sent.push({ id, token, text: `${text}\r` });
+          return { ok: true as const };
+        },
+      } as any,
+    };
+  });
+  await page.goto("/");
+  await expect(page.locator(".startup-intro")).toHaveCount(0);
+  await page
+    .locator(".sidebar")
+    .getByRole("button", { name: /^Approvals/ })
+    .click();
+  await page.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(
+    page.getByText("Task sent to the selected terminal agent."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Retry delivery", exact: true }),
+  ).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__sent)).toEqual([
+    { id: agentId, token: agentId, text: "Read-only fixture task\r" },
+  ]);
+  await page.request.post(`/api/agents/${agentId}/archive`, {
+    headers: { origin: "http://127.0.0.1:3105" },
+  });
+});
 test("desktop terminal agents need no API key and keep independent sessions across layout changes", async ({
   page,
 }) => {
@@ -40,6 +170,7 @@ test("desktop terminal agents need no API key and keep independent sessions acro
             agentId,
             token: agentId,
             state: "running" as const,
+            inputReady: true,
             data: `Session for ${agentId}\r\n`,
           };
           sessions.set(agentId, s);
@@ -52,6 +183,19 @@ test("desktop terminal agents need no API key and keep independent sessions acro
           listeners.forEach((fn) =>
             fn({ agentId, token, state: "running", type: "data", data }),
           );
+        },
+        sendTask: async (agentId, token, text) => {
+          if (agentId !== token) throw Error("Wrong session");
+          listeners.forEach((fn) =>
+            fn({
+              agentId,
+              token,
+              state: "running",
+              type: "data",
+              data: `${text}\r\n`,
+            }),
+          );
+          return { ok: true as const };
         },
         resize: async () => {},
         interrupt: async () => {},
@@ -90,6 +234,9 @@ test("desktop terminal agents need no API key and keep independent sessions acro
   }
   const cards = page.locator(".terminal-panel");
   await expect(cards).toHaveCount(2);
+  await expect(
+    page.getByRole("button", { name: "Show all active agents" }),
+  ).toHaveAttribute("aria-pressed", "true");
   await expect
     .poll(() =>
       cards
@@ -100,8 +247,8 @@ test("desktop terminal agents need no API key and keep independent sessions acro
     .toContain("Consolas");
   for (const card of await cards.all())
     await card.getByRole("button", { name: "Resume", exact: true }).click();
-  await expect(cards.first()).toContainText("Running");
-  await expect(cards.last()).toContainText("Running");
+  await expect(cards.first()).toContainText("Terminal ready");
+  await expect(cards.last()).toContainText("Terminal ready");
   await cards.first().locator(".xterm-helper-textarea").focus();
   await page.keyboard.type("only-first");
   await expect(
@@ -161,9 +308,10 @@ test("desktop terminal agents need no API key and keep independent sessions acro
     .getByRole("button", { name: "Stop", exact: true })
     .click();
   await expect(cards.first()).toContainText("Stopped");
-  await expect(cards.last()).toContainText("Running");
-  await expect(cards.last()).toContainText(
-    "API spending caps do not cover this terminal",
+  await expect(cards.last()).toContainText("Terminal ready");
+  await expect(cards.last().locator(".terminal-title small")).toHaveAttribute(
+    "title",
+    /managed inside Codex/,
   );
   await cards
     .last()
@@ -188,3 +336,228 @@ test("desktop terminal agents need no API key and keep independent sessions acro
     page.getByRole("status").filter({ hasText: "Layout saved" }),
   ).toBeVisible();
 });
+test("shows every worker in a five-agent plan, hides unrelated agents, and saves dragging", async ({
+  page,
+}) => {
+  const members: string[] = [];
+  for (let index = 0; index < 6; index++) {
+    const response = await page.request.post("/api/agents", {
+      headers: { origin: "http://127.0.0.1:3105" },
+      data: {
+        name: index < 5 ? `Plan worker ${index + 1}` : "Unrelated worker",
+        engine: "claude-code",
+        projectPath: "C:\\Plan fixture",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        systemPrompt: "Fixture only",
+        temperature: 0.4,
+        maxTokens: 512,
+        color: "amber",
+        icon: "code",
+      },
+    });
+    expect(response.ok()).toBe(true);
+    members.push((await response.json()).id);
+  }
+  await page.request.patch("/api/layout", {
+    headers: { origin: "http://127.0.0.1:3105" },
+    data: {
+      mode: "team",
+      scope: "plan",
+      activeId: members[0],
+      order: members,
+      pinned: [],
+      collapsed: [],
+      layouts: {},
+    },
+  });
+  await page.route("**/api/workspace", async (route) => {
+    const response = await route.fetch();
+    const data = await response.json();
+    await route.fulfill({
+      json: { ...data, hasPlanChat: true, currentTeamIds: members.slice(0, 5) },
+    });
+  });
+  await page.addInitScript(() => {
+    const update = async () => ({
+      state: "idle" as const,
+      automatic: true,
+      currentVersion: "0.10.14",
+    });
+    window.vizorDesktop = {
+      getUpdateState: update,
+      checkForUpdates: update,
+      setAutomaticUpdates: update,
+      restartToUpdate: async () => ({ ok: false }),
+      onUpdateState: () => () => {},
+      terminals: {
+        snapshot: async (id: string) => ({ agentId: id, state: "stopped" }),
+        onEvent: () => () => {},
+      } as any,
+    };
+  });
+  await page.goto("/");
+  await page
+    .locator(".sidebar")
+    .getByRole("button", { name: /^Agent board/ })
+    .click();
+  await expect(page.locator(".terminal-panel")).toHaveCount(5);
+  await page.getByLabel("Chat text size").selectOption("large");
+  await expect
+    .poll(() =>
+      page
+        .locator(".terminal-panel .xterm-rows")
+        .first()
+        .evaluate((element) => getComputedStyle(element).fontSize),
+    )
+    .toBe("17px");
+  await expect(page.locator(".agent-list .agent-nav")).toHaveCount(5);
+  await expect(
+    page.locator(".terminal-panel").filter({ hasText: "Unrelated worker" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Next agents", exact: true }),
+  ).toHaveCount(0);
+  const grip = page.getByRole("button", {
+    name: "Move Plan worker 1 panel",
+    exact: true,
+  });
+  const box = (await grip.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 400, box.y + 110, { steps: 20 });
+  await page.mouse.up();
+  const saved = async () =>
+    (await (await page.request.get("/api/workspace")).json()).layout.layouts
+      .team;
+  await expect.poll(async () => (await saved())?.length ?? 0).toBe(5);
+  const position = (await saved()).find((item: any) => item.i === members[0]);
+  expect(position.x > 0 || position.y > 0).toBe(true);
+  await page.reload();
+  await page
+    .locator(".sidebar")
+    .getByRole("button", { name: /^Agent board/ })
+    .click();
+  await expect(page.locator(".terminal-panel")).toHaveCount(5);
+  expect((await saved()).find((item: any) => item.i === members[0])).toEqual(
+    position,
+  );
+});
+for (const stopped of [false, true]) {
+  test(`Orchestrator clarification ${stopped ? "waits for a stopped worker" : "automatically returns to its running worker once"}`, async ({
+    page,
+  }) => {
+    const created = await page.request.post("/api/agents", {
+      headers: { origin: "http://127.0.0.1:3105" },
+      data: {
+        name: "Question worker",
+        engine: "claude-code",
+        projectPath: "C:\\Question fixture",
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        systemPrompt: "Fixture",
+        temperature: 0.4,
+        maxTokens: 512,
+        color: "blue",
+        icon: "code",
+      },
+    });
+    const agentId = (await created.json()).id;
+    const fresh = await (await page.request.get("/api/workspace")).json();
+    let complete = false,
+      released = false;
+    await page.route("**/api/workspace", (route) =>
+      route.fulfill({
+        json: {
+          ...fresh,
+          proposals: [],
+          currentTeamIds: [agentId],
+          terminalDispatches: [
+            {
+              id: "auto-reply",
+              proposalId: "auto-proposal",
+              agentId,
+              status: complete ? "delivered" : "ready",
+              autoDeliver: true,
+              questions: "[]",
+              text: "Use 180 seconds, as the approved plan specifies.",
+              error: null,
+            },
+          ],
+        },
+      }),
+    );
+    await page.route("**/api/terminal-dispatches/*/claim", (route) =>
+      route.fulfill({
+        json: {
+          agentId,
+          text: "Use 180 seconds, as the approved plan specifies.",
+        },
+      }),
+    );
+    await page.route("**/api/terminal-dispatches/*/complete", (route) => {
+      complete = true;
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.route("**/api/terminal-dispatches/*/release", (route) => {
+      released = true;
+      return route.fulfill({ json: { ok: true } });
+    });
+    await page.addInitScript(
+      ({ stopped }) => {
+        (window as any).__autoReplies = [];
+        const update = async () => ({
+          state: "idle" as const,
+          automatic: true,
+          currentVersion: "0.10.15",
+        });
+        window.vizorDesktop = {
+          getUpdateState: update,
+          checkForUpdates: update,
+          setAutomaticUpdates: update,
+          restartToUpdate: async () => ({ ok: false }),
+          onUpdateState: () => () => {},
+          terminals: {
+            snapshot: async (id: string) => ({
+              agentId: id,
+              token: id,
+              state: stopped ? "stopped" : "running",
+              inputReady: true,
+            }),
+            start: async () => {
+              throw Error("Automatic replies must not restart stopped workers");
+            },
+            sendTask: async (id: string, token: string, text: string) => {
+              (window as any).__autoReplies.push({ id, text });
+              return { ok: true };
+            },
+            onEvent: () => () => {},
+            resize: async () => {},
+          } as any,
+        };
+      },
+      { stopped },
+    );
+    await page.goto("/");
+    if (stopped) {
+      await expect.poll(() => released).toBe(true);
+      expect(complete).toBe(false);
+      expect(await page.evaluate(() => (window as any).__autoReplies)).toEqual(
+        [],
+      );
+    } else {
+      await expect.poll(() => complete).toBe(true);
+      expect(await page.evaluate(() => (window as any).__autoReplies)).toEqual([
+        {
+          id: agentId,
+          text: "Use 180 seconds, as the approved plan specifies.",
+        },
+      ]);
+      await page.reload();
+      await page.waitForTimeout(500);
+      expect(await page.evaluate(() => (window as any).__autoReplies)).toEqual(
+        [],
+      );
+    }
+  });
+}

@@ -21,10 +21,14 @@ export async function api<T = unknown>(
   path: string,
   method = "GET",
   data?: unknown,
+  headers?: Record<string, string>,
 ): Promise<T> {
   const response = await fetch(`/api/${path}`, {
     method,
-    headers: data === undefined ? {} : { "Content-Type": "application/json" },
+    headers: {
+      ...(data === undefined ? {} : { "Content-Type": "application/json" }),
+      ...headers,
+    },
     body: data === undefined ? undefined : JSON.stringify(data),
     cache: "no-store",
   });

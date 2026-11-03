@@ -76,7 +76,13 @@ it("upgrades a populated stage-one database without losing keys, accounts or his
     });
     expect(
       sqlite.prepare("SELECT passwordHash,workspaceLayout FROM User").get(),
-    ).toEqual({ passwordHash: "existing-hash", workspaceLayout: "{}" });
+    ).toEqual({
+      passwordHash: "existing-hash",
+      workspaceLayout: JSON.stringify({
+        mode: "live",
+        textSize: "comfortable",
+      }),
+    });
     expect(sqlite.prepare("SELECT paused,archived FROM Agent").get()).toEqual({
       paused: 0,
       archived: 0,

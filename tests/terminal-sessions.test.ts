@@ -89,10 +89,30 @@ it("deduplicates starts and rejects stale input after a process is resumed", asy
   expect(b.token).not.toBe(a.token);
   expect(() => f.sessions.input("a", a.token, "stale")).toThrow();
 });
+it("waits for the CLI prompt and submits a multiline assignment as one paste", async () => {
+  const f = fixture();
+  const session = await f.sessions.start(f.agent("a"));
+  expect(session.inputReady).toBe(false);
+  f.terminals[0].data("Claude Code startup\r\n❯ ");
+  await vi.waitFor(() =>
+    expect(f.sessions.snapshot("a").inputReady).toBe(true),
+  );
+  await f.sessions.sendTask(
+    "a",
+    session.token,
+    "Inspect source\nReport findings",
+  );
+  expect(f.terminals[0].write).toHaveBeenNthCalledWith(
+    1,
+    "\x1b[200~Inspect source\nReport findings\x1b[201~",
+  );
+  expect(f.terminals[0].write).toHaveBeenNthCalledWith(2, "\r");
+  expect(f.sessions.snapshot("a").inputReady).toBe(false);
+});
 it("keeps the native Claude permission prompts and resumes Codex by its exact native ID", async () => {
   const f = fixture();
   await f.sessions.start(f.agent("a"));
-  expect(f.terminals[0].args).toContain("default");
+  expect(f.terminals[0].args).toContain("acceptEdits");
   expect(f.terminals[0].args).not.toContain("--dangerously-skip-permissions");
   const a = f.agent("b", "codex");
   a.nativeSessionId = randomUUID();
@@ -116,8 +136,8 @@ it("prepares and persists a new Codex thread without starting an inference turn"
 it("tracks exit state accurately, bounds replay and stops only owned processes on disconnect", async () => {
   const f = fixture();
   const a = await f.sessions.start(f.agent("a"));
-  f.terminals[0].data("x".repeat(600000));
-  expect(f.sessions.snapshot("a").data.length).toBe(524288);
+  f.terminals[0].data("x".repeat(5 * 1024 * 1024));
+  expect(f.sessions.snapshot("a").data.length).toBe(4 * 1024 * 1024);
   f.terminals[0].exit({ exitCode: 2 });
   expect(f.sessions.snapshot("a").state).toBe("stopped");
   expect(() => f.sessions.interrupt("a", a.token)).toThrow();
@@ -163,4 +183,54 @@ it("rejects tampered native downloads before creating any executable or install 
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+it("recognizes a cursor-positioned fragmented CLI prompt without mistaking setup previews for input", async () => {
+  const f = fixture();
+  await f.sessions.start(f.agent("screen"));
+  const terminal = f.terminals[0];
+  terminal.data("Syntax theme: Monokai Extended (ctrl+t to disable)");
+  await new Promise((done) => setTimeout(done, 20));
+  expect(f.sessions.snapshot("screen").inputReady).toBe(false);
+  terminal.data("\x1b[2J\x1b[12;");
+  terminal.data('1H› Try "fix lint errors"\x1b[12;3H');
+  await vi.waitFor(() =>
+    expect(f.sessions.snapshot("screen").inputReady).toBe(true),
+  );
+  terminal.data("\x1b[2J\x1b[1;1HDo you trust this folder?");
+  await vi.waitFor(() =>
+    expect(f.sessions.snapshot("screen").inputReady).toBe(false),
+  );
+  f.sessions.dispose();
+});
+it("submits a multiline paste even when its echo moves the cursor away from the prompt", async () => {
+  const f = fixture();
+  const session = await f.sessions.start(f.agent("paste"));
+  const terminal = f.terminals[0];
+  terminal.data("❯ ");
+  await vi.waitFor(() =>
+    expect(f.sessions.snapshot("paste").inputReady).toBe(true),
+  );
+  terminal.write.mockImplementation((text: string) => {
+    if (text.startsWith("\x1b[200~"))
+      terminal.data(
+        "\x1b[2J\x1b[1;1H❯ first line\r\nsecond line\r\nthird line",
+      );
+  });
+  await f.sessions.sendTask(
+    "paste",
+    session.token,
+    "first line\nsecond line\nthird line",
+  );
+  expect(terminal.write).toHaveBeenLastCalledWith("\r");
+  expect(terminal.write).not.toHaveBeenCalledWith("\x03");
+  f.sessions.dispose();
+});
+it("never treats the native permission-choice cursor as a task entry prompt", async () => {
+  const f = fixture();
+  await f.sessions.start(f.agent("permissions"));
+  f.terminals[0].data("Do you want to run this command?\r\n❯ 1. Yes");
+  await new Promise((done) => setTimeout(done, 30));
+  expect(f.sessions.snapshot("permissions").inputReady).toBe(false);
+  expect(f.terminals[0].write).not.toHaveBeenCalled();
+  f.sessions.dispose();
 });

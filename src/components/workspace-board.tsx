@@ -19,6 +19,7 @@ import type {
 import type { useWorkspace } from "./use-workspace";
 import { AgentPanel } from "./agent-panel";
 import { TerminalPanel } from "./terminal-panel";
+import { deliverTerminalTask } from "./proposal-queue";
 type WorkspaceState = ReturnType<typeof useWorkspace>;
 export function WorkspaceBoard({
   workspace,
@@ -42,7 +43,34 @@ export function WorkspaceBoard({
     models,
     setNotice,
   } = workspace;
-  const active = agents.filter((a) => !a.archived);
+  const teamIds = data?.currentTeamIds ?? [];
+  const planOnly =
+    layout.mode !== "live" &&
+    layout.scope !== "all" &&
+    (!!data?.hasPlanChat || teamIds.length > 0);
+  const runningAgents = agents.filter(
+    (agent) =>
+      !agent.archived &&
+      (agent.conversation.activeRunId ||
+        pending[agent.id] ||
+        agent.terminalState === "running"),
+  );
+  const active = agents.filter(
+    (a) =>
+      !a.archived &&
+      (!(layout.scope !== "all" && (data?.hasPlanChat || teamIds.length)) ||
+        teamIds.includes(a.id) ||
+        (layout.mode === "live" &&
+          runningAgents.some((running) => running.id === a.id))),
+  );
+  const teamSignature = planOnly ? [...teamIds].sort().join("|") : "";
+  const previousTeam = useRef("");
+  useEffect(() => {
+    if (teamSignature && previousTeam.current !== teamSignature) {
+      previousTeam.current = teamSignature;
+      updateLayout({ ...layout, mode: "team" });
+    }
+  }, [teamSignature]);
   const ordered = [
     ...new Set([...layout.pinned, ...layout.order, ...active.map((a) => a.id)]),
   ].flatMap((id) => {
@@ -50,7 +78,12 @@ export function WorkspaceBoard({
     return agent ? [agent] : [];
   });
   const selected = ordered.find((a) => a.id === layout.activeId) ?? ordered[0];
-  const capacity = layout.mode === "tabs" ? 1 : Number(layout.mode);
+  const capacity =
+    layout.mode === "team" || layout.mode === "live"
+      ? Math.max(1, ordered.length)
+      : layout.mode === "tabs"
+        ? 1
+        : Number(layout.mode);
   const page = Math.floor(
     Math.max(
       0,
@@ -74,12 +107,21 @@ export function WorkspaceBoard({
     return () => observer.disconnect();
   }, []);
   const columns =
-    width < 650 ? 1 : width < 1000 ? 2 : layout.mode === "6" ? 3 : 2;
+    width < 650
+      ? 1
+      : width < 1000
+        ? 2
+        : layout.mode === "6" ||
+            ((layout.mode === "team" || layout.mode === "live") &&
+              width >= 1700 &&
+              capacity >= 3)
+          ? 3
+          : 2;
   const narrow = width < 650;
   const columnsWidth = 12 / columns;
-  const rows = capacity === 2 ? 1 : 2;
+  const rows = Math.max(1, Math.ceil(capacity / columns));
   const defaultHeight = Math.max(
-    5,
+    11,
     Math.floor(((height - (rows - 1) * 14) / rows + 14) / 46),
   );
   const saved = layout.layouts[layout.mode] ?? [];
@@ -90,12 +132,12 @@ export function WorkspaceBoard({
       i: agent.id,
       x: narrow ? 0 : (stored?.x ?? (index % columns) * columnsWidth),
       y: narrow
-        ? index * 8
+        ? index * 10
         : (stored?.y ?? Math.floor(index / columns) * defaultHeight),
       w: narrow ? 12 : (stored?.w ?? columnsWidth),
-      h: collapsed ? 2 : narrow ? 8 : Math.max(5, stored?.h ?? defaultHeight),
-      minW: 3,
-      minH: collapsed ? 2 : 5,
+      h: collapsed ? 2 : narrow ? 10 : Math.max(8, stored?.h ?? defaultHeight),
+      minW: 4,
+      minH: collapsed ? 2 : 10,
       maxH: 40,
       isResizable: !collapsed && !narrow,
     };
@@ -188,6 +230,23 @@ export function WorkspaceBoard({
     agent.engine && agent.engine !== "api" ? (
       <TerminalPanel
         agent={agent}
+        fontSize={
+          layout.textSize === "large"
+            ? 17
+            : layout.textSize === "compact"
+              ? 13
+              : 15
+        }
+        onRetry={async (proposalId) => {
+          try {
+            await deliverTerminalTask(workspace, proposalId);
+          } finally {
+            await workspace.reload();
+          }
+        }}
+        dispatch={data!.terminalDispatches.find(
+          (item) => item.agentId === agent.id && item.status !== "superseded",
+        )}
         collapsed={layout.collapsed.includes(agent.id)}
         pinned={layout.pinned.includes(agent.id)}
         onEdit={() => onEdit(agent)}
@@ -228,32 +287,32 @@ export function WorkspaceBoard({
         notify={setNotice}
       />
     );
+  const working = active.filter(
+    (a) =>
+      a.conversation.activeRunId ||
+      (a.engine !== "api" && a.terminalState === "running"),
+  ).length;
   return (
-    <div className="workspace-board">
+    <div
+      className={`workspace-board reading-${layout.textSize ?? "comfortable"}`}
+    >
       <div className="board-heading">
         <div>
-          <div className="eyebrow">YOUR TEAM, IN ONE PLACE</div>
-          <h1>Agent board</h1>
+          <h1>{layout.mode === "live" ? "Live agents" : "Agent board"}</h1>
           <p>
             {active.length} {active.length === 1 ? "agent" : "agents"}
-            <span>·</span>
-            {agents.filter((a) => a.conversation.activeRunId).length} API
-            replies running
-            <span>·</span>
-            {
-              active.filter(
-                (a) => a.engine !== "api" && a.terminalState === "running",
-              ).length
-            }{" "}
-            terminals open
-            <span>·</span>
-            <span
-              className={
-                workspace.connected ? "live-connected" : "live-reconnecting"
-              }
-            >
-              {workspace.connected ? "Live" : "Reconnecting…"}
-            </span>
+            {working > 0 && (
+              <>
+                <span>·</span>
+                {working} working
+              </>
+            )}
+            {!workspace.connected && (
+              <>
+                <span>·</span>
+                <span className="live-reconnecting">Reconnecting…</span>
+              </>
+            )}
           </p>
         </div>
         <button className="primary" onClick={onNew}>
@@ -262,27 +321,84 @@ export function WorkspaceBoard({
         </button>
       </div>
       <div className="board-toolbar">
+        {(data?.hasPlanChat || teamIds.length > 0) && (
+          <div
+            className="layout-controls"
+            role="group"
+            aria-label="Visible team"
+          >
+            <button
+              className={planOnly ? "selected" : ""}
+              aria-pressed={planOnly}
+              onClick={() =>
+                updateLayout({ ...layout, scope: "plan", mode: "team" })
+              }
+            >
+              Current plan · {teamIds.length}
+            </button>
+            <button
+              className={!planOnly ? "selected" : ""}
+              aria-pressed={!planOnly}
+              onClick={() =>
+                updateLayout({ ...layout, scope: "all", mode: "team" })
+              }
+            >
+              All agents
+            </button>
+          </div>
+        )}
         <div
           className="layout-controls"
           role="group"
           aria-label="Workspace layout"
         >
           <LayoutGrid size={15} />
-          {(["1", "2", "4", "6", "tabs"] as LayoutMode[]).map((mode) => (
-            <button
-              key={mode}
-              className={layout.mode === mode ? "selected" : ""}
-              aria-label={
-                mode === "tabs" ? "Tabbed layout" : `${mode}-up layout`
-              }
-              aria-pressed={layout.mode === mode}
-              onClick={() => updateLayout({ ...layout, mode })}
-            >
-              {mode === "tabs" ? "Tabs" : mode}
-            </button>
-          ))}
+          {(["live", "team", "1", "2", "4", "6", "tabs"] as LayoutMode[]).map(
+            (mode) => (
+              <button
+                key={mode}
+                className={layout.mode === mode ? "selected" : ""}
+                aria-label={
+                  mode === "live"
+                    ? "Show all active agents"
+                    : mode === "team"
+                      ? "Show entire team"
+                      : mode === "tabs"
+                        ? "Tabbed layout"
+                        : `${mode}-up layout`
+                }
+                aria-pressed={layout.mode === mode}
+                onClick={() => updateLayout({ ...layout, mode })}
+              >
+                {mode === "live"
+                  ? "Live"
+                  : mode === "team"
+                    ? "Team"
+                    : mode === "tabs"
+                      ? "Tabs"
+                      : mode}
+              </button>
+            ),
+          )}
         </div>
         <div className="board-toolbar-right">
+          <label className="reading-control">
+            Text
+            <select
+              aria-label="Chat text size"
+              value={layout.textSize ?? "comfortable"}
+              onChange={(e) =>
+                updateLayout({
+                  ...layout,
+                  textSize: e.target.value as WorkspaceLayout["textSize"],
+                })
+              }
+            >
+              <option value="comfortable">Comfortable</option>
+              <option value="large">Large</option>
+              <option value="compact">Compact</option>
+            </select>
+          </label>
           <span className="layout-saved" role="status">
             {saving ? (
               <>
@@ -374,10 +490,13 @@ export function WorkspaceBoard({
             <span className="welcome-mark">
               <Plus size={30} />
             </span>
-            <h2>Build your team.</h2>
+            <h2>
+              {planOnly ? "Waiting for your plan’s team." : "Build your team."}
+            </h2>
             <p>
-              Add a Claude Code or Codex agent to work in a project, or an API
-              agent for conversation. Each gets its own panel and history.
+              {planOnly
+                ? "Ask the Orchestrator to prepare your team, then approve its worker tasks. Each approved worker appears here with its own session. Start a new Orchestrator chat for a new plan."
+                : "Add a project agent or an API conversation. Each gets its own panel and history."}
             </p>
             <button className="primary" onClick={onNew}>
               Create an agent
@@ -396,19 +515,26 @@ export function WorkspaceBoard({
               margin={[14, 14]}
               containerPadding={[0, 0]}
               layout={grid}
-              draggableHandle=".panel-grip"
-              draggableCancel="textarea,input,select,.panel-controls,.send-button,.terminal-surface,.terminal-copy,.terminal-title"
+              draggableHandle=".panel-top,.agent-panel-header"
+              draggableCancel="button:not(.panel-grip),textarea,input,select,.panel-controls,.send-button,.terminal-surface,.terminal-copy"
               isDraggable={!narrow}
               isResizable={!narrow}
+              resizeHandles={["e", "s", "se"]}
               onDragStop={persist}
               onResizeStop={persist}
-              resizeHandle={(_axis, ref) => (
+              resizeHandle={(axis, ref) => (
                 <span
                   ref={ref}
-                  className="react-resizable-handle react-resizable-handle-se"
+                  className={`react-resizable-handle react-resizable-handle-${axis}`}
                   role="button"
                   tabIndex={0}
-                  aria-label="Resize agent panel"
+                  aria-label={
+                    axis === "se"
+                      ? "Resize agent panel"
+                      : axis === "e"
+                        ? "Resize agent width"
+                        : "Resize agent height"
+                  }
                   title="Drag to resize · Arrow keys to resize"
                   onKeyDown={resizeKey}
                 />

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { AgentView } from "@/lib/types";
+import type { AgentView, TerminalDispatchView } from "@/lib/types";
 import type {
   TerminalBridge,
   TerminalEngine,
@@ -15,16 +15,21 @@ import {
   Pin,
   ChevronDown,
   GripVertical,
+  Maximize2,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 export function TerminalSurface({
   agentId,
   bridge,
   onState,
+  fontSize = 15,
+  actions,
 }: {
   agentId: string;
   bridge: TerminalBridge;
   onState: (state: TerminalState) => void;
+  fontSize?: number;
+  actions?: React.ReactNode;
 }) {
   const root = useRef<HTMLDivElement>(null);
   const state = useRef<TerminalState>({ agentId, state: "stopped" });
@@ -41,11 +46,12 @@ export function TerminalSurface({
         const terminal = new Terminal({
           cursorBlink: true,
           fontFamily: "Consolas, monospace",
-          fontSize: 13,
-          scrollback: 3000,
+          fontSize,
+          lineHeight: 1.4,
+          scrollback: 20000,
           allowProposedApi: false,
           theme: {
-            background: "#171717",
+            background: "#1c1b1a",
             foreground: "#ededed",
             cursor: "#ff8a35",
             selectionBackground: "#87401c",
@@ -67,8 +73,10 @@ export function TerminalSurface({
           callback.current(next);
         }
         function apply(event: TerminalEvent) {
-          if (event.type === "data") terminal.write(event.data || "");
-          else if (event.type === "state") {
+          if (event.type === "data") {
+            receive(event);
+            terminal.write(event.data || "");
+          } else if (event.type === "state") {
             receive(event);
             resize();
           }
@@ -138,7 +146,7 @@ export function TerminalSurface({
       cancelled = true;
       cleanup();
     };
-  }, [agentId, bridge]);
+  }, [agentId, bridge, fontSize]);
   return (
     <>
       <div
@@ -152,20 +160,57 @@ export function TerminalSurface({
           {error}
         </p>
       )}
-      <button
-        className="terminal-copy text-button"
-        onClick={() => {
-          const selection = term.current?.getSelection();
-          if (selection) void navigator.clipboard.writeText(selection);
-        }}
-      >
-        <Copy size={12} /> Copy selection
-      </button>
+      <div className="terminal-footer">
+        <div className="terminal-actions">{actions}</div>
+        <div
+          className="terminal-key-controls"
+          aria-label="Terminal keyboard controls"
+        >
+          <button
+            className="secondary"
+            onClick={() => term.current?.scrollToBottom()}
+          >
+            Latest
+          </button>
+          {[
+            ["↑", "\x1b[A"],
+            ["↓", "\x1b[B"],
+            ["Enter", "\r"],
+          ].map(([label, key]) => (
+            <button
+              key={label}
+              className="secondary"
+              onClick={() => {
+                const current = state.current;
+                if (current.state === "running" && current.token)
+                  void bridge
+                    .input(agentId, current.token, key)
+                    .catch((e) => setError(e.message));
+              }}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            className="terminal-copy text-button"
+            aria-label="Copy selection"
+            title="Copy selection"
+            onClick={() => {
+              const selection = term.current?.getSelection();
+              if (selection) void navigator.clipboard.writeText(selection);
+            }}
+          >
+            <Copy size={14} />
+          </button>
+        </div>
+      </div>
     </>
   );
 }
 export function TerminalPanel({
   agent,
+  dispatch,
+  onRetry,
   onEdit,
   onPin,
   onCollapse,
@@ -173,8 +218,11 @@ export function TerminalPanel({
   onMove,
   collapsed,
   pinned,
+  fontSize,
 }: {
   agent: AgentView;
+  dispatch?: TerminalDispatchView;
+  onRetry?: (proposalId: string) => Promise<void>;
   onEdit: () => void;
   onPin: () => void;
   onCollapse: () => void;
@@ -182,6 +230,7 @@ export function TerminalPanel({
   onMove: (direction: number) => void;
   collapsed: boolean;
   pinned: boolean;
+  fontSize?: number;
 }) {
   const [bridge, setBridge] = useState<TerminalBridge>();
   const [state, setState] = useState<TerminalState>({
@@ -239,6 +288,20 @@ export function TerminalPanel({
       }
       if (forceInstall || !tools.find((t) => t.engine === engine)?.installed)
         await bridge.install(engine);
+      if (engine === "claude-code") {
+        // Setup must use the worker's own session, so completing its prompts
+        // also unblocks delivery to that worker.
+        let next = await bridge.start(agent.id);
+        if (
+          next.conflict &&
+          confirm(
+            "Another coding agent is open in this project. Start this agent too?",
+          )
+        )
+          next = await bridge.start(agent.id, true);
+        if (!next.conflict) setState(next);
+        return;
+      }
       await bridge.setup(engine);
       setSetup(true);
     } catch (e) {
@@ -262,6 +325,54 @@ export function TerminalPanel({
       setError((e as Error).message);
     }
   }
+  const folder = agent.projectPath?.split(/[\\/]/).filter(Boolean).pop();
+  const billingNote =
+    engine === "codex"
+      ? "Usage and permissions are managed inside Codex. This terminal uses the Codex account signed in on this computer."
+      : "Uses the Anthropic Console key saved in Vizor, with a separate Claude Code profile. Terminal API charges appear in Claude Code; Vizor spending limits do not cover them.";
+  const actions = (
+    <>
+      {state.state === "running" ? (
+        <>
+          <button
+            className="secondary"
+            disabled={!bridge}
+            onClick={() =>
+              void bridge
+                ?.interrupt(agent.id, state.token!)
+                .catch((e) => setError(e.message))
+            }
+          >
+            Interrupt
+          </button>
+          <button className="secondary" onClick={() => void stop()}>
+            <Square size={12} /> Stop
+          </button>
+        </>
+      ) : (
+        <button
+          className="secondary"
+          onClick={() => void start()}
+          disabled={!bridge || busy || agent.paused}
+        >
+          <Play size={13} /> Resume
+        </button>
+      )}
+      <button
+        className="text-button"
+        disabled={!bridge || busy}
+        onClick={() => void prepare()}
+      >
+        {busy
+          ? progress == null
+            ? "Preparing…"
+            : `Downloading ${progress}%`
+          : engine === "claude-code"
+            ? "Set up Claude Code"
+            : "Set up / sign in"}
+      </button>
+    </>
+  );
   return (
     <section
       className={`agent-panel terminal-panel ${collapsed ? "collapsed-panel" : ""}`}
@@ -281,16 +392,27 @@ export function TerminalPanel({
         >
           <GripVertical size={16} />
         </button>
-        <button className="terminal-title text-button" onClick={onFocus}>
+        <div className="terminal-title">
           <strong>{agent.name}</strong>
-          <small>
-            {engine === "codex" ? "Codex" : "Claude Code"} ·{" "}
-            {state.state === "running" ? "Running" : "Stopped"}
+          <small title={`${agent.projectPath}\n${billingNote}`}>
+            <span
+              className={`status-dot ${state.state === "running" ? "on" : ""}`}
+              aria-hidden="true"
+            />
+            {state.state === "running"
+              ? state.inputReady
+                ? "Terminal ready"
+                : "Process open · activity not verified"
+              : "Stopped"}
             {state.state === "stopped" && state.exitCode
               ? ` · exit ${state.exitCode}`
               : ""}
+            <span className="terminal-meta">
+              {engine === "codex" ? "Codex" : "Claude Code"}
+              {folder ? ` · ${folder}` : ""}
+            </span>
           </small>
-        </button>
+        </div>
         <div className="panel-controls">
           <button
             className="icon-button"
@@ -309,6 +431,14 @@ export function TerminalPanel({
           </button>
           <button
             className="icon-button"
+            aria-label={`Focus ${agent.name}`}
+            title="Expand conversation"
+            onClick={onFocus}
+          >
+            <Maximize2 size={15} />
+          </button>
+          <button
+            className="icon-button"
             aria-label={`Settings for ${agent.name}`}
             onClick={onEdit}
           >
@@ -318,49 +448,45 @@ export function TerminalPanel({
       </div>
       {!collapsed && (
         <>
-          <p className="terminal-project" title={agent.projectPath}>
-            {agent.projectPath}
-          </p>
-          <div className="terminal-toolbar panel-controls">
-            <button
-              className="secondary"
-              onClick={() => void start()}
-              disabled={
-                !bridge || busy || state.state === "running" || agent.paused
-              }
-            >
-              <Play size={13} /> Resume
-            </button>
-            <button
-              className="secondary"
-              disabled={!bridge || state.state !== "running"}
-              onClick={() =>
-                void bridge
-                  ?.interrupt(agent.id, state.token!)
-                  .catch((e) => setError(e.message))
-              }
-            >
-              Interrupt
-            </button>
-            <button
-              className="secondary"
-              disabled={state.state !== "running"}
-              onClick={() => void stop()}
-            >
-              <Square size={12} /> Stop
-            </button>
-            <button
-              className="text-button"
-              disabled={!bridge || busy}
-              onClick={() => void prepare()}
-            >
-              {busy
-                ? progress == null
-                  ? "Preparing…"
-                  : `Downloading ${progress}%`
-                : "Set up / sign in"}
-            </button>
-          </div>
+          {dispatch && dispatch.status !== "failed" && (
+            <div className="terminal-task-status" role="status">
+              <strong>
+                {dispatch.status === "ready"
+                  ? "Approved · waiting to send"
+                  : dispatch.status === "claimed"
+                    ? "Opening terminal and sending task…"
+                    : dispatch.status === "reported"
+                      ? dispatch.questions && dispatch.questions !== "[]"
+                        ? "Question sent to Orchestrator · waiting for answer"
+                        : "Agent report received · review in Orchestrator"
+                      : "Task submitted · waiting for agent report"}
+              </strong>
+              {dispatch.error && <span>{dispatch.error}</span>}
+              {dispatch.status === "ready" && onRetry && (
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      await onRetry(dispatch.proposalId);
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Retry delivery
+                </button>
+              )}
+              <details className="terminal-assignment">
+                <summary>View assigned task</summary>
+                <pre>{dispatch.text}</pre>
+              </details>
+            </div>
+          )}
           {!bridge ? (
             <div className="terminal-placeholder">
               Open the Windows desktop app to use this terminal agent.
@@ -368,8 +494,10 @@ export function TerminalPanel({
           ) : (
             <TerminalSurface
               agentId={agent.id}
+              fontSize={fontSize}
               bridge={bridge}
               onState={setState}
+              actions={actions}
             />
           )}
           {error && (
@@ -377,11 +505,6 @@ export function TerminalPanel({
               {error}
             </div>
           )}
-          <p className="terminal-billing">
-            Usage and permissions are managed inside{" "}
-            {engine === "codex" ? "Codex" : "Claude Code"}. API spending caps do
-            not cover this terminal.
-          </p>
         </>
       )}
       {setup && bridge && (
@@ -403,6 +526,7 @@ export function TerminalPanel({
           </div>
           <TerminalSurface
             agentId={`setup-${engine}`}
+            fontSize={fontSize}
             bridge={bridge}
             onState={() => {}}
           />

@@ -5,6 +5,9 @@ export const agentSchema = z
   .object({
     name: z.string().trim().min(1).max(70),
     engine: z.enum(["api", "claude-code", "codex"]).default("api"),
+    permissionMode: z
+      .enum(["default", "acceptEdits", "auto"])
+      .default("acceptEdits"),
     projectPath: z.string().max(4096).default(""),
     provider: z.string().max(40).default("anthropic"),
     model: z
@@ -65,13 +68,15 @@ const panel = z
   .refine((value) => value.x + value.w <= 12, "Panel exceeds grid");
 export const layoutSchema = z
   .object({
-    mode: z.enum(["1", "2", "4", "6", "tabs"]),
+    mode: z.enum(["1", "2", "4", "6", "tabs", "team", "live"]),
+    textSize: z.enum(["comfortable", "large", "compact"]).optional(),
+    scope: z.enum(["plan", "all"]).optional(),
     activeId: z.string().min(1).max(100).nullable(),
     order: ids,
     pinned: ids,
     collapsed: ids,
     layouts: z.record(
-      z.string().regex(/^(1|2|4|6|tabs)$/),
+      z.string().regex(/^(1|2|4|6|tabs|team|live)$/),
       z
         .array(panel)
         .max(1000)

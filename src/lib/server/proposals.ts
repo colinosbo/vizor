@@ -5,6 +5,8 @@ import { proposalPayload } from "./orchestrator-tools";
 import { audit } from "./audit";
 import { publish } from "./events";
 import { startChat, stopAgent } from "./chat";
+import { agentSchema } from "./validation";
+import { assertQueueCanRun } from "./task-queue";
 export async function ownedProposal(userId: string, id: string) {
   const proposal = await db.proposal.findFirst({ where: { id, userId } });
   if (!proposal)
@@ -25,6 +27,15 @@ export async function editProposal(
       "Editing cannot change a proposal’s action.",
     );
   const terminalDispatch = payload.action === "dispatch_terminal";
+  if (payload.action === "create_terminal_agent")
+    agentSchema.parse({
+      ...payload.config,
+      engine: "claude-code",
+      provider: "anthropic",
+      model: "claude-code",
+      temperature: 0.2,
+      maxTokens: 4096,
+    });
   if (
     "agentId" in payload &&
     !(await db.agent.findFirst({
@@ -33,7 +44,7 @@ export async function editProposal(
         userId,
         kind: "agent",
         archived: false,
-        engine: terminalDispatch ? { in: ["claude-code", "codex"] } : "api",
+        engine: terminalDispatch ? "claude-code" : "api",
       },
       select: { id: true },
     }))
@@ -79,7 +90,7 @@ export async function rejectProposal(
   const proposal = await ownedProposal(userId, id);
   await db.$transaction(async (tx) => {
     const result = await tx.proposal.updateMany({
-      where: { id, userId, status: "pending", version },
+      where: { id, userId, status: { in: ["pending", "queued"] }, version },
       data: { status: "rejected", version: { increment: 1 } },
     });
     if (!result.count)
@@ -106,6 +117,10 @@ async function failProposal(userId: string, id: string, error: unknown) {
       where: { id, userId },
       data: { status: "failed", error: safe.message },
     });
+    await tx.user.update({
+      where: { id: userId },
+      data: { queueEnabled: false, autoApprove: false },
+    });
     await audit(
       userId,
       "proposal.failed",
@@ -131,10 +146,21 @@ export async function approveProposal(
       alreadyReviewed: true,
     };
   const payload = proposalPayload.parse(JSON.parse(existing.payload));
-  if (payload.action === "dispatch_terminal") {
+  const queued = existing.status === "queued";
+  if (queued && !existing.approvedBy)
+    throw new AppError(
+      "approval_required",
+      "This task has not been approved.",
+      409,
+    );
+  if (
+    payload.action === "dispatch_terminal" ||
+    payload.action === "create_terminal_agent"
+  ) {
     await db.$transaction(async (tx) => {
+      if (queued) await assertQueueCanRun(tx, userId, id);
       const claim = await tx.proposal.updateMany({
-        where: { id, userId, status: "pending", version },
+        where: { id, userId, status: queued ? "queued" : "pending", version },
         data: {
           status: "approved",
           approvedBy: userId,
@@ -148,30 +174,87 @@ export async function approveProposal(
           "This proposal changed or was already reviewed. Refresh the queue.",
           409,
         );
-      const agent = await tx.agent.findFirst({
-        where: {
-          id: payload.agentId,
-          userId,
-          kind: "agent",
-          archived: false,
-          engine: { in: ["claude-code", "codex"] },
-        },
-        select: { id: true },
-      });
+      const agent =
+        payload.action === "create_terminal_agent"
+          ? await tx.agent.create({
+              data: {
+                ...agentSchema.parse({
+                  ...payload.config,
+                  engine: "claude-code",
+                  provider: "anthropic",
+                  model: "claude-code",
+                  temperature: 0.2,
+                  maxTokens: 4096,
+                }),
+                userId,
+                nativeSessionId: randomUUID(),
+                conversation: { create: {} },
+              },
+              select: { id: true, terminalState: true },
+            })
+          : await tx.agent.findFirst({
+              where: {
+                id: payload.agentId,
+                userId,
+                kind: "agent",
+                archived: false,
+                engine: "claude-code",
+              },
+              select: { id: true, terminalState: true },
+            });
       if (!agent)
         throw new AppError(
           "not_found",
           "The terminal agent is unavailable.",
           404,
         );
-      await tx.terminalDispatch.create({
-        data: {
+      if (payload.action === "create_terminal_agent")
+        await tx.proposal.update({
+          where: { id },
+          data: { agentId: agent.id },
+        });
+      const openDispatch = await tx.terminalDispatch.findFirst({
+        where: {
           userId,
           agentId: agent.id,
-          proposalId: id,
-          text: payload.text,
+          status: { in: ["ready", "claimed", "delivered"] },
         },
+        select: { id: true, status: true },
       });
+      if (
+        !queued &&
+        openDispatch &&
+        (openDispatch.status === "claimed" ||
+          (openDispatch.status === "delivered" &&
+            agent.terminalState !== "stopped"))
+      )
+        throw new AppError(
+          "terminal_task_open",
+          "This agent already has a task being sent or a running task without a report. Wait for it to finish or stop the terminal before assigning another.",
+          409,
+        );
+      if (!queued && openDispatch)
+        await tx.terminalDispatch.updateMany({
+          where: { id: openDispatch.id, userId, status: openDispatch.status },
+          data: {
+            status: "superseded",
+            error:
+              "Replaced by a newly approved task after the previous terminal stopped without a report.",
+          },
+        });
+      if (payload.text.trim())
+        await tx.terminalDispatch.create({
+          data: {
+            userId,
+            agentId: agent.id,
+            proposalId: id,
+            text:
+              payload.action === "create_terminal_agent" &&
+              payload.config.systemPrompt.trim()
+                ? `ROLE GUIDANCE\n${payload.config.systemPrompt.trim()}\n\nASSIGNED TASK\n${payload.text}`
+                : payload.text,
+          },
+        });
       await audit(
         userId,
         "proposal.approved",
@@ -182,7 +265,7 @@ export async function approveProposal(
       );
       await audit(
         userId,
-        "terminal_task.ready",
+        payload.text.trim() ? "terminal_task.ready" : "terminal_worker.created",
         agent.id,
         {},
         { actor: "orchestrator", proposalId: id, approvedBy: userId },
@@ -195,8 +278,9 @@ export async function approveProposal(
   if (payload.action !== "send_message") {
     let stopId: string | undefined;
     await db.$transaction(async (tx) => {
+      if (queued) await assertQueueCanRun(tx, userId, id);
       const claim = await tx.proposal.updateMany({
-        where: { id, userId, status: "pending", version },
+        where: { id, userId, status: queued ? "queued" : "pending", version },
         data: {
           status: "approved",
           approvedBy: userId,
@@ -285,8 +369,9 @@ export async function approveProposal(
     return { id, status: "approved", runId: null };
   }
   await db.$transaction(async (tx) => {
+    if (queued) await assertQueueCanRun(tx, userId, id);
     const claim = await tx.proposal.updateMany({
-      where: { id, userId, status: "pending", version },
+      where: { id, userId, status: queued ? "queued" : "pending", version },
       data: {
         status: "executing",
         approvedBy: userId,

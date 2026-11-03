@@ -1,6 +1,8 @@
 import type { WorkspaceLayout } from "./types";
 export const defaultLayout: WorkspaceLayout = {
-  mode: "1",
+  mode: "live",
+  textSize: "comfortable",
+  scope: "plan",
   activeId: null,
   order: [],
   pinned: [],

@@ -16,6 +16,7 @@ export type AgentView = {
   nativeSessionId?: string | null;
   terminalStarted?: boolean;
   terminalState?: string;
+  permissionMode?: "default" | "acceptEdits" | "auto";
   provider: string;
   model: string;
   systemPrompt: string;
@@ -54,18 +55,22 @@ export type Workspace = {
   templates: AgentTemplate[];
   layout: WorkspaceLayout;
   agents: AgentView[];
+  currentTeamIds?: string[];
+  hasPlanChat?: boolean;
   pricingDate: string;
   orchestrator: AgentView | null;
   proposals: ProposalView[];
   terminalDispatches: TerminalDispatchView[];
   pendingProposalCount: number;
   budgets: BudgetView[];
-  autopilot: false;
+  autopilot: boolean;
+  queueEnabled?: boolean;
 };
 export type AgentConfig = Pick<
   AgentView,
   | "name"
   | "engine"
+  | "permissionMode"
   | "projectPath"
   | "provider"
   | "model"
@@ -88,7 +93,7 @@ export type ProviderInfo = {
   connected: boolean;
   last4: string | null;
 };
-export type LayoutMode = "1" | "2" | "4" | "6" | "tabs";
+export type LayoutMode = "1" | "2" | "4" | "6" | "tabs" | "team" | "live";
 export type PanelLayout = {
   i: string;
   x: number;
@@ -97,6 +102,8 @@ export type PanelLayout = {
   h: number;
 };
 export type WorkspaceLayout = {
+  textSize?: "comfortable" | "large" | "compact";
+  scope?: "plan" | "all";
   mode: LayoutMode;
   activeId: string | null;
   order: string[];
@@ -124,8 +131,25 @@ export type LiveEvent =
   | { type: "run"; run: RunPatch }
   | { type: "unauthorized" };
 export type ProposalPayload =
+  | {
+      action: "answer_worker_question";
+      agentId: string;
+      dispatchId: string;
+      text: string;
+    }
   | { action: "send_message"; agentId: string; text: string }
   | { action: "dispatch_terminal"; agentId: string; text: string }
+  | {
+      action: "create_terminal_agent";
+      config: {
+        name: string;
+        projectPath: string;
+        systemPrompt: string;
+        color: AgentConfig["color"];
+        icon: AgentConfig["icon"];
+      };
+      text: string;
+    }
   | { action: "create_agent"; config: AgentConfig }
   | { action: "rename_agent"; agentId: string; name: string }
   | { action: "pause_agent" | "archive_agent"; agentId: string };
@@ -142,11 +166,14 @@ export type ProposalView = {
   error: string | null;
 };
 export type TerminalDispatchView = {
+  autoDeliver?: boolean;
+  questions?: string;
   id: string;
   proposalId: string;
   agentId: string;
   text: string;
-  status: "ready" | "claimed" | "delivered" | "failed";
+  status:
+    "ready" | "claimed" | "delivered" | "reported" | "superseded" | "failed";
   error: string | null;
 };
 export type BudgetView = {

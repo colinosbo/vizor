@@ -182,6 +182,9 @@ if (nativeTerminal.status !== 0)
   throw new Error(
     "The packaged native terminal dependency cannot load in the bundled Node runtime.",
   );
+run(join(root, "scripts/helper-smoke.mjs"), [
+  join(dirname(installer), "win-unpacked/resources/vizor"),
+]);
 writeFileSync(`${installer}.sha256`, `${sha256}  ${basename(installer)}\n`);
 writeFileSync(
   join(root, "artifacts/windows-result.json"),

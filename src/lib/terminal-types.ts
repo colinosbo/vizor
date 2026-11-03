@@ -8,6 +8,7 @@ export type TerminalState = {
   exitCode?: number | null;
   sequence?: number;
   data?: string;
+  inputReady?: boolean;
   conflict?: boolean;
 };
 export type TerminalEvent = TerminalState & {
@@ -23,6 +24,7 @@ export type TerminalBridge = {
   start(agentId: string, confirmShared?: boolean): Promise<TerminalState>;
   snapshot(agentId: string): Promise<TerminalState>;
   input(agentId: string, token: string, data: string): Promise<void>;
+  sendTask(agentId: string, token: string, text: string): Promise<{ ok: true }>;
   resize(
     agentId: string,
     token: string,

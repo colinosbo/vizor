@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { db } from "@/lib/server/db";
 import {
@@ -23,6 +24,7 @@ import { publish, eventStream } from "@/lib/server/events";
 import {
   coordinator,
   configureOrchestrator,
+  clearOrchestratorChat,
 } from "@/lib/server/orchestrator-config";
 import {
   approveMany,
@@ -31,10 +33,18 @@ import {
   rejectProposal,
 } from "@/lib/server/proposals";
 import { proposalPayload } from "@/lib/server/orchestrator-tools";
+import {
+  automationSettings,
+  setAutomation,
+  enqueueProposal,
+  queuedTaskInput,
+  addQueuedTask,
+} from "@/lib/server/task-queue";
 import { meteredSend, setBudget, usd } from "@/lib/server/budgets";
 import { audit } from "@/lib/server/audit";
 import {
   terminalAgent,
+  terminalClaudeApiKey,
   terminalRecord,
   recordTerminal,
 } from "@/lib/server/terminal-agents";
@@ -106,7 +116,41 @@ async function handle(
       );
     }
     const user = await owner(request);
-    await rateLimit(`requests:${user.id}`, 180);
+    const workspaceRead =
+      method === "GET" && path.length === 1 && path[0] === "workspace";
+    await rateLimit(
+      workspaceRead ? `workspace-reads:${user.id}` : `requests:${user.id}`,
+      workspaceRead ? 600 : 180,
+    );
+    if (route === "terminal-credentials/anthropic" && method === "GET") {
+      const expected = process.env.VIZOR_TERMINAL_TOKEN ?? "";
+      const authorization = request.headers.get("authorization") ?? "";
+      const supplied = authorization.startsWith("Bearer ")
+        ? authorization.slice(7)
+        : "";
+      const expectedBytes = Buffer.from(expected);
+      const suppliedBytes = Buffer.from(supplied);
+      if (
+        !expected ||
+        expectedBytes.length !== suppliedBytes.length ||
+        !timingSafeEqual(expectedBytes, suppliedBytes)
+      )
+        throw new AppError(
+          "desktop_required",
+          "Desktop access is required.",
+          403,
+        );
+      const apiKey = await terminalClaudeApiKey(user.id);
+      return Response.json(
+        { apiKey },
+        {
+          headers: {
+            "Cache-Control": "no-store, max-age=0",
+            Pragma: "no-cache",
+          },
+        },
+      );
+    }
     if (path[0] === "terminal-agents" && path.length === 2) {
       if (method === "GET")
         return Response.json(await terminalAgent(user.id, path[1]));
@@ -126,7 +170,13 @@ async function handle(
     ) {
       const proposalId = path[1];
       if (path[2] === "claim")
-        return Response.json(await claimTerminalDispatch(user.id, proposalId));
+        return Response.json(
+          await claimTerminalDispatch(
+            user.id,
+            proposalId,
+            request.headers.get("x-vizor-queue") === "1",
+          ),
+        );
       if (path[2] === "complete") {
         await completeTerminalDispatch(user.id, proposalId);
         return Response.json({ ok: true });
@@ -142,6 +192,31 @@ async function handle(
     }
     if (route === "workspace" && method === "GET")
       return Response.json(await workspace(user));
+    if (route === "automation" && method === "PATCH")
+      return Response.json(
+        await setAutomation(
+          user.id,
+          await readJson(request, automationSettings),
+        ),
+      );
+    if (route === "task-queue" && method === "POST")
+      return Response.json(
+        await addQueuedTask(user.id, await readJson(request, queuedTaskInput)),
+      );
+    if (
+      path[0] === "proposals" &&
+      path.length === 3 &&
+      path[2] === "queue" &&
+      method === "POST"
+    ) {
+      const input = await readJson(
+        request,
+        z.object({ version: z.number().int().min(0) }).strict(),
+      );
+      return Response.json(
+        await enqueueProposal(user.id, path[1], input.version),
+      );
+    }
     if (route === "orchestrator" && method === "PATCH") {
       const input = await readJson(
         request,
@@ -151,15 +226,18 @@ async function handle(
             model: z.string().max(150),
             temperature: z.number().min(0).max(1),
             maxTokens: z.number().int().min(64).max(8192),
+            projectInstructions: z.string().max(12000).optional(),
           })
           .strict()
           .refine(
-            (config) =>
+            ({ projectInstructions: _instructions, ...config }) =>
               agentSchema.safeParse({ ...defaultAgent, ...config }).success,
           ),
       );
       return Response.json(await configureOrchestrator(user.id, input));
     }
+    if (route === "orchestrator/clear" && method === "POST")
+      return Response.json(await clearOrchestratorChat(user.id));
     if (route === "orchestrator/messages" && method === "POST") {
       await rateLimit(`chat:${user.id}`, 20);
       const input = await readJson(

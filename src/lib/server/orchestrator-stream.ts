@@ -21,13 +21,19 @@ export async function* streamOrchestrator(
 ): AsyncGenerator<StreamEvent> {
   const context = await orchestratorContext(userId, scope);
   const ids = context.agents.map((agent) => agent.id);
-  const history = input.messages
+  const recent = input.messages
     .filter((message) => message.role !== "tool")
-    .slice(-12)
-    .map((message) => ({
-      ...message,
-      content: message.content.slice(0, 8000),
-    }));
+    .slice(-12);
+  const history = recent.map((message, index) => ({
+    ...message,
+    // Keep the current user request intact. Its instructions often appear at
+    // the end of a long pasted plan, so truncating from the end silently strips
+    // the actual request and leaves the Orchestrator with context but no task.
+    content: message.content.slice(
+      0,
+      index === recent.length - 1 ? 32000 : 8000,
+    ),
+  }));
   const last = history.pop() ?? {
     role: "user" as const,
     content: "Summarize progress.",
@@ -40,6 +46,16 @@ export async function* streamOrchestrator(
     },
     last,
   ];
+  // Long plans may need a larger structured tool call to become an approved
+  // terminal assignment. Keep ordinary turns at their configured limit; only
+  // raise it for long requests, with the same hard cap as agent settings.
+  const requestTokens =
+    last.content.length > 8000
+      ? Math.max(
+          input.maxTokens,
+          Math.min(8192, Math.ceil(last.content.length / 2)),
+        )
+      : input.maxTokens;
   let inputTotal = 0,
     outputTotal = 0;
   let allComplete = true;
@@ -56,7 +72,19 @@ export async function* streamOrchestrator(
       provider,
       {
         ...input,
-        system: ORCHESTRATOR_PROMPT,
+        maxTokens: round === 0 ? requestTokens : input.maxTokens,
+        system:
+          ORCHESTRATOR_PROMPT +
+          (context.autopilot
+            ? "\n\nCURRENT OWNER AUTOMATION SETTING (overrides the default approval workflow above): Full auto approval is ON. Vizor automatically approves new proposals and executes the task queue while open. Continue preparing scoped proposals through the structured tools; no per-task user click is needed. Honor the user's project constraints and dependencies. Never claim work is finished until its report arrives."
+            : "") +
+          (input.system.includes("\n\nProject instructions:\n")
+            ? "\n\nProject instructions:\n" +
+              input.system
+                .split("\n\nProject instructions:\n")
+                .slice(1)
+                .join("\n\nProject instructions:\n")
+            : ""),
         messages,
         tools: orchestratorTools,
       },

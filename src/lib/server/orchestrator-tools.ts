@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { db } from "./db";
 import { AppError } from "./errors";
@@ -6,9 +7,11 @@ import { compactAgent } from "./orchestrator-context";
 import { audit } from "./audit";
 import { publish } from "./events";
 import type { ToolCall } from "../providers/types";
+import { answerWorkerQuestion } from "./worker-questions";
 export const proposalActions = [
   "send_message",
   "dispatch_terminal",
+  "create_terminal_agent",
   "create_agent",
   "rename_agent",
   "pause_agent",
@@ -27,6 +30,21 @@ export const proposalPayload = z.discriminatedUnion("action", [
       action: z.literal("dispatch_terminal"),
       agentId: z.string().min(1).max(100),
       text: z.string().trim().min(1).max(32000),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal("create_terminal_agent"),
+      config: z
+        .object({
+          name: z.string().trim().min(1).max(70),
+          projectPath: z.string().min(3).max(4096),
+          systemPrompt: z.string().max(16000),
+          color: z.enum(["mint", "amber", "blue", "rose"]),
+          icon: z.enum(["spark", "code", "pen", "search"]),
+        })
+        .strict(),
+      text: z.string().trim().max(32000),
     })
     .strict(),
   z.object({ action: z.literal("create_agent"), config: agentSchema }).strict(),
@@ -73,6 +91,8 @@ export async function toolResult(
         "This orchestrator run is unavailable.",
         404,
       );
+    if (call.name === "answer_worker_question")
+      return await answerWorkerQuestion(userId, runId, call);
     if (call.name === "summarize") {
       const input = z
         .object({
@@ -135,6 +155,41 @@ export async function toolResult(
         agentId: input.agent_id,
         text: input.text,
       };
+    } else if (call.name === "create_terminal_agent") {
+      const input = z
+        .object({
+          name: z.string().trim().min(1).max(70),
+          project_path: z.string().min(3).max(4096),
+          role_prompt: z.string().max(16000),
+          color: z.enum(["mint", "amber", "blue", "rose"]),
+          icon: z.enum(["spark", "code", "pen", "search"]),
+          task: z.string().trim().max(32000),
+        })
+        .strict()
+        .parse(call.arguments);
+      const config = agentSchema.parse({
+        name: input.name,
+        engine: "claude-code",
+        projectPath: input.project_path,
+        provider: "anthropic",
+        model: "claude-code",
+        systemPrompt: input.role_prompt,
+        temperature: 0.2,
+        maxTokens: 4096,
+        color: input.color,
+        icon: input.icon,
+      });
+      payload = {
+        action: "create_terminal_agent",
+        config: {
+          name: config.name,
+          projectPath: config.projectPath,
+          systemPrompt: config.systemPrompt,
+          color: config.color,
+          icon: config.icon,
+        },
+        text: input.task,
+      };
     } else if (call.name === "rename_agent") {
       const input = z
         .object({
@@ -168,7 +223,7 @@ export async function toolResult(
           userId,
           kind: "agent",
           archived: false,
-          engine: terminalDispatch ? { in: ["claude-code", "codex"] } : "api",
+          engine: terminalDispatch ? "claude-code" : "api",
         },
         select: { id: true },
       }))
@@ -214,6 +269,23 @@ export async function toolResult(
       return result;
     });
     publish(userId);
+    const settings = await db.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { autoApprove: true },
+    });
+    if (settings.autoApprove && proposal.status === "pending") {
+      const { enqueueProposal } = await import("./task-queue");
+      await enqueueProposal(userId, proposal.id, proposal.version, true);
+      const current = await db.proposal.findUniqueOrThrow({
+        where: { id: proposal.id },
+      });
+      return {
+        proposalId: proposal.id,
+        status: current.status,
+        requiresHumanApproval: current.status === "pending",
+        executed: false,
+      };
+    }
     return {
       proposalId: proposal.id,
       status: proposal.status,

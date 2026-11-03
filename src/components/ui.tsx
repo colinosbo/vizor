@@ -191,6 +191,8 @@ export function Message({
   notify: (value: string) => void;
 }) {
   const user = message.role === "user";
+  const report =
+    message.origin === "terminal_report" || message.origin === "agent_report";
   return (
     <article
       className={`message ${user ? "user-message" : "assistant-message"}`}
@@ -212,11 +214,17 @@ export function Message({
             {user
               ? message.origin === "orchestrator"
                 ? "Orchestrator"
-                : "You"
+                : report
+                  ? "Agent report"
+                  : "You"
               : agent.name}
           </strong>
           {user && message.origin === "orchestrator" && (
             <span>Approved by you</span>
+          )}
+          {report && <span>Automatically delivered · Agent-reported</span>}
+          {message.origin === "worker_reply" && (
+            <span>Automatic worker clarification</span>
           )}
           {!user && <span>{providerLabel}</span>}
           <time dateTime={message.createdAt}>
@@ -232,6 +240,11 @@ export function Message({
               remarkPlugins={[remarkGfm]}
               skipHtml
               components={{
+                pre: ({ children }) => (
+                  <pre tabIndex={0} aria-label="Code block">
+                    {children}
+                  </pre>
+                ),
                 img: () => (
                   <span className="blocked-image">[Remote image hidden]</span>
                 ),
@@ -255,7 +268,11 @@ export function Message({
               <span className="sr-only">Thinking</span>
             </span>
           ) : (
-            <p className="muted">No text returned.</p>
+            <p className="muted">
+              {agent.kind === "orchestrator"
+                ? "The Orchestrator returned no reply. Check Approvals for any drafted actions before retrying."
+                : "No text returned."}
+            </p>
           )}
         </div>
         <div className="message-actions">

@@ -9,7 +9,7 @@ const {
   ipcMain,
 } = require("electron");
 const { spawn, spawnSync } = require("node:child_process");
-const { randomUUID } = require("node:crypto");
+const { randomBytes, randomUUID } = require("node:crypto");
 const { createServer } = require("node:net");
 const { mkdirSync } = require("node:fs");
 const { join } = require("node:path");
@@ -154,6 +154,7 @@ async function start() {
   if (!resources) return fail();
   const port = await freePort();
   origin = `http://127.0.0.1:${port}`;
+  const terminalToken = randomBytes(32).toString("hex");
   // Public update requests never inherit a developer or CI GitHub credential.
   delete process.env.GH_TOKEN;
   delete process.env.GITHUB_TOKEN;
@@ -166,6 +167,7 @@ async function start() {
     resources,
     home: paths.home,
     origin,
+    token: terminalToken,
     emit: (value) => {
       if (window && !window.isDestroyed())
         window.webContents.send("vizor:terminal-event", value);
@@ -385,6 +387,7 @@ async function start() {
     NEXT_TELEMETRY_DISABLED: "1",
     CHECKPOINT_DISABLE: "1",
     VIZOR_TERMINALS: "1",
+    VIZOR_TERMINAL_TOKEN: terminalToken,
   };
   // Installed workspaces always use their own persistent configuration, not a developer's shell variables.
   for (const key of [

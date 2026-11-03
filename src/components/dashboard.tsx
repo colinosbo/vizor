@@ -1,4 +1,5 @@
 "use client";
+import { AutomaticWorkerReplies } from "./automatic-worker-replies";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Archive,
@@ -108,6 +109,21 @@ export default function Dashboard() {
   } | null>(null);
   const connected = data?.providers.some((p) => p.connected) ?? false;
   const active = agents.filter((a) => !a.archived);
+  const openAgents = active.filter(
+    (agent) =>
+      agent.conversation.activeRunId ||
+      workspace.pending[agent.id] ||
+      agent.terminalState === "running",
+  );
+  const visibleAgents =
+    layout.scope !== "all" && data?.hasPlanChat
+      ? active.filter(
+          (agent) =>
+            data.currentTeamIds?.includes(agent.id) ||
+            (layout.mode === "live" &&
+              openAgents.some((running) => running.id === agent.id)),
+        )
+      : active;
   const selected = active.find((a) => a.id === layout.activeId) ?? active[0];
   const runs = [
     ...agents,
@@ -164,6 +180,7 @@ export default function Dashboard() {
       updateLayout({
         ...layout,
         activeId: id,
+        scope: "all",
         order: [...layout.order.filter((value) => value !== id), id],
         mode: layout.mode === "1" && count === 2 ? "2" : layout.mode,
       });
@@ -222,6 +239,7 @@ export default function Dashboard() {
       className={`app-shell${introVisible ? " startup-pending" : ""}`}
       inert={introVisible}
     >
+      <AutomaticWorkerReplies workspace={workspace} />
       {mobileNav && (
         <button
           className="nav-scrim"
@@ -235,25 +253,14 @@ export default function Dashboard() {
           <span>
             vizor<span className="brand-dot">.</span>
           </span>
-          <span className="version">{desktop ? "DESKTOP" : "LOCAL"}</span>
         </a>
-        <div className="workspace-picker">
-          <span className="workspace-avatar">V</span>
-          <div>
-            <strong>Personal workspace</strong>
-            <small>
-              {data?.selfHost === false ? "Private account" : "Local workspace"}
-            </small>
-          </div>
-        </div>
         <button
-          className="primary sidebar-create"
+          className="sidebar-create"
           aria-label="Create new agent"
           onClick={newAgent}
         >
           <Plus size={16} /> New agent
         </button>
-        <div className="nav-caption">WORKSPACE</div>
         <button
           className={`nav-item ${view === "orchestrator" ? "active" : ""}`}
           onClick={() => navigate("orchestrator")}
@@ -267,7 +274,7 @@ export default function Dashboard() {
           onClick={() => navigate("workspace")}
         >
           <MessageSquare size={17} />
-          Agent board<span className="nav-number">{active.length}</span>
+          Agent board<span className="nav-number">{visibleAgents.length}</span>
         </button>
         <button
           className={`nav-item ${view === "proposals" ? "active" : ""}`}
@@ -280,7 +287,7 @@ export default function Dashboard() {
           )}
         </button>
         <div className="agent-caption">
-          <span>YOUR AGENTS</span>
+          <span>Agents</span>
           <button
             className="icon-button"
             aria-label="Create agent"
@@ -296,7 +303,7 @@ export default function Dashboard() {
           role="region"
           aria-label="Your agents"
         >
-          {[...active]
+          {[...visibleAgents]
             .sort(
               (a, b) =>
                 Number(layout.pinned.includes(b.id)) -
@@ -333,7 +340,7 @@ export default function Dashboard() {
                 />
               </button>
             ))}
-          {!active.length && (
+          {!visibleAgents.length && (
             <div className="empty-sidebar">
               A fresh start.
               <br />
@@ -357,10 +364,6 @@ export default function Dashboard() {
               <strong>
                 {data?.selfHost === false ? data.email : "Your workspace"}
               </strong>
-              <small>
-                <span className="tiny-dot" />
-                {data?.selfHost === false ? "Signed in" : "Running locally"}
-              </small>
             </div>
             {data?.selfHost === false ? (
               <button
@@ -372,9 +375,7 @@ export default function Dashboard() {
               >
                 <LogOut size={16} />
               </button>
-            ) : (
-              <span className="local-tag">LOCAL</span>
-            )}
+            ) : null}
           </div>
         </div>
       </aside>
@@ -388,21 +389,18 @@ export default function Dashboard() {
             >
               <Menu size={19} />
             </button>
-            <span className="breadcrumb-icon">
-              <MessageSquare size={15} />
-            </span>
-            {inSettings && view !== "settings" ? (
-              <button
-                className="text-button"
-                aria-label="Back to settings"
-                onClick={() => navigate("settings")}
-              >
-                Settings
-              </button>
-            ) : (
-              <span>Workspace</span>
+            {inSettings && view !== "settings" && (
+              <>
+                <button
+                  className="text-button"
+                  aria-label="Back to settings"
+                  onClick={() => navigate("settings")}
+                >
+                  Settings
+                </button>
+                <ChevronRight size={13} />
+              </>
             )}
-            <ChevronRight size={13} />
             <strong>
               {view === "settings"
                 ? "Settings"
@@ -433,10 +431,6 @@ export default function Dashboard() {
                   <span className="tiny-dot" />
                 </span>
               ))}
-            <span className="private-pill">
-              <span className="tiny-dot" />
-              Private workspace
-            </span>
           </div>
         </header>
         <DesktopUpdates />

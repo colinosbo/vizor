@@ -16,6 +16,8 @@ model User {
   runs Run[]
   templates AgentTemplate[]
   workspaceLayout String @default("{}")
+  queueEnabled Boolean @default(false)
+  autoApprove Boolean @default(false)
   proposals Proposal[]
   audits AuditEntry[]
   budgets ProviderBudget[]
@@ -50,6 +52,7 @@ model Agent {
   nativeSessionId String?
   terminalStarted Boolean @default(false)
   terminalState String @default("stopped")
+  permissionMode String @default("acceptEdits")
   provider String @default("anthropic")
   model String
   systemPrompt String
@@ -156,6 +159,10 @@ model TerminalDispatch {
   text String
   status String @default("ready")
   error String?
+  questions String @default("[]")
+  autoDeliver Boolean @default(false)
+  replyToId String? @unique
+  replyDepth Int @default(0)
   claimedAt DateTime?
   deliveredAt DateTime?
   createdAt DateTime @default(now())

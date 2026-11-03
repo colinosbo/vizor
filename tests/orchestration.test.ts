@@ -15,7 +15,10 @@ import { db } from "../src/lib/server/db";
 import { defaultAgent, ownedAgent, workspace } from "../src/lib/server/store";
 import { encryptKey } from "../src/lib/server/crypto";
 import { cookie } from "../src/lib/server/security";
-import { configureOrchestrator } from "../src/lib/server/orchestrator-config";
+import {
+  clearOrchestratorChat,
+  configureOrchestrator,
+} from "../src/lib/server/orchestrator-config";
 import {
   compactAgent,
   orchestratorContext,
@@ -332,6 +335,21 @@ describe("orchestrator context and approval boundaries", () => {
       status: "ready",
       text: "Create the project README.",
     });
+    const codex = await newTerminalAgent(alice, "Old Codex worker", "codex");
+    const blockedCodex = await toolResult(
+      alice,
+      runId,
+      {
+        id: randomUUID(),
+        name: "dispatch_terminal",
+        arguments: { agent_id: codex, text: "This must not be dispatched." },
+      },
+      [codex],
+    );
+    expect(blockedCodex).toMatchObject({
+      executed: false,
+      error: "The proposal’s target agent is unavailable.",
+    });
     await expect(claimTerminalDispatch(bob, proposal.id)).rejects.toMatchObject(
       { status: 404 },
     );
@@ -357,6 +375,167 @@ describe("orchestrator context and approval boundaries", () => {
       ).status,
     ).toBe("delivered");
   });
+  it("creates an independent Claude Code worker session and assigns its first task only after approval", async () => {
+    const result = await toolResult(
+      alice,
+      runId,
+      {
+        id: randomUUID(),
+        name: "create_terminal_agent",
+        arguments: {
+          name: "Robot Builder",
+          project_path: process.cwd(),
+          role_prompt: "Implement the assigned stage and report checks.",
+          color: "amber",
+          icon: "code",
+          task: "Fix the robot fuel slot and add a menu meter.",
+        },
+      },
+      [],
+    );
+    const proposal = await db.proposal.findUniqueOrThrow({
+      where: { id: (result as { proposalId: string }).proposalId },
+    });
+    expect(proposal.status).toBe("pending");
+    expect(
+      await db.agent.count({ where: { name: "Robot Builder", userId: alice } }),
+    ).toBe(0);
+
+    await approveProposal(alice, proposal.id, 0);
+    const created = await db.agent.findFirstOrThrow({
+      where: { userId: alice, name: "Robot Builder" },
+    });
+    expect(created).toMatchObject({
+      engine: "claude-code",
+      projectPath: process.cwd(),
+      systemPrompt: "Implement the assigned stage and report checks.",
+    });
+    expect(created.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(proposal.agentId).toBeNull();
+    expect(
+      await db.proposal.findUniqueOrThrow({ where: { id: proposal.id } }),
+    ).toMatchObject({
+      agentId: created.id,
+      status: "approved",
+    });
+    expect(
+      await db.terminalDispatch.findUniqueOrThrow({
+        where: { proposalId: proposal.id },
+      }),
+    ).toMatchObject({
+      agentId: created.id,
+      status: "ready",
+      text: "ROLE GUIDANCE\nImplement the assigned stage and report checks.\n\nASSIGNED TASK\nFix the robot fuel slot and add a menu meter.",
+    });
+  });
+  it("allows a new approved task to supersede a stopped, reportless delivery", async () => {
+    const builder = await newTerminalAgent();
+    const previous = await queue("dispatch_terminal", {
+      agent_id: builder,
+      text: "Old task with no report",
+    });
+    await approveProposal(alice, previous.id, 0);
+    await claimTerminalDispatch(alice, previous.id);
+    await completeTerminalDispatch(alice, previous.id);
+
+    const next = await queue("dispatch_terminal", {
+      agent_id: builder,
+      text: "Fresh task",
+    });
+    await expect(approveProposal(alice, next.id, 0)).resolves.toMatchObject({
+      status: "approved",
+    });
+    expect(
+      await db.terminalDispatch.findUniqueOrThrow({
+        where: { proposalId: previous.id },
+      }),
+    ).toMatchObject({ status: "superseded" });
+    expect(
+      await db.terminalDispatch.findUniqueOrThrow({
+        where: { proposalId: next.id },
+      }),
+    ).toMatchObject({ status: "ready" });
+  });
+  it("starts a fresh Orchestrator chat and retires only stale or unsent work", async () => {
+    const builder = await newTerminalAgent();
+    const oldDelivered = await queue("dispatch_terminal", {
+      agent_id: builder,
+      text: "Old delivered task",
+    });
+    await approveProposal(alice, oldDelivered.id, 0);
+    await claimTerminalDispatch(alice, oldDelivered.id);
+    await completeTerminalDispatch(alice, oldDelivered.id);
+
+    const ops = await newTerminalAgent(alice, "Ops", "claude-code");
+    const oldReady = await queue("dispatch_terminal", {
+      agent_id: ops,
+      text: "Old unsent task",
+    });
+    await approveProposal(alice, oldReady.id, 0);
+    await db.agent.update({
+      where: { id: ops },
+      data: { terminalState: "running" },
+    });
+
+    const running = await newTerminalAgent(
+      alice,
+      "Running worker",
+      "claude-code",
+    );
+    const activeTask = await queue("dispatch_terminal", {
+      agent_id: running,
+      text: "Active task",
+    });
+    await approveProposal(alice, activeTask.id, 0);
+    await claimTerminalDispatch(alice, activeTask.id);
+    await completeTerminalDispatch(alice, activeTask.id);
+    await db.agent.update({
+      where: { id: running },
+      data: { terminalState: "running" },
+    });
+
+    const orchestratorAgent = await ownedAgent(alice, orchestrator);
+    await db.message.create({
+      data: {
+        conversationId: orchestratorAgent.conversation!.id,
+        position: 0,
+        role: "user",
+        text: "Old conversation context",
+      },
+    });
+    await db.agent.update({
+      where: { id: orchestrator },
+      data: { contextSummary: "Old summary" },
+    });
+
+    const result = await clearOrchestratorChat(alice);
+    expect(result).toMatchObject({ ok: true, cancelledProposals: 0 });
+    expect(result.retiredTasks).toBeGreaterThanOrEqual(2);
+    expect(
+      await db.terminalDispatch.findUniqueOrThrow({
+        where: { proposalId: oldDelivered.id },
+      }),
+    ).toMatchObject({ status: "superseded" });
+    expect(
+      await db.terminalDispatch.findUniqueOrThrow({
+        where: { proposalId: oldReady.id },
+      }),
+    ).toMatchObject({ status: "superseded" });
+    expect(
+      await db.terminalDispatch.findUniqueOrThrow({
+        where: { proposalId: activeTask.id },
+      }),
+    ).toMatchObject({ status: "delivered" });
+    expect(
+      await db.message.count({
+        where: { conversationId: orchestratorAgent.conversation!.id },
+      }),
+    ).toBe(0);
+    expect(
+      (await db.agent.findUniqueOrThrow({ where: { id: orchestrator } }))
+        .contextSummary,
+    ).toBe("");
+  });
   it("refuses a terminal task aimed at an API agent", async () => {
     const result = await toolResult(
       alice,
@@ -370,7 +549,7 @@ describe("orchestrator context and approval boundaries", () => {
     );
     expect(result).toHaveProperty("error");
   });
-  it("releases an abandoned terminal delivery for a later retry", async () => {
+  it("holds an uncertain abandoned delivery instead of automatically retrying", async () => {
     const builder = await newTerminalAgent();
     const proposal = await queue("dispatch_terminal", {
       agent_id: builder,
@@ -389,7 +568,7 @@ describe("orchestrator context and approval boundaries", () => {
       await db.terminalDispatch.findUniqueOrThrow({
         where: { proposalId: proposal.id },
       }),
-    ).toMatchObject({ status: "ready" });
+    ).toMatchObject({ status: "failed" });
   });
   it("edit versions prevent stale approval and preserve the human's revised text", async () => {
     const p = await queue("propose_message", {
@@ -536,6 +715,53 @@ describe("orchestrator context and approval boundaries", () => {
       (await GET(req(`audit?before=${foreignLog.id}`), ctx("audit"))).status,
     ).toBe(404);
   });
+  it("persists owner project instructions and includes them in provider calls without replacing approval rules", async () => {
+    const config = {
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      temperature: 0.4,
+      maxTokens: 512,
+    };
+    try {
+      const response = await PATCH(
+        req("orchestrator", "PATCH", {
+          ...config,
+          projectInstructions:
+            "Coordinate BlackForge; one writer per checkout.",
+        }),
+        ctx("orchestrator"),
+      );
+      expect(response.status).toBe(200);
+      await configureOrchestrator(alice, config);
+      const saved = await ownedAgent(alice, orchestrator);
+      expect(saved.systemPrompt).toContain("one writer per checkout");
+      expect(saved.systemPrompt).toContain("Autopilot is OFF");
+      expect((await ownedAgent(bob, foreign)).systemPrompt).not.toContain(
+        "BlackForge",
+      );
+      vi.mocked(anthropic.stream).mockImplementation(async function* (input) {
+        expect(input.system).toBe(saved.systemPrompt);
+        yield { type: "delta", text: "Project rules loaded" };
+        yield {
+          type: "usage",
+          usage: { inputTokens: 100, outputTokens: 10, complete: true },
+        };
+      });
+      const stream = await startChat(
+        alice,
+        orchestrator,
+        { clientId: randomUUID(), mode: "send", text: "Plan a task" },
+        undefined,
+        { orchestrator: true, scope: [writer] },
+      );
+      expect(await stream.text()).toContain("Project rules loaded");
+    } finally {
+      await configureOrchestrator(alice, {
+        ...config,
+        projectInstructions: "",
+      });
+    }
+  });
   it("streams native proposals in a bounded loop while keeping all mutations pending", async () => {
     let rounds = 0;
     vi.mocked(anthropic.stream).mockImplementation(async function* (input) {
@@ -657,11 +883,108 @@ describe("orchestrator context and approval boundaries", () => {
       });
     const state = await workspace({ id: alice, email: "a" });
     expect(state.proposals.some((p) => p.id === oldest.id)).toBe(true);
-    expect(state.proposals.filter((p) => p.status !== "pending")).toHaveLength(
-      50,
-    );
+    const readyIds = state.terminalDispatches
+      .filter((d) => d.status === "ready" || d.status === "claimed")
+      .map((d) => d.proposalId);
+    expect(
+      state.proposals.filter(
+        (p) => p.status !== "pending" && !readyIds.includes(p.id),
+      ),
+    ).toHaveLength(50);
     expect(state.pendingProposalCount).toBe(
       await db.proposal.count({ where: { userId: alice, status: "pending" } }),
     );
   });
+});
+it("scopes the current chat team to all five assigned workers, excluding old and foreign tasks", async () => {
+  const owner = (
+    await db.user.create({ data: { email: `team-${randomUUID()}@test.local` } })
+  ).id;
+  const coordinator = await db.agent.create({
+    data: {
+      ...defaultAgent,
+      userId: owner,
+      kind: "orchestrator",
+      conversation: { create: {} },
+    },
+    include: { conversation: true },
+  });
+  const old = await newTerminalAgent(owner, "Old worker");
+  await db.terminalDispatch.create({
+    data: {
+      userId: owner,
+      agentId: old,
+      proposalId: randomUUID(),
+      text: "Previous plan",
+      createdAt: new Date(Date.now() - 60000),
+    },
+  });
+  await db.message.create({
+    data: {
+      conversationId: coordinator.conversation!.id,
+      role: "user",
+      origin: "user",
+      text: "Build this plan with five workers.",
+      position: 0,
+    },
+  });
+  const members = [];
+  for (let index = 0; index < 5; index++) {
+    const member = await newTerminalAgent(owner, `Plan worker ${index + 1}`);
+    members.push(member);
+    await db.terminalDispatch.create({
+      data: {
+        userId: owner,
+        agentId: member,
+        proposalId: randomUUID(),
+        text: "Assigned plan task",
+      },
+    });
+  }
+  const current = await workspace({ id: owner, email: "team@test.local" });
+  expect(current.hasPlanChat).toBe(true);
+  expect(current.currentTeamIds.sort()).toEqual(members.sort());
+  expect(current.currentTeamIds).not.toContain(old);
+  await clearOrchestratorChat(owner);
+  const fresh = await workspace({ id: owner, email: "team@test.local" });
+  expect(fresh.hasPlanChat).toBe(false);
+  expect(fresh.currentTeamIds).toEqual([]);
+});
+it("creates a dependent worker without starting inference or queueing an empty terminal task", async () => {
+  const proposal = await db.proposal.create({
+    data: {
+      userId: alice,
+      runId,
+      toolCallId: randomUUID(),
+      action: "create_terminal_agent",
+      payload: JSON.stringify({
+        action: "create_terminal_agent",
+        config: {
+          name: "Dependent reviewer",
+          projectPath: process.cwd(),
+          systemPrompt: "Review after the builder report.",
+          color: "blue",
+          icon: "search",
+        },
+        text: "",
+      }),
+    },
+  });
+  await approveProposal(alice, proposal.id, 0);
+  await approveProposal(alice, proposal.id, 0);
+  const worker = await db.agent.findFirstOrThrow({
+    where: { userId: alice, name: "Dependent reviewer" },
+  });
+  expect(worker.terminalState).toBe("stopped");
+  expect(worker.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/i);
+  expect(
+    await db.terminalDispatch.count({ where: { agentId: worker.id } }),
+  ).toBe(0);
+  expect(
+    await db.run.count({
+      where: {
+        conversationId: (await ownedAgent(alice, worker.id)).conversation!.id,
+      },
+    }),
+  ).toBe(0);
 });

@@ -29,6 +29,7 @@ export function agentConfig(agent: AgentView): AgentConfig {
   return {
     name: agent.name,
     engine: agent.engine ?? "api",
+    permissionMode: agent.permissionMode ?? "acceptEdits",
     projectPath: agent.projectPath ?? "",
     provider: agent.provider,
     model: agent.model,
@@ -217,6 +218,32 @@ export function AgentEditor({
                 <small>
                   The CLI handles its own sign-in, model, permissions and
                   history. Use a new agent for a different project.
+                </small>
+              </label>
+            )}
+            {config.engine === "claude-code" && (
+              <label>
+                Claude Code permissions
+                <select
+                  aria-label="Claude Code permissions"
+                  value={config.permissionMode ?? "acceptEdits"}
+                  onChange={(e) =>
+                    setConfig({
+                      ...config,
+                      permissionMode: e.target
+                        .value as AgentConfig["permissionMode"],
+                    })
+                  }
+                >
+                  <option value="acceptEdits">
+                    Accept project edits and reports
+                  </option>
+                  <option value="default">Ask before edits and commands</option>
+                  <option value="auto">Claude Auto mode</option>
+                </select>
+                <small>
+                  Used when the terminal next starts. Claude handles its native
+                  command permissions.
                 </small>
               </label>
             )}

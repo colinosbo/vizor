@@ -16,6 +16,12 @@ if (process.isMainFrame)
         }),
       snapshot: (agentId) =>
         ipcRenderer.invoke("vizor:terminal", "snapshot", { agentId }),
+      sendTask: (agentId, token, text) =>
+        ipcRenderer.invoke("vizor:terminal", "sendTask", {
+          agentId,
+          token,
+          text,
+        }),
       input: (agentId, token, data) =>
         ipcRenderer.invoke("vizor:terminal", "input", { agentId, token, data }),
       resize: (agentId, token, cols, rows) =>

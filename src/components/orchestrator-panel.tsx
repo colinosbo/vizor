@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Check,
   LoaderCircle,
+  MessageSquarePlus,
   Settings2,
   ShieldCheck,
   Sparkles,
@@ -25,7 +26,11 @@ export function OrchestratorPanel({
   onConnections: () => void;
 }) {
   const [settings, setSettings] = useState(false);
-  const active = workspace.agents.filter((a) => !a.archived);
+  const [confirmNewChat, setConfirmNewChat] = useState(false);
+  const [clearingChat, setClearingChat] = useState(false);
+  const active = workspace.agents.filter(
+    (a) => !a.archived && a.engine !== "codex",
+  );
   const ids = active.map((a) => a.id).join("|");
   const scope = (
     workspace.contextScope ?? active.slice(0, 20).map((a) => a.id)
@@ -43,17 +48,38 @@ export function OrchestratorPanel({
         agentIds: scope,
       });
   }
+  async function startNewChat() {
+    if (!agent || clearingChat) return;
+    setClearingChat(true);
+    try {
+      const result = await api<{
+        cancelledProposals: number;
+        retiredTasks: number;
+      }>("orchestrator/clear", "POST");
+      await workspace.reload();
+      workspace.setNotice(
+        `Fresh Orchestrator chat started. Cleared ${result.cancelledProposals} pending approval${result.cancelledProposals === 1 ? "" : "s"} and retired ${result.retiredTasks} unsent or stopped task${result.retiredTasks === 1 ? "" : "s"}. Running terminals were left alone.`,
+      );
+      setConfirmNewChat(false);
+    } catch (error) {
+      workspace.setError((error as Error).message);
+    } finally {
+      setClearingChat(false);
+    }
+  }
   return (
     <div className="orchestrator-view">
       <div className="orchestrator-heading">
         <div>
           <div className="eyebrow">PLAN · DELEGATE · REVIEW</div>
           <h1>What are we building?</h1>
-          <p>Give your team a direction. Review tasks before they run.</p>
+          <p>Give your team a direction. Manage tasks and automation below.</p>
         </div>
         <span className="approval-only">
           <ShieldCheck size={14} />
-          Autopilot off
+          {workspace.data?.autopilot
+            ? "Full auto approval on"
+            : "Autopilot off"}
         </span>
       </div>
       {!agent ? (
@@ -64,7 +90,7 @@ export function OrchestratorPanel({
           <h2>Set up your team lead.</h2>
           <p>
             The orchestrator uses your API connection to plan work and propose
-            tasks for your agents. You approve each action.
+            tasks for your agents. Choose manual or automatic approval.
           </p>
           <button
             className="primary"
@@ -110,6 +136,19 @@ export function OrchestratorPanel({
               >
                 Draft next steps
               </button>
+              <button
+                className="orchestrator-new-chat"
+                disabled={
+                  !!agent.conversation.activeRunId ||
+                  !!workspace.pending[agent.id] ||
+                  clearingChat
+                }
+                onClick={() => setConfirmNewChat(true)}
+                title="Clear this Orchestrator conversation and start fresh"
+              >
+                <MessageSquarePlus size={14} />
+                New chat
+              </button>
             </div>
             <AgentPanel
               key={agent.id}
@@ -151,11 +190,11 @@ export function OrchestratorPanel({
                 </button>
               </div>
               <ol>
-                <li>Select the agents for this task.</li>
-                <li>Describe your project in the conversation.</li>
+                <li>Mark which agents are available to this project.</li>
+                <li>Describe the goal; the Orchestrator sizes the team.</li>
                 <li>
-                  Review approvals. For terminal tasks, click{" "}
-                  <strong>Start &amp; send</strong>.
+                  Review the team dashboard and approve its task proposals.
+                  Vizor then delivers approved terminal tasks automatically.
                 </li>
               </ol>
               <p>
@@ -165,11 +204,16 @@ export function OrchestratorPanel({
             </details>
             <details className="context-picker" open>
               <summary>
-                Selected agents <span>{scope.length} / 20</span>
+                Available agents{" "}
+                <span>
+                  {scope.length} / {active.length}
+                </span>
               </summary>
               <p>
-                API conversations share summaries. Terminals share project and
-                process status only; the orchestrator cannot read their output.
+                The Orchestrator chooses the smallest effective team from this
+                list. API agents share conversation summaries; terminal agents
+                return task reports automatically. Native CLI history stays
+                private.
               </p>
               {active.length ? (
                 <div className="context-agent-list">
@@ -208,9 +252,150 @@ export function OrchestratorPanel({
                 </button>
               )}
             </details>
+            <details className="team-dashboard" open>
+              <summary>
+                Agent dashboard <span>{active.length} agents</span>
+              </summary>
+              <p>Live assignments and reports for your full team.</p>
+              <div className="team-dashboard-list">
+                {active.map((worker) => {
+                  const proposals = (workspace.data?.proposals ?? [])
+                    .filter((item) => item.agentId === worker.id)
+                    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+                  const latest = proposals.find(
+                    (item) => item.action === "send_message",
+                  );
+                  const dispatch = workspace.data?.terminalDispatches.find(
+                    (item) =>
+                      item.agentId === worker.id &&
+                      item.status !== "superseded",
+                  );
+                  const dispatchProposal = dispatch
+                    ? proposals.find((item) => item.id === dispatch.proposalId)
+                    : undefined;
+                  const apiRun = latest?.resultRunId
+                    ? worker.conversation.runs.find(
+                        (run) => run.id === latest.resultRunId,
+                      )
+                    : undefined;
+                  const report =
+                    workspace.orchestrator?.conversation.messages.some(
+                      (message) =>
+                        message.origin === "terminal_report" &&
+                        message.proposalId === dispatch?.proposalId,
+                    ) ||
+                    (latest
+                      ? workspace.orchestrator?.conversation.messages.some(
+                          (message) =>
+                            message.origin === "agent_report" &&
+                            message.proposalId === latest.id,
+                        )
+                      : false);
+                  const dispatchApprovalPending =
+                    dispatchProposal?.status === "pending";
+                  let status = "Available";
+                  if (worker.paused) status = "Paused";
+                  else if (worker.conversation.activeRunId) status = "Working";
+                  else if (
+                    latest?.status === "pending" ||
+                    dispatchApprovalPending
+                  )
+                    status = "Needs approval";
+                  else if (apiRun?.status === "running") status = "Working";
+                  else if (report) status = "Report received";
+                  else if (
+                    apiRun?.status === "error" ||
+                    apiRun?.status === "stopped"
+                  )
+                    status = "Needs follow-up";
+                  else if (apiRun?.status === "complete")
+                    status = "Completed · report pending";
+                  else if (dispatch?.status === "ready")
+                    status = "Ready to deliver";
+                  else if (dispatch?.status === "claimed")
+                    status = "Sending task";
+                  else if (dispatch?.status === "delivered")
+                    status =
+                      worker.terminalState === "running"
+                        ? "Terminal open · report pending"
+                        : "Stopped · report missing";
+                  else if (
+                    worker.engine !== "api" &&
+                    worker.terminalState === "running"
+                  )
+                    status = "Terminal open · idle";
+                  const task =
+                    dispatch?.text ??
+                    (latest?.payload.action === "send_message"
+                      ? latest.payload.text
+                      : undefined);
+                  return (
+                    <button
+                      className="team-dashboard-agent"
+                      key={worker.id}
+                      onClick={() => onFocus(worker.id)}
+                    >
+                      <span className="team-dashboard-agent-top">
+                        <strong>{worker.name}</strong>
+                        <small>{status}</small>
+                      </span>
+                      <span className="team-dashboard-meta">
+                        {worker.engine === "codex"
+                          ? "Codex"
+                          : worker.engine === "claude-code"
+                            ? "Claude Code"
+                            : "API agent"}
+                        {scope.includes(worker.id)
+                          ? " · available"
+                          : " · excluded"}
+                      </span>
+                      {task && (
+                        <span className="team-dashboard-task">{task}</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </details>
             <ProposalQueue workspace={workspace} compact onFocus={onFocus} />
           </aside>
         </div>
+      )}
+      {confirmNewChat && (
+        <Dialog
+          title="Start a new Orchestrator chat?"
+          onClose={() => !clearingChat && setConfirmNewChat(false)}
+        >
+          <p>
+            This clears the Orchestrator messages and summary, cancels its
+            pending approvals, and retires tasks that were never sent or whose
+            terminal is stopped without a report. Running terminals are left
+            alone. Your agents and spending history stay. This can’t be undone.
+          </p>
+          <div className="dialog-actions">
+            <button
+              type="button"
+              className="secondary"
+              disabled={clearingChat}
+              onClick={() => setConfirmNewChat(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary"
+              disabled={clearingChat}
+              onClick={() => void startNewChat()}
+            >
+              {clearingChat ? (
+                <LoaderCircle size={15} className="spin" />
+              ) : (
+                <MessageSquarePlus size={15} />
+              )}
+              {clearingChat ? "Starting…" : "Clear chat and start fresh"}
+            </button>
+          </div>
+        </Dialog>
       )}
       {settings && (
         <OrchestratorSettings
@@ -235,6 +420,11 @@ function OrchestratorSettings({
     model: initial?.model ?? fallback?.defaultModel ?? "claude-sonnet-4-6",
     maxTokens: initial?.maxTokens ?? 2048,
     temperature: initial?.temperature ?? 0.4,
+    projectInstructions:
+      initial?.systemPrompt
+        .split("\n\nProject instructions:\n")
+        .slice(1)
+        .join("\n\nProject instructions:\n") ?? "",
   });
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
@@ -318,14 +508,32 @@ function OrchestratorSettings({
           />
         </label>
         <p className="field-note">
-          A turn uses at most three model calls to read summaries and prepare
-          proposals. All calls count toward this provider’s spending limit.
+          A turn uses at most three model calls. Long plans can raise the first
+          call’s output limit to prepare complete task proposals; all usage
+          counts toward this provider’s spending limit.
         </p>
+        <label>
+          Project instructions
+          <textarea
+            aria-label="Orchestrator project instructions"
+            rows={8}
+            maxLength={12000}
+            value={config.projectInstructions}
+            onChange={(e) =>
+              setConfig({ ...config, projectInstructions: e.target.value })
+            }
+            placeholder="Project goals, constraints, roles, and verification requirements…"
+          />
+          <small className="field-note">
+            Saved with this orchestrator and included in each turn. Existing
+            approvals and spending limits still apply.
+          </small>
+        </label>
         <div className="approval-explanation">
           <ShieldCheck size={17} />
           <p>
-            Approval required. The orchestrator can draft messages and agent
-            changes; it cannot execute them on its own.
+            The orchestrator drafts messages and agent changes. Use the approval
+            queue to review them or turn on full auto approval.
           </p>
         </div>
         {error && (

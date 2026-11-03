@@ -2,8 +2,8 @@ const { spawn, spawnSync } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const { join } = require("node:path");
 class DesktopTerminals {
-  constructor({ resources, home, origin, emit }) {
-    Object.assign(this, { resources, home, origin, emit });
+  constructor({ resources, home, origin, token, emit }) {
+    Object.assign(this, { resources, home, origin, token, emit });
     this.pending = new Map();
     this.states = new Map();
     this.helper = null;
@@ -35,6 +35,7 @@ class DesktopTerminals {
       ...process.env,
       VIZOR_TOOLS_HOME: this.home,
       VIZOR_TERMINAL_ORIGIN: this.origin,
+      VIZOR_TERMINAL_TOKEN: this.token,
     };
     for (const key of [
       "MASTER_KEY",
@@ -96,6 +97,7 @@ class DesktopTerminals {
         "setup",
         "start",
         "snapshot",
+        "sendTask",
         "list",
         "input",
         "resize",

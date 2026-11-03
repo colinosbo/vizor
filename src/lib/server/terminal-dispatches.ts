@@ -2,6 +2,7 @@ import { db } from "./db";
 import { AppError } from "./errors";
 import { audit } from "./audit";
 import { publish } from "./events";
+import { reportInstructions } from "./terminal-reports";
 
 async function ownedDispatch(userId: string, proposalId: string) {
   const dispatch = await db.terminalDispatch.findFirst({
@@ -15,25 +16,70 @@ async function ownedDispatch(userId: string, proposalId: string) {
 
 export async function recoverTerminalDispatches() {
   const cutoff = new Date(Date.now() - 2 * 60_000);
-  await db.terminalDispatch.updateMany({
-    where: { status: "claimed", claimedAt: { lt: cutoff } },
-    data: {
-      status: "ready",
-      claimedAt: null,
-      error: "The previous terminal delivery did not finish. Retry when ready.",
-    },
+  await db.$transaction(async (tx) => {
+    const stale = await tx.terminalDispatch.findMany({
+      where: { status: "claimed", claimedAt: { lt: cutoff } },
+      select: { userId: true },
+    });
+    await tx.terminalDispatch.updateMany({
+      where: { status: "claimed", claimedAt: { lt: cutoff } },
+      data: {
+        status: "failed",
+        error:
+          "Delivery could not be confirmed. Check the terminal before adding another task; Vizor will not resend it automatically.",
+      },
+    });
+    if (stale.length)
+      await tx.user.updateMany({
+        where: { id: { in: stale.map((item) => item.userId) } },
+        data: { queueEnabled: false, autoApprove: false },
+      });
   });
 }
 
 export async function claimTerminalDispatch(
   userId: string,
   proposalId: string,
+  automatic = false,
 ) {
   await recoverTerminalDispatches();
   const dispatch = await ownedDispatch(userId, proposalId);
-  const claim = await db.terminalDispatch.updateMany({
-    where: { id: dispatch.id, userId, status: "ready" },
-    data: { status: "claimed", claimedAt: new Date(), error: null },
+  const claim = await db.$transaction(async (tx) => {
+    if (
+      automatic &&
+      !(await tx.user.findUniqueOrThrow({ where: { id: userId } })).queueEnabled
+    )
+      throw new AppError("queue_paused", "The task queue is paused.", 409);
+    const agent = await tx.agent.findFirst({
+      where: { id: dispatch.agentId, userId, archived: false, paused: false },
+      select: { projectPath: true },
+    });
+    if (!agent)
+      throw new AppError(
+        "worker_unavailable",
+        "This worker is paused or unavailable.",
+        409,
+      );
+    const other = await tx.terminalDispatch.findFirst({
+      where: {
+        userId,
+        id: { not: dispatch.id },
+        status: { in: ["claimed", "delivered"] },
+        ...(automatic
+          ? { agent: { projectPath: agent.projectPath } }
+          : { agentId: dispatch.agentId }),
+      },
+    });
+    if (other)
+      throw new AppError(
+        "worker_busy",
+        "Waiting for the previous project task's report.",
+        409,
+      );
+    return tx.terminalDispatch.updateMany({
+      where: { id: dispatch.id, userId, status: "ready" },
+      data: { status: "claimed", claimedAt: new Date(), error: null },
+    });
   });
   if (!claim.count)
     throw new AppError(
@@ -45,7 +91,33 @@ export async function claimTerminalDispatch(
     );
   await audit(userId, "terminal_task.claimed", dispatch.agentId, {}, {});
   publish(userId);
-  return { agentId: dispatch.agentId, text: dispatch.text };
+  try {
+    const agent = await db.agent.findFirstOrThrow({
+      where: { id: dispatch.agentId, userId },
+      select: { projectPath: true },
+    });
+    return {
+      agentId: dispatch.agentId,
+      text:
+        dispatch.text +
+        (await reportInstructions(agent.projectPath, dispatch.id)),
+    };
+  } catch {
+    await db.terminalDispatch.updateMany({
+      where: { id: dispatch.id, userId, status: "claimed" },
+      data: {
+        status: "ready",
+        claimedAt: null,
+        error:
+          "Task report folder is unavailable. Check the project folder and retry.",
+      },
+    });
+    throw new AppError(
+      "report_folder",
+      "Task report folder is unavailable. Check the project folder and retry.",
+      409,
+    );
+  }
 }
 
 export async function completeTerminalDispatch(

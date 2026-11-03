@@ -4,6 +4,7 @@ import { ownedAgent } from "./store";
 import { selfHost } from "./security";
 import { AppError } from "./errors";
 import { audit } from "./audit";
+import { decryptKey } from "./crypto";
 export async function terminalAgent(userId: string, id: string) {
   if (!selfHost() || process.env.VIZOR_TERMINALS !== "1")
     throw new AppError(
@@ -25,9 +26,24 @@ export async function terminalAgent(userId: string, id: string) {
     nativeSessionId: agent.nativeSessionId,
     terminalStarted: agent.terminalStarted,
     terminalState: agent.terminalState,
+    permissionMode: agent.permissionMode,
     archived: agent.archived,
     paused: agent.paused,
   };
+}
+export async function terminalClaudeApiKey(userId: string) {
+  if (!selfHost() || process.env.VIZOR_TERMINALS !== "1")
+    throw new AppError(
+      "desktop_required",
+      "Terminal agents require the Windows desktop app.",
+      403,
+    );
+  const credential = await db.credential.findUnique({
+    where: { userId_provider: { userId, provider: "anthropic" } },
+  });
+  return credential
+    ? decryptKey(credential.encrypted, userId, "anthropic")
+    : null;
 }
 export const terminalRecord = z
   .object({

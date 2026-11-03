@@ -4,7 +4,10 @@ import { PRICING_DATE } from "./pricing";
 import { selfHost } from "./security";
 import { providers } from "../providers";
 import { parseLayout } from "../layout";
+import { collectTerminalReports } from "./terminal-reports";
+import { collectApiAgentReports } from "./api-agent-reports";
 import { budgetViews } from "./budgets";
+import { processTaskQueue } from "./task-queue";
 export const defaultAgent = {
   name: "My assistant",
   provider: "anthropic",
@@ -39,6 +42,9 @@ export async function ownedRun(userId: string, id: string) {
   return run;
 }
 export async function workspace(user: { id: string; email: string }) {
+  await collectTerminalReports(user.id);
+  await collectApiAgentReports(user.id);
+  await processTaskQueue(user.id);
   const keys = await db.credential.findMany({
     where: { userId: user.id },
     select: { provider: true, last4: true },
@@ -46,7 +52,7 @@ export async function workspace(user: { id: string; email: string }) {
   const key = keys.find((key) => key.provider === "anthropic");
   const preferences = await db.user.findUniqueOrThrow({
     where: { id: user.id },
-    select: { workspaceLayout: true },
+    select: { workspaceLayout: true, autoApprove: true, queueEnabled: true },
   });
   const templates = await db.agentTemplate.findMany({
     where: { userId: user.id },
@@ -79,7 +85,42 @@ export async function workspace(user: { id: string; email: string }) {
       },
     },
   });
+  const chatStart = agents
+    .find((agent) => agent.kind === "orchestrator")
+    ?.conversation?.messages.find(
+      (message) => message.role === "user" && message.origin === "user",
+    )?.createdAt;
+  const teamTasks = chatStart
+    ? await db.terminalDispatch.findMany({
+        where: {
+          userId: user.id,
+          createdAt: { gte: chatStart },
+          status: { notIn: ["superseded", "failed"] },
+        },
+        select: { agentId: true },
+      })
+    : [];
+  const apiTasks = chatStart
+    ? await db.proposal.findMany({
+        where: {
+          userId: user.id,
+          createdAt: { gte: chatStart },
+          action: { in: ["send_message", "create_terminal_agent"] },
+          status: { in: ["approved", "executing"] },
+          agentId: { not: null },
+        },
+        select: { agentId: true },
+      })
+    : [];
   return {
+    hasPlanChat: !!chatStart,
+    currentTeamIds: [
+      ...new Set(
+        [...teamTasks, ...apiTasks].flatMap((task) =>
+          task.agentId ? [task.agentId] : [],
+        ),
+      ),
+    ],
     selfHost: selfHost(),
     email: user.email,
     provider: { connected: !!key, last4: key?.last4 ?? null },
@@ -116,13 +157,36 @@ export async function workspace(user: { id: string; email: string }) {
           take: 100,
         }),
         db.proposal.findMany({
+          where: { userId: user.id, status: "queued" },
+          orderBy: [{ approvedAt: "asc" }, { id: "asc" }],
+        }),
+        db.proposal.findMany({
           where: { userId: user.id, status: { not: "pending" } },
           orderBy: { createdAt: "desc" },
           take: 50,
         }),
+        db.proposal.findMany({
+          where: {
+            userId: user.id,
+            id: {
+              in: (
+                await db.terminalDispatch.findMany({
+                  where: {
+                    userId: user.id,
+                    status: { in: ["ready", "claimed"] },
+                  },
+                  select: { proposalId: true },
+                })
+              ).map((d) => d.proposalId),
+            },
+          },
+        }),
       ])
     )
       .flat()
+      .filter(
+        (item, index, all) => all.findIndex((p) => p.id === item.id) === index,
+      )
       .map((proposal) => ({
         id: proposal.id,
         action: proposal.action,
@@ -136,9 +200,11 @@ export async function workspace(user: { id: string; email: string }) {
         approvedBy: proposal.approvedBy === user.id,
       })),
     terminalDispatches: await db.terminalDispatch.findMany({
-      where: { userId: user.id },
+      where: {
+        userId: user.id,
+        status: { in: ["ready", "claimed", "delivered", "reported", "failed"] },
+      },
       orderBy: { createdAt: "desc" },
-      take: 100,
       select: {
         id: true,
         proposalId: true,
@@ -146,9 +212,12 @@ export async function workspace(user: { id: string; email: string }) {
         text: true,
         status: true,
         error: true,
+        autoDeliver: true,
+        questions: true,
       },
     }),
     budgets: await budgetViews(user.id),
-    autopilot: false,
+    autopilot: preferences.autoApprove,
+    queueEnabled: preferences.queueEnabled,
   };
 }

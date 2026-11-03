@@ -31,6 +31,11 @@ export default defineConfig({
       use: { baseURL: "http://127.0.0.1:3105" },
     },
     {
+      name: "task-queue",
+      testMatch: /task-queue\.spec\.ts/,
+      use: { baseURL: "http://127.0.0.1:3106" },
+    },
+    {
       name: "orchestration",
       testMatch: /orchestration\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:3104" },
@@ -41,7 +46,7 @@ export default defineConfig({
       use: { baseURL: "http://127.0.0.1:3101" },
     },
   ],
-  webServer: [3100, 3101, 3103, 3104, 3105].map((port) => ({
+  webServer: [3100, 3101, 3103, 3104, 3105, 3106].map((port) => ({
     command: `node scripts/test-server.mjs ${port}`,
     url: `http://127.0.0.1:${port}`,
     reuseExistingServer: false,

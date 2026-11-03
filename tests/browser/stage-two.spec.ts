@@ -70,7 +70,10 @@ test("both providers, concurrent live observers, saved layouts, templates and li
   await page.getByLabel("Provider", { exact: true }).selectOption("anthropic");
   await page.getByLabel("Colour", { exact: true }).selectOption("amber");
   await button("Create agent").click();
-  await expect(button("2-up layout")).toHaveAttribute("aria-pressed", "true");
+  await expect(button("Show all active agents")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
   const observer = await context.newPage();
   await observer.goto("/");
   await expect(observer.locator(".startup-intro")).toHaveCount(0);
@@ -138,6 +141,9 @@ test("both providers, concurrent live observers, saved layouts, templates and li
   const first = page
     .locator(".react-grid-item")
     .filter({ has: panel("GPT partner") });
+  await first
+    .getByRole("button", { name: "Move GPT partner panel" })
+    .scrollIntoViewIfNeeded();
   const start = await first
       .getByRole("button", { name: "Move GPT partner panel" })
       .boundingBox(),

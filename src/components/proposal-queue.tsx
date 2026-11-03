@@ -7,20 +7,103 @@ import {
   ClipboardCheck,
   LoaderCircle,
   Pencil,
+  Plus,
   X,
 } from "lucide-react";
 import type { ProposalPayload, ProposalView } from "@/lib/types";
 import { api, type useWorkspace } from "./use-workspace";
 import { Dialog } from "./ui";
+import { AutomationControls } from "./automation-controls";
 type WorkspaceState = ReturnType<typeof useWorkspace>;
+export async function deliverTerminalTask(
+  workspace: WorkspaceState,
+  proposalId: string,
+  automatic = false,
+  queued = false,
+) {
+  const bridge = window.vizorDesktop?.terminals;
+  if (!bridge) throw Error("Open the Windows desktop app to send this task.");
+  let claimed = false;
+  let deliveryAttempted = false;
+  try {
+    const task = await api<{ agentId: string; text: string }>(
+      `terminal-dispatches/${proposalId}/claim`,
+      "POST",
+      undefined,
+      queued ? { "x-vizor-queue": "1" } : undefined,
+    );
+    claimed = true;
+    let next = await bridge.snapshot(task.agentId);
+    if (next.state !== "running") {
+      if (automatic && !queued)
+        throw Error(
+          "Clarification is ready. Resume this worker, then retry delivery.",
+        );
+      next = await bridge.start(task.agentId);
+      if (next.conflict) {
+        if (automatic) {
+          const target = workspace.agents.find(
+            (agent) => agent.id === task.agentId,
+          );
+          const normalized = (path?: string) =>
+            path?.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+          const peers = workspace.agents.filter(
+            (agent) =>
+              agent.id !== task.agentId &&
+              agent.engine !== "api" &&
+              normalized(agent.projectPath) === normalized(target?.projectPath),
+          );
+          if (!target || !peers.length)
+            throw Error("Check the other terminal before resuming the queue.");
+          for (const peer of peers) {
+            const state = await bridge.snapshot(peer.id);
+            if (state.state === "running" && !state.inputReady)
+              throw Error(
+                "Another agent is still working in this project. The queue is paused.",
+              );
+          }
+        } else if (
+          !confirm(
+            "Another coding agent is open in this project. Their edits can conflict. Start this agent too?",
+          )
+        )
+          throw Error("Task not sent. The project conflict was not approved.");
+        next = await bridge.start(task.agentId, true);
+      }
+    }
+    if (next.state !== "running" || !next.token)
+      throw Error(
+        "The terminal did not start. Use Set up / sign in, then retry.",
+      );
+    deliveryAttempted = true;
+    await bridge.sendTask(task.agentId, next.token, task.text);
+    await api(`terminal-dispatches/${proposalId}/complete`, "POST");
+  } catch (error) {
+    if (claimed && !deliveryAttempted)
+      await api(`terminal-dispatches/${proposalId}/release`, "POST", {
+        reason: (error as Error).message,
+      }).catch(() => {});
+    throw error;
+  }
+}
 export const actionLabel: Record<string, string> = {
   send_message: "Send a message",
   create_agent: "Create an agent",
   rename_agent: "Rename an agent",
   pause_agent: "Pause an agent",
   archive_agent: "Archive an agent",
-  dispatch_terminal: "Send a terminal task",
+  dispatch_terminal: "Assign coding agent",
+  create_terminal_agent: "Create Claude Code worker",
+  answer_worker_question: "Orchestrator clarification",
 };
+const isTerminalTask = (action: string) =>
+  action === "dispatch_terminal" ||
+  action === "create_terminal_agent" ||
+  action === "answer_worker_question";
+const needsDelivery = (payload: ProposalPayload) =>
+  (payload.action === "dispatch_terminal" ||
+    payload.action === "create_terminal_agent") &&
+  !!payload.text.trim();
 export function ProposalQueue({
   workspace,
   compact = false,
@@ -32,30 +115,62 @@ export function ProposalQueue({
 }) {
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [adding, setAdding] = useState(false);
   const proposals = workspace.data?.proposals ?? [];
   const pending = proposals.filter((p) => p.status === "pending");
+  const readyIds = new Set(
+    workspace.data?.terminalDispatches
+      .filter((d) => d.status === "ready" || d.status === "claimed")
+      .map((d) => d.proposalId),
+  );
+  const actionable = proposals.filter(
+    (p) =>
+      p.status === "pending" ||
+      p.status === "queued" ||
+      (p.status === "approved" && readyIds.has(p.id)),
+  );
   const visible = compact
-    ? pending.slice(0, 4)
+    ? actionable.slice(0, 4)
     : reviewed
-      ? proposals.filter((p) => p.status !== "pending")
-      : pending;
+      ? proposals.filter(
+          (p) =>
+            p.status !== "pending" &&
+            p.status !== "queued" &&
+            !readyIds.has(p.id),
+        )
+      : actionable;
   async function approveAll() {
     setBusy(true);
     try {
+      const batch = pending.slice(0, 20);
       const result = await api<{ results: { status: string }[] }>(
         "proposals/approve-many",
         "POST",
         {
-          items: pending
-            .slice(0, 20)
-            .map((p) => ({ id: p.id, version: p.version })),
+          items: batch.map((p) => ({ id: p.id, version: p.version })),
         },
       );
       await workspace.reload();
-      const failed = result.results.filter((r) => r.status === "failed").length;
-      workspace.setNotice(
-        `${result.results.length - failed} approved${failed ? ` · ${failed} need attention` : ""}.`,
+      const terminalTasks = batch.filter(
+        (proposal) =>
+          !workspace.data?.queueEnabled && needsDelivery(proposal.payload),
       );
+      let deliveryError = "";
+      for (const proposal of terminalTasks) {
+        try {
+          await deliverTerminalTask(workspace, proposal.id);
+        } catch (error) {
+          deliveryError = `Approved task for ${workspace.agents.find((agent) => agent.id === proposal.agentId)?.name ?? "agent"} was not delivered: ${(error as Error).message}`;
+          break;
+        }
+      }
+      await workspace.reload();
+      const failed = result.results.filter((r) => r.status === "failed").length;
+      if (deliveryError) workspace.setError(deliveryError);
+      else
+        workspace.setNotice(
+          `${result.results.length - failed} approved${failed ? ` · ${failed} need attention` : ""}.`,
+        );
     } catch (e) {
       workspace.setError((e as Error).message);
     } finally {
@@ -77,18 +192,39 @@ export function ProposalQueue({
             YOU MAKE THE CALL
           </div>
           <h1>Approvals</h1>
-          <p>Every draft stays here until you approve it. Autopilot is off.</p>
+          <p>
+            Review drafts, queue approved tasks, and choose how your team runs.
+          </p>
         </>
       )}
+      <AutomationControls workspace={workspace} />
       <div className="queue-toolbar">
         <h2>
           {compact
             ? "Approval queue"
             : reviewed
               ? "Recent decisions"
-              : "Pending proposals"}
-          <span>{workspace.data?.pendingProposalCount ?? pending.length}</span>
+              : "Pending and queued tasks"}
+          <span>
+            {(workspace.data?.pendingProposalCount ?? pending.length) +
+              readyIds.size +
+              proposals.filter((p) => p.status === "queued").length}
+          </span>
         </h2>
+        <button
+          className="secondary"
+          onClick={() => setAdding(true)}
+          disabled={
+            !workspace.agents.some(
+              (a) =>
+                !a.archived &&
+                (a.engine === "api" || !a.engine || a.engine === "claude-code"),
+            )
+          }
+        >
+          <Plus size={14} />
+          Add task
+        </button>
         {pending.length > 1 && (
           <button
             className="secondary"
@@ -110,7 +246,7 @@ export function ProposalQueue({
             className={!reviewed ? "selected" : ""}
             onClick={() => setReviewed(false)}
           >
-            Pending
+            Pending &amp; ready
           </button>
           <button
             className={reviewed ? "selected" : ""}
@@ -133,7 +269,7 @@ export function ProposalQueue({
           <ClipboardCheck size={24} />
           <h3>{reviewed ? "No decisions yet." : "Nothing waiting on you."}</h3>
           <p>
-            Ask the orchestrator to draft a message or suggest an agent change.
+            Ask the Orchestrator to plan a team and prepare scoped agent tasks.
           </p>
         </div>
       ) : (
@@ -148,12 +284,15 @@ export function ProposalQueue({
           ))}
         </div>
       )}
-      {compact && pending.length > 4 && (
-        <p className="queue-more">{pending.length - 4} more in Approvals</p>
+      {compact && actionable.length > 4 && (
+        <p className="queue-more">{actionable.length - 4} more in Approvals</p>
       )}
       <div className="queue-footnote">
         Approvals are recorded in Audit history.
       </div>
+      {adding && (
+        <AddTaskDialog workspace={workspace} onClose={() => setAdding(false)} />
+      )}
     </div>
   );
 }
@@ -170,74 +309,60 @@ function ProposalCard({
     [editing, setEditing] = useState(false),
     [error, setError] = useState("");
   const payload = proposal.payload;
-  const agent =
-    "agentId" in payload
-      ? workspace.agents.find((a) => a.id === payload.agentId)
-      : undefined;
+  const agent = workspace.agents.find(
+    (a) => a.id === ("agentId" in payload ? payload.agentId : proposal.agentId),
+  );
   const dispatch = workspace.data?.terminalDispatches.find(
     (item) => item.proposalId === proposal.id,
   );
-  async function launchTerminalTask() {
-    const bridge = window.vizorDesktop?.terminals;
-    if (!bridge || payload.action !== "dispatch_terminal") {
+  async function launchTerminalTask(): Promise<boolean> {
+    if (!isTerminalTask(payload.action)) {
       setError("Open the Windows desktop app to send this task.");
-      return;
+      return false;
     }
     setBusy(true);
     setError("");
-    let claimed = false;
     try {
-      const task = await api<{ agentId: string; text: string }>(
-        `terminal-dispatches/${proposal.id}/claim`,
-        "POST",
-      );
-      claimed = true;
-      let next = await bridge.snapshot(task.agentId);
-      if (next.state !== "running") {
-        next = await bridge.start(task.agentId);
-        if (next.conflict) {
-          if (
-            !confirm(
-              "Another coding agent is open in this project. Their edits can conflict. Start this agent too?",
-            )
-          )
-            throw Error(
-              "Task not sent. The project conflict was not approved.",
-            );
-          next = await bridge.start(task.agentId, true);
-        }
-      }
-      if (next.state !== "running" || !next.token)
-        throw Error(
-          "The terminal did not start. Use Set up / sign in, then retry.",
-        );
-      await bridge.input(task.agentId, next.token, `${task.text}\r`);
-      await api(`terminal-dispatches/${proposal.id}/complete`, "POST");
+      await deliverTerminalTask(workspace, proposal.id);
       await workspace.reload();
       workspace.setNotice("Task sent to the selected terminal agent.");
+      return true;
     } catch (e) {
       const message = (e as Error).message;
-      if (claimed)
-        await api(`terminal-dispatches/${proposal.id}/release`, "POST", {
-          reason: message,
-        }).catch(() => {});
       setError(message);
       await workspace.reload();
+      return false;
     } finally {
       setBusy(false);
     }
   }
-  async function decide(action: "approve" | "reject") {
+  async function decide(action: "approve" | "reject" | "queue") {
     setBusy(true);
     setError("");
     try {
       await api(`proposals/${proposal.id}/${action}`, "POST", {
         version: proposal.version,
       });
-      await workspace.reload();
-      workspace.setNotice(
-        action === "approve" ? "Proposal approved." : "Proposal rejected.",
-      );
+      if (
+        action === "approve" &&
+        needsDelivery(payload) &&
+        !workspace.data?.queueEnabled
+      ) {
+        // Approval is the leader's authorization. Vizor handles the terminal
+        // startup and task delivery so the user does not need a second button.
+        await launchTerminalTask();
+      } else {
+        await workspace.reload();
+        workspace.setNotice(
+          action === "approve"
+            ? "Proposal approved."
+            : action === "queue"
+              ? "Approved task added to the queue."
+              : proposal.status === "queued"
+                ? "Queued task cancelled."
+                : "Proposal rejected.",
+        );
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -254,17 +379,38 @@ function ProposalCard({
           {actionLabel[proposal.action] ?? proposal.action}
         </span>
         <span className={`proposal-status ${proposal.status}`}>
-          {proposal.status === "pending" ? "Needs approval" : proposal.status}
+          {proposal.status === "pending"
+            ? "Needs approval"
+            : dispatch?.status === "ready"
+              ? "Ready to send"
+              : dispatch?.status === "claimed"
+                ? "Sending…"
+                : proposal.status}
         </span>
       </div>
       <h3>
-        {payload.action === "create_agent"
+        {payload.action === "create_agent" ||
+        payload.action === "create_terminal_agent"
           ? payload.config.name
           : (agent?.name ?? "Unavailable agent")}
       </h3>
       {payload.action === "send_message" ||
+      payload.action === "answer_worker_question" ||
       payload.action === "dispatch_terminal" ? (
         <p className="proposal-text">{payload.text}</p>
+      ) : payload.action === "create_terminal_agent" ? (
+        <>
+          <p className="proposal-provider">
+            Claude Code · {payload.config.projectPath}
+          </p>
+          <p className="proposal-text">{payload.config.systemPrompt}</p>
+          <p className="proposal-text">
+            <strong>First task</strong>
+            <br />
+            {payload.text ||
+              "Waiting for dependencies. Creates a stopped worker; no task is sent yet."}
+          </p>
+        </>
       ) : payload.action === "rename_agent" ? (
         <p className="proposal-text">
           New name: <strong>{payload.name}</strong>
@@ -289,7 +435,7 @@ function ProposalCard({
         </p>
       )}
       <div className="proposal-origin">
-        Orchestrator draft ·{" "}
+        Task ·{" "}
         {new Date(proposal.createdAt).toLocaleTimeString([], {
           hour: "numeric",
           minute: "2-digit",
@@ -318,6 +464,14 @@ function ProposalCard({
           <button
             className="secondary"
             disabled={busy}
+            onClick={() => void decide("queue")}
+          >
+            <Plus size={14} />
+            Approve &amp; queue
+          </button>
+          <button
+            className="secondary"
+            disabled={busy}
             onClick={() => setEditing(true)}
           >
             <Pencil size={13} />
@@ -333,8 +487,23 @@ function ProposalCard({
             <X size={15} />
           </button>
         </div>
-      ) : payload.action === "dispatch_terminal" &&
-        dispatch?.status === "ready" ? (
+      ) : proposal.status === "queued" ? (
+        <div className="proposal-actions">
+          <p className="field-note">
+            Approved ·{" "}
+            {workspace.data?.queueEnabled
+              ? "Waiting for earlier work to report."
+              : "Queue paused."}
+          </p>
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => void decide("reject")}
+          >
+            Cancel queued task
+          </button>
+        </div>
+      ) : isTerminalTask(payload.action) && dispatch?.status === "ready" ? (
         <button
           className="primary"
           disabled={busy}
@@ -345,10 +514,9 @@ function ProposalCard({
           ) : (
             <ArrowRight size={14} />
           )}
-          Start &amp; send
+          Retry delivery
         </button>
-      ) : payload.action === "dispatch_terminal" &&
-        dispatch?.status === "delivered" ? (
+      ) : isTerminalTask(payload.action) && dispatch?.status === "delivered" ? (
         <p className="field-note">Task sent to this terminal agent.</p>
       ) : agent && onFocus ? (
         <button className="text-button" onClick={() => onFocus(agent.id)}>
@@ -364,6 +532,100 @@ function ProposalCard({
         />
       )}
     </article>
+  );
+}
+function AddTaskDialog({
+  workspace,
+  onClose,
+}: {
+  workspace: WorkspaceState;
+  onClose: () => void;
+}) {
+  const agents = workspace.agents.filter(
+    (agent) =>
+      !agent.archived &&
+      !agent.paused &&
+      (!agent.engine ||
+        agent.engine === "api" ||
+        agent.engine === "claude-code"),
+  );
+  const [agentId, setAgentId] = useState(agents[0]?.id ?? "");
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      await api("task-queue", "POST", { agentId, text });
+      await workspace.reload();
+      workspace.setNotice("Approved task added to the queue.");
+      onClose();
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Dialog title="Add approved task" onClose={onClose}>
+      <form className="proposal-edit-form" onSubmit={submit}>
+        <label>
+          Worker
+          <select
+            aria-label="Queued task worker"
+            value={agentId}
+            onChange={(event) => setAgentId(event.target.value)}
+            required
+          >
+            {agents.map((agent) => (
+              <option key={agent.id} value={agent.id}>
+                {agent.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Task
+          <textarea
+            aria-label="Queued task instructions"
+            rows={7}
+            maxLength={32000}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            placeholder="Describe the goal, scope, and completion checks…"
+            required
+          />
+        </label>
+        <p className="field-note">
+          Adding this task approves it.{" "}
+          {workspace.data?.queueEnabled
+            ? "It will run after earlier work finishes."
+            : "Turn on Run approved queue when you are ready."}
+        </p>
+        {error && (
+          <div className="error-box" role="alert">
+            {error}
+          </div>
+        )}
+        <div className="dialog-actions">
+          <button type="button" className="secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="primary"
+            disabled={busy || !agentId || !text.trim()}
+          >
+            {busy ? (
+              <LoaderCircle size={14} className="spin" />
+            ) : (
+              <Plus size={14} />
+            )}
+            Add to queue
+          </button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 function ProposalEditor({
@@ -440,6 +702,63 @@ function ProposalEditor({
               onChange={(e) => setPayload({ ...payload, text: e.target.value })}
             />
           </label>
+        )}
+        {payload.action === "create_terminal_agent" && (
+          <>
+            <label>
+              Worker name
+              <input
+                value={payload.config.name}
+                required
+                maxLength={70}
+                onChange={(e) =>
+                  setPayload({
+                    ...payload,
+                    config: { ...payload.config, name: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <label>
+              Project folder
+              <input
+                value={payload.config.projectPath}
+                required
+                maxLength={4096}
+                onChange={(e) =>
+                  setPayload({
+                    ...payload,
+                    config: { ...payload.config, projectPath: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <label>
+              Role instructions
+              <textarea
+                rows={4}
+                maxLength={16000}
+                value={payload.config.systemPrompt}
+                onChange={(e) =>
+                  setPayload({
+                    ...payload,
+                    config: { ...payload.config, systemPrompt: e.target.value },
+                  })
+                }
+              />
+            </label>
+            <label>
+              First task (leave empty to wait for dependencies)
+              <textarea
+                rows={7}
+                maxLength={32000}
+                value={payload.text}
+                onChange={(e) =>
+                  setPayload({ ...payload, text: e.target.value })
+                }
+              />
+            </label>
+          </>
         )}
         {payload.action === "rename_agent" && (
           <label>

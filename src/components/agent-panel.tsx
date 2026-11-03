@@ -9,14 +9,12 @@ import {
   Pin,
   Plus,
   Settings2,
-  ShieldCheck,
-  Sparkles,
   Square,
   Zap,
   PenLine,
 } from "lucide-react";
 import type { AgentView, ProviderInfo, PublicMessage } from "@/lib/types";
-import { AgentIcon, Dialog, Message, money, ProviderGlyph } from "./ui";
+import { AgentIcon, Dialog, Message, money } from "./ui";
 export function agentStatus(agent: AgentView, pending = false) {
   return agent.archived
     ? "Archived"
@@ -126,7 +124,6 @@ export function AgentPanel({
         <div className="panel-agent-title">
           <h2>{agent.name}</h2>
           <div>
-            <ProviderGlyph id={agent.provider} size={12} />
             <span>{modelName}</span>
             <span className={`panel-status ${running ? "working" : ""}`}>
               <span className="tiny-dot" />
@@ -191,14 +188,6 @@ export function AgentPanel({
           >
             {!messages.length ? (
               <div className="chat-empty">
-                <div className="orbital-mark">
-                  <span />
-                  <span />
-                  <Sparkles size={compact ? 22 : 27} />
-                </div>
-                <div className="eyebrow">
-                  {coordinator ? "START WITH A GOAL" : "READY FOR YOUR TASK"}
-                </div>
                 <h3>
                   {coordinator
                     ? "What should we work on?"
@@ -208,17 +197,7 @@ export function AgentPanel({
                   {coordinator ? (
                     "Describe what you want to build, the project, and what success looks like. I’ll help break it into tasks for your selected agents."
                   ) : (
-                    <>
-                      {compact ? (
-                        "Start a conversation. Give this agent a direction."
-                      ) : (
-                        <>
-                          A rough idea, a tricky question, a blank page.
-                          <br />
-                          Start anywhere.
-                        </>
-                      )}
-                    </>
+                    <>Start a conversation.</>
                   )}
                 </p>
                 {!compact && (
@@ -257,8 +236,12 @@ export function AgentPanel({
                     message={message}
                     agent={agent}
                     providerLabel={provider.label}
-                    canEdit={!blocked}
-                    canRegenerate={index === messages.length - 1 && !blocked}
+                    canEdit={!blocked && message.origin !== "terminal_report"}
+                    canRegenerate={
+                      index === messages.length - 1 &&
+                      !blocked &&
+                      message.origin !== "worker_reply"
+                    }
                     onEdit={() => {
                       setEdit(message);
                       setEditText(message.text);
@@ -312,8 +295,7 @@ export function AgentPanel({
               />
               <div className="composer-bottom">
                 <span>
-                  <ProviderGlyph id={agent.provider} size={14} />
-                  <span>{compact ? provider.label : modelName}</span>
+                  <span>{modelName}</span>
                   {last && (
                     <>
                       <span className="composer-divider" />
@@ -351,15 +333,6 @@ export function AgentPanel({
                 )}
               </div>
             </form>
-            {!compact && (
-              <div className="composer-meta">
-                <span>Enter to send · Shift + Enter for a new line</span>
-                <span>
-                  <ShieldCheck size={12} />
-                  Only shared with {provider.label}
-                </span>
-              </div>
-            )}
           </div>
         </>
       )}

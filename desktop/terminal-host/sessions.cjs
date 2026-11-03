@@ -3,11 +3,14 @@ const { realpathSync, statSync, existsSync, readdirSync } = require("node:fs");
 const { isAbsolute } = require("node:path");
 const { spawn } = require("node:child_process");
 const { join } = require("node:path");
+const { Terminal } = require("@xterm/headless");
+const MAX_TERMINAL_BUFFER_CHARS = 4 * 1024 * 1024;
+const READY_WAIT_MS = 45000;
 function environment(source = process.env) {
   const env = { ...source, TERM: "xterm-256color", COLORTERM: "truecolor" };
   for (const key of Object.keys(env))
     if (
-      /^(MASTER_KEY|DATABASE_URL|ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY|GH_TOKEN|GITHUB_TOKEN|VIZOR_UPDATE_SIGNING_KEY|NODE_OPTIONS|ELECTRON_RUN_AS_NODE|APP_ORIGIN|VIZOR_WORKSPACE|VIZOR_TERMINALS)$/i.test(
+      /^(MASTER_KEY|DATABASE_URL|ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY|GH_TOKEN|GITHUB_TOKEN|VIZOR_UPDATE_SIGNING_KEY|VIZOR_TERMINAL_TOKEN|NODE_OPTIONS|ELECTRON_RUN_AS_NODE|APP_ORIGIN|VIZOR_WORKSPACE|VIZOR_TERMINALS)$/i.test(
         key,
       )
     )
@@ -124,6 +127,7 @@ class Sessions {
     env = environment(),
     persist = async () => {},
     terminate = (terminal) => terminal.kill(),
+    claudeConfigDir = null,
   }) {
     Object.assign(this, {
       pty,
@@ -133,6 +137,7 @@ class Sessions {
       env,
       persist,
       terminate,
+      claudeConfigDir,
     });
     this.sessions = new Map();
     this.pending = new Set();
@@ -150,9 +155,15 @@ class Sessions {
       projectPath: s.projectPath,
       exitCode: s.exitCode ?? null,
       sequence: s.sequence,
+      inputReady: s.inputReady === true,
     };
   }
-  async start(agent, confirmShared = false, setup = false) {
+  async start(
+    agent,
+    confirmShared = false,
+    setup = false,
+    claudeApiKey = null,
+  ) {
     const old = this.sessions.get(agent.id);
     if (old?.state === "running") return this.view(old);
     if (this.pending.has(agent.id))
@@ -184,7 +195,8 @@ class Sessions {
       let hasClaudeHistory = false;
       if (agent.engine === "claude-code" && agent.terminalStarted) {
         const projects = join(
-          this.env.CLAUDE_CONFIG_DIR ||
+          this.claudeConfigDir ||
+            this.env.CLAUDE_CONFIG_DIR ||
             join(this.env.USERPROFILE || "", ".claude"),
           "projects",
         );
@@ -209,7 +221,9 @@ class Sessions {
               hasClaudeHistory ? "--resume" : "--session-id",
               nativeSessionId,
               "--permission-mode",
-              "default",
+              ["default", "acceptEdits", "auto"].includes(agent.permissionMode)
+                ? agent.permissionMode
+                : "acceptEdits",
             ]
           : [
               "resume",
@@ -223,12 +237,24 @@ class Sessions {
       // Recheck after asynchronous preparation: another agent may have claimed this project.
       if (!setup && !confirmShared && this.list().some(same))
         return { conflict: true };
+      const terminalEnv =
+        agent.engine === "claude-code" &&
+        typeof claudeApiKey === "string" &&
+        claudeApiKey.length > 0
+          ? {
+              ...this.env,
+              ...(this.claudeConfigDir
+                ? { CLAUDE_CONFIG_DIR: this.claudeConfigDir }
+                : {}),
+              ANTHROPIC_API_KEY: claudeApiKey,
+            }
+          : this.env;
       const terminal = this.pty.spawn(file, args, {
         name: "xterm-256color",
         cols: 100,
         rows: 28,
         cwd,
-        env: this.env,
+        env: terminalEnv,
         useConpty: true,
         useConptyDll: true,
       });
@@ -240,6 +266,13 @@ class Sessions {
         projectPath: cwd,
         terminal,
         buffer: "",
+        inputReady: false,
+        screen: new Terminal({
+          cols: 100,
+          rows: 28,
+          scrollback: 0,
+          allowProposedApi: true,
+        }),
         engine: agent.engine,
         sequence: 0,
       };
@@ -247,13 +280,40 @@ class Sessions {
       this.notify({ ...this.view(session), type: "state" });
       terminal.onData((data) => {
         session.sequence++;
-        session.buffer = (session.buffer + data).slice(-524288);
+        session.buffer = (session.buffer + data).slice(
+          -MAX_TERMINAL_BUFFER_CHARS,
+        );
+        session.screen.write(data, () => {
+          if (session.state !== "running" || session.submitting) return;
+          const buffer = session.screen.buffer.active;
+          const line =
+            buffer
+              .getLine(buffer.baseY + buffer.cursorY)
+              ?.translateToString(true) || "";
+          const viewport = Array.from(
+            { length: session.screen.rows },
+            (_, row) =>
+              buffer.getLine(buffer.baseY + row)?.translateToString(true) || "",
+          ).join("\n");
+          const setupPrompt =
+            /Syntax theme:|choose[^\n]*theme|select[^\n]*login method|Do you trust this folder/i.test(
+              viewport,
+            );
+          const permissionMenu = /^\s*[❯›>]\s*\d+[.)]/u.test(line);
+          const ready =
+            !setupPrompt && !permissionMenu && /^\s*[❯›>](?:\s|$)/u.test(line);
+          if (ready !== session.inputReady) {
+            session.inputReady = ready;
+            this.notify({ ...this.view(session), type: "state" });
+          }
+        });
         this.notify({ ...this.view(session), type: "data", data });
       });
       terminal.onExit(({ exitCode }) => {
         session.sequence++;
         session.state = "stopped";
         session.exitCode = exitCode;
+        session.screen.dispose();
         this.notify({ ...this.view(session), type: "state" });
         if (!setup && this.sessions.get(agent.id) === session)
           void this.persist(agent.id, nativeSessionId, "stopped").catch(
@@ -280,7 +340,46 @@ class Sessions {
   input(id, token, data) {
     if (typeof data !== "string" || data.length > 65536)
       throw Error("Invalid terminal input");
-    this.owned(id, token).terminal.write(data);
+    const session = this.owned(id, token);
+    session.terminal.write(data);
+    if ((data.includes("\r") || data.includes("\n")) && session.inputReady) {
+      session.inputReady = false;
+      this.notify({ ...this.view(session), type: "state" });
+    }
+  }
+  async sendTask(id, token, text) {
+    if (typeof text !== "string" || !text.trim() || text.length > 65536)
+      throw Error("This assignment is invalid or too large to send.");
+    const safeText = text
+      .replace(/\r\n?/g, "\n")
+      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+    const session = this.owned(id, token);
+    const deadline = Date.now() + READY_WAIT_MS;
+    while (!session.inputReady) {
+      if (session.state !== "running")
+        throw Error("The terminal stopped before its task prompt was ready.");
+      if (Date.now() >= deadline)
+        throw Error(
+          "The terminal opened, but its task prompt was not ready. Check the terminal for sign-in or permission prompts; the assignment was not sent.",
+        );
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    // Use bracketed paste so multi-line plans arrive as one editor paste rather
+    // than being interpreted as a sequence of terminal commands.
+    session.submitting = true;
+    try {
+      session.terminal.write(`\x1b[200~${safeText}\x1b[201~`);
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      if (session.state !== "running")
+        throw Error(
+          "The terminal stopped before the assignment was submitted.",
+        );
+      session.terminal.write("\r");
+      session.inputReady = false;
+    } finally {
+      session.submitting = false;
+    }
+    this.notify({ ...this.view(session), type: "state" });
   }
   resize(id, token, cols, rows) {
     if (
@@ -291,7 +390,9 @@ class Sessions {
       rows > 200
     )
       throw Error("Invalid terminal size");
-    this.owned(id, token).terminal.resize(cols, rows);
+    const session = this.owned(id, token);
+    session.screen.resize(cols, rows);
+    session.terminal.resize(cols, rows);
   }
   interrupt(id, token) {
     this.input(id, token, "\x03");
