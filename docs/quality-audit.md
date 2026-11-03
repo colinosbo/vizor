@@ -48,11 +48,19 @@ The implementation follows Claude Code's [native authentication](https://code.cl
 
 ## Public release follow-up: 0.10.18
 
-- The public latest release was still 0.10.2 even though newer source had been pushed. Version 0.10.18 is prepared for the trusted draft-release workflows; publication requires all release checks and complete assets.
+- The public latest release was still 0.10.2 even though newer source had been pushed. [Version 0.10.18](https://github.com/colinosbo/vizor/releases/tag/v0.10.18) is now published as the latest stable release, built from exact commit `89f3616098b6b17ba315816f987a32f848947465` by the trusted release workflows.
 - Mac and Linux CI exposed two Windows terminal tests using `process.cwd()` as their Windows folder fixture. Both now use an explicit Windows fixture path; production Windows folder validation remains enforced.
 - Claude setup now invokes native `auth login --claudeai` directly, using the subscription profile and forced Claude-account setting. The bundled tool's login help confirms this command; a regression test checks that setup starts no worker conversation or inference.
 - Added [QUICK-START.md](../QUICK-START.md), linked from the README, Windows/portable guides, and desktop Help menu, and included it in downloadable packages. It explains the EXE download, native subscription sign-in, first worker, approval defaults, limits, and troubleshooting.
 - Root, desktop, and terminal-host versions and lockfiles now match at 0.10.18.
 - Native workers and subscription planning strip an inherited `CLAUDE_CODE_OAUTH_TOKEN` so an external token cannot override Vizor's dedicated native sign-in. Both environment regression checks cover this.
 
-Local verification: **159 tests passed**, production standalone build and formatting passed. Live subscription inference still depends on the user's own native login and available plan allowance; fixture tests do not establish this.
+Local verification: **159 tests and 23 browser tests passed**, along with the production standalone build, TypeScript, formatting, and diff checks. Live subscription inference still depends on the user's own native login and available plan allowance; fixture tests do not establish this.
+
+Release verification completed before publication:
+
+- [Clean download checks](https://github.com/colinosbo/vizor/actions/runs/41671227127) passed on Windows, Intel Mac, and Linux.
+- [All four portable builds](https://github.com/colinosbo/vizor/actions/runs/41671239505) passed unit tests and extracted-package checks without Node/npm on PATH: Windows x64, Mac x64/ARM64, and Linux x64.
+- [Windows installer and updater](https://github.com/colinosbo/vizor/actions/runs/41671246166) passed real installation, shortcuts, launch, upgrade, uninstall data retention, packaged native-terminal checks, and a real two-version automatic update with restart deferral and preserved data. These ran on a clean Windows runner, without replacing the user's installed app or test installation.
+- All **16 release assets** are present, including the setup guide, five binaries, individual/combined checksums, and authenticated updater files. The pinned update signature and all five binary checksum files match the GitHub asset digests.
+- After publication, the full **157,693,375-byte Windows installer** downloaded anonymously without GitHub credentials. SHA-256 `3a0e4643ff94da522e9698d842e8b765c79789c7889974642fc92d0423a6c759` and signed SHA-512 both matched. The public latest-release URL resolves to 0.10.18, and the setup-guide download matches the committed guide.
