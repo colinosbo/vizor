@@ -215,9 +215,19 @@ class Sessions {
         } catch {}
       }
       const args = setup
-        ? agent.engine === "codex"
-          ? ["login"]
-          : ["auth", "login", "--claudeai"]
+        ? agent.engine === "github"
+          ? [
+              "auth",
+              "login",
+              "--hostname",
+              "github.com",
+              "--web",
+              "--git-protocol",
+              "https",
+            ]
+          : agent.engine === "codex"
+            ? ["login"]
+            : ["auth", "login", "--claudeai"]
         : agent.engine === "claude-code"
           ? [
               hasClaudeHistory ? "--resume" : "--session-id",

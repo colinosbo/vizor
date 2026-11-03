@@ -9,6 +9,7 @@ export type PublicMessage = {
   proposalId?: string | null;
 };
 export type AgentView = {
+  projectId?: string | null;
   id: string;
   name: string;
   engine?: "api" | "claude-code" | "codex";
@@ -50,6 +51,35 @@ export type RunView = {
   errorCode: string | null;
 };
 export type Workspace = {
+  mergeJobs?: {
+    id: string;
+    projectId: string;
+    status: string;
+    prUrl: string | null;
+    error: string | null;
+    updatedAt: string;
+  }[];
+  notificationState?: {
+    messages: { id: string; status: string }[];
+    pendingProposals: string[];
+  };
+  projects?: {
+    id: string;
+    name: string;
+    folder: string;
+    createdAt: string;
+    agents: {
+      id: string;
+      name: string;
+      color: string;
+      icon: string;
+      engine: string;
+      terminalState: string;
+      paused: boolean;
+      conversation: { activeRunId: string | null } | null;
+      terminalDispatches: { status: string; outcome: string | null }[];
+    }[];
+  }[];
   selfHost: boolean;
   email: string;
   provider: { connected: boolean; last4: string | null };
@@ -63,6 +93,10 @@ export type Workspace = {
   orchestrator: AgentView | null;
   proposals: ProposalView[];
   terminalDispatches: TerminalDispatchView[];
+  allReadyDispatches?: Pick<
+    TerminalDispatchView,
+    "id" | "proposalId" | "agentId" | "status" | "autoDeliver"
+  >[];
   pendingProposalCount: number;
   budgets: BudgetView[];
   autopilot: boolean;
@@ -76,6 +110,7 @@ export type AgentConfig = Pick<
   | "permissionMode"
   | "terminalAuthMode"
   | "projectPath"
+  | "projectId"
   | "provider"
   | "model"
   | "systemPrompt"
@@ -142,7 +177,12 @@ export type ProposalPayload =
       text: string;
     }
   | { action: "send_message"; agentId: string; text: string }
-  | { action: "dispatch_terminal"; agentId: string; text: string }
+  | {
+      action: "dispatch_terminal";
+      agentId: string;
+      text: string;
+      writePaths?: string[];
+    }
   | {
       action: "create_terminal_agent";
       config: {
@@ -153,6 +193,7 @@ export type ProposalPayload =
         icon: AgentConfig["icon"];
       };
       text: string;
+      writePaths?: string[];
     }
   | { action: "create_agent"; config: AgentConfig }
   | { action: "rename_agent"; agentId: string; name: string }
@@ -168,6 +209,7 @@ export type ProposalView = {
   createdAt: string;
   resultRunId: string | null;
   error: string | null;
+  outcome?: string | null;
 };
 export type TerminalDispatchView = {
   autoDeliver?: boolean;
@@ -179,6 +221,7 @@ export type TerminalDispatchView = {
   status:
     "ready" | "claimed" | "delivered" | "reported" | "superseded" | "failed";
   error: string | null;
+  outcome?: string | null;
 };
 export type BudgetView = {
   provider: string;

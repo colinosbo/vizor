@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import type { AgentConfig, AgentView } from "@/lib/types";
 import { AgentEditor, agentConfig, baseConfig } from "./agent-editor";
-import { AgentIcon, Mark, money, ProviderGlyph } from "./ui";
+import { AgentIcon, Dialog, Mark, money, ProviderGlyph } from "./ui";
 import { api, useWorkspace } from "./use-workspace";
 import { ProviderSettings } from "./provider-settings";
 import { WorkspaceBoard } from "./workspace-board";
@@ -36,6 +36,7 @@ import { SpendingView } from "./spending-view";
 import { AuditHistory } from "./audit-view";
 import { DesktopUpdates } from "./desktop-updates";
 import { StartupIntro } from "./startup-intro";
+import { NotificationSounds } from "./notification-sounds";
 export default function Dashboard() {
   const [introVisible, setIntroVisible] = useState(true);
   const finishIntro = useCallback(() => setIntroVisible(false), []);
@@ -101,6 +102,11 @@ export default function Dashboard() {
   const inSettings =
     view === "settings" || settingsPages.some((page) => page.id === view);
   const [mobileNav, setMobileNav] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [projectName, setProjectName] = useState("");
+  const [projectFolder, setProjectFolder] = useState("");
+  const [projectError, setProjectError] = useState("");
+  const [projectBusy, setProjectBusy] = useState(false);
   const [desktop, setDesktop] = useState(false);
   useEffect(() => setDesktop(!!window.vizorDesktop?.terminals), []);
   const [editor, setEditor] = useState<{
@@ -125,6 +131,23 @@ export default function Dashboard() {
         )
       : active;
   const selected = active.find((a) => a.id === layout.activeId) ?? active[0];
+  function terminalStatus(agent: AgentView) {
+    const task = data?.terminalDispatches.find(
+      (item) => item.agentId === agent.id,
+    );
+    if (task?.status === "failed") return "Needs attention";
+    if (task?.status === "reported")
+      return task.outcome === "completed"
+        ? "Completed · agent reported"
+        : "Needs attention";
+    if (task?.status === "claimed") return "Sending task";
+    if (task?.status === "ready") return "Waiting to start";
+    if (task?.status === "delivered")
+      return agent.terminalState === "running"
+        ? "Task sent"
+        : "Stopped · awaiting report";
+    return agent.terminalState === "running" ? "Terminal open" : "Stopped";
+  }
   const runs = [
     ...agents,
     ...(workspace.orchestrator ? [workspace.orchestrator] : []),
@@ -159,8 +182,11 @@ export default function Dashboard() {
       : baseConfig.model;
     return {
       ...baseConfig,
-      engine: desktop && !connected ? "claude-code" : "api",
-      projectPath: "",
+      engine: desktop ? "claude-code" : "api",
+      projectPath:
+        data?.projects?.find((project) => project.id === workspace.projectId)
+          ?.folder ?? "",
+      projectId: workspace.projectId,
       provider: provider?.id ?? "anthropic",
       model,
       name: active.length ? "New agent" : "My assistant",
@@ -169,6 +195,12 @@ export default function Dashboard() {
   function newAgent() {
     setEditor({ initial: newConfig() });
     setMobileNav(false);
+  }
+  function newProject() {
+    setProjectName("");
+    setProjectFolder("");
+    setProjectError("");
+    setCreatingProject(true);
   }
   function select(id: string) {
     updateLayout({ ...layout, activeId: id });
@@ -263,6 +295,98 @@ export default function Dashboard() {
         >
           <Plus size={16} /> New agent
         </button>
+        <div className="agent-caption">
+          <span>Projects</span>
+          <button
+            className="icon-button"
+            aria-label="Create project"
+            title="Create project"
+            onClick={newProject}
+          >
+            <Plus size={15} />
+          </button>
+        </div>
+        <div className="project-list" aria-label="Projects">
+          {(data?.projects ?? []).map((project) => (
+            <div key={project.id} className="project-group">
+              <button
+                className={`nav-item ${workspace.projectId === project.id ? "active" : ""}`}
+                onClick={() => {
+                  void workspace.selectProject(project.id);
+                  setView("orchestrator");
+                  setMobileNav(false);
+                }}
+              >
+                {project.name}
+              </button>
+              {project.agents.map((agent) => {
+                const status = agent.paused
+                  ? "Paused"
+                  : agent.conversation?.activeRunId
+                    ? "Working"
+                    : agent.terminalDispatches[0]?.status === "reported"
+                      ? agent.terminalDispatches[0]?.outcome === "completed"
+                        ? "Completed · agent reported"
+                        : "Needs attention"
+                      : agent.terminalDispatches[0]?.status === "failed"
+                        ? "Needs attention"
+                        : agent.terminalDispatches[0]?.status === "ready"
+                          ? "Waiting to start"
+                          : agent.terminalDispatches[0]?.status === "claimed"
+                            ? "Sending task"
+                            : agent.terminalDispatches[0]?.status ===
+                                "delivered"
+                              ? agent.terminalState === "running"
+                                ? "Task sent"
+                                : "Stopped · awaiting report"
+                              : agent.terminalState === "running"
+                                ? "Terminal open"
+                                : "Stopped";
+                return (
+                  <button
+                    key={agent.id}
+                    className="agent-nav project-agent"
+                    onClick={async () => {
+                      const next =
+                        workspace.projectId === project.id
+                          ? data
+                          : await workspace.selectProject(project.id);
+                      if (next)
+                        workspace.updateLayout({
+                          ...next.layout,
+                          activeId: agent.id,
+                        });
+                      setView("workspace");
+                      setMobileNav(false);
+                    }}
+                  >
+                    <span className={`agent-symbol ${agent.color}`}>
+                      <AgentIcon icon={agent.icon} size={16} />
+                    </span>
+                    <span className="agent-nav-name">
+                      {agent.name}
+                      <small>{status}</small>
+                    </span>
+                    <span
+                      className={`agent-dot ${agent.conversation?.activeRunId ? "working" : ""}`}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+          {!!data?.projects?.length && (
+            <button
+              className={`nav-item ${!workspace.projectId ? "active" : ""}`}
+              onClick={() => {
+                void workspace.selectProject(null);
+                setView("orchestrator");
+              }}
+            >
+              Unassigned
+            </button>
+          )}
+        </div>
         <button
           className={`nav-item ${view === "orchestrator" ? "active" : ""}`}
           onClick={() => navigate("orchestrator")}
@@ -288,69 +412,72 @@ export default function Dashboard() {
             <span className="nav-number">{data.pendingProposalCount}</span>
           )}
         </button>
-        <div className="agent-caption">
-          <span>Agents</span>
-          <button
-            className="icon-button"
-            aria-label="Create agent"
-            title="Create agent"
-            onClick={newAgent}
-          >
-            <Plus size={15} />
-          </button>
-        </div>
-        <div
-          className="agent-list"
-          tabIndex={0}
-          role="region"
-          aria-label="Your agents"
-        >
-          {[...visibleAgents]
-            .sort(
-              (a, b) =>
-                Number(layout.pinned.includes(b.id)) -
-                Number(layout.pinned.includes(a.id)),
-            )
-            .map((agent) => (
+        {!workspace.projectId && (
+          <>
+            <div className="agent-caption">
+              <span>Agents</span>
               <button
-                className={`agent-nav ${view === "workspace" && agent.id === selected?.id ? "selected" : ""}`}
-                key={agent.id}
-                onClick={() => select(agent.id)}
+                className="icon-button"
+                aria-label="Create agent"
+                title="Create agent"
+                onClick={newAgent}
               >
-                <span className={`agent-symbol ${agent.color}`}>
-                  <AgentIcon icon={agent.icon} size={16} />
-                </span>
-                <span className="agent-nav-name">
-                  {agent.name}
-                  <small>
-                    {agent.engine && agent.engine !== "api"
-                      ? agent.engine === "codex"
-                        ? "Codex"
-                        : "Claude Code"
-                      : data?.providers.find((p) => p.id === agent.provider)
-                          ?.label}{" "}
-                    ·{" "}
-                    {agent.engine && agent.engine !== "api"
-                      ? agent.terminalState === "running"
-                        ? "Running"
-                        : "Stopped"
-                      : agentStatus(agent, workspace.pending[agent.id])}
-                  </small>
-                </span>
-                <span
-                  className={`agent-dot ${agent.conversation.activeRunId || agent.terminalState === "running" ? "working" : ""}`}
-                />
+                <Plus size={15} />
               </button>
-            ))}
-          {!visibleAgents.length && (
-            <div className="empty-sidebar">
-              A fresh start.
-              <br />
-              <span>Your agents will live here.</span>
             </div>
-          )}
-        </div>
+            <div
+              className="agent-list"
+              tabIndex={0}
+              role="region"
+              aria-label="Your agents"
+            >
+              {[...visibleAgents]
+                .sort(
+                  (a, b) =>
+                    Number(layout.pinned.includes(b.id)) -
+                    Number(layout.pinned.includes(a.id)),
+                )
+                .map((agent) => (
+                  <button
+                    className={`agent-nav ${view === "workspace" && agent.id === selected?.id ? "selected" : ""}`}
+                    key={agent.id}
+                    onClick={() => select(agent.id)}
+                  >
+                    <span className={`agent-symbol ${agent.color}`}>
+                      <AgentIcon icon={agent.icon} size={16} />
+                    </span>
+                    <span className="agent-nav-name">
+                      {agent.name}
+                      <small>
+                        {agent.engine && agent.engine !== "api"
+                          ? agent.engine === "codex"
+                            ? "Codex"
+                            : "Claude Code"
+                          : data?.providers.find((p) => p.id === agent.provider)
+                              ?.label}{" "}
+                        ·{" "}
+                        {agent.engine && agent.engine !== "api"
+                          ? terminalStatus(agent)
+                          : agentStatus(agent, workspace.pending[agent.id])}
+                      </small>
+                    </span>
+                    <span
+                      className={`agent-dot ${agent.conversation.activeRunId || agent.terminalState === "running" ? "working" : ""}`}
+                    />
+                  </button>
+                ))}
+              {!visibleAgents.length && (
+                <div className="empty-sidebar">
+                  A fresh start.
+                  <br />
+                  <span>Your agents will live here.</span>
+                </div>
+              )}
+            </div>
+          </>
+        )}
         <div className="sidebar-bottom">
+          <NotificationSounds data={data} />
           <button
             className={`nav-item ${inSettings ? "active" : ""}`}
             onClick={() => navigate("settings")}
@@ -486,6 +613,21 @@ export default function Dashboard() {
             <h1>Workspace unavailable</h1>
             <button className="primary" onClick={() => void reload()}>
               Try again
+            </button>
+          </div>
+        ) : view === "workspace" &&
+          desktop &&
+          !data.projects?.length &&
+          !agents.length &&
+          !data.orchestrator ? (
+          <div className="welcome">
+            <h1>Start with a project</h1>
+            <p>
+              Choose a name and folder for your first feature. Your Orchestrator
+              and coding agents will belong to this project.
+            </p>
+            <button className="primary" onClick={newProject}>
+              Create your first project <ArrowRight size={15} />
             </button>
           </div>
         ) : view === "settings" ? (
@@ -689,6 +831,70 @@ export default function Dashboard() {
             onAction={action}
             notify={setNotice}
           />
+        )}
+        {creatingProject && (
+          <Dialog
+            title="Create project"
+            onClose={() => !projectBusy && setCreatingProject(false)}
+          >
+            <form
+              className="proposal-edit-form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setProjectBusy(true);
+                setProjectError("");
+                try {
+                  const project = await api<{ id: string }>(
+                    "projects",
+                    "POST",
+                    { name: projectName, folder: projectFolder },
+                  );
+                  await workspace.selectProject(project.id);
+                  setCreatingProject(false);
+                  setView("orchestrator");
+                } catch (error) {
+                  setProjectError((error as Error).message);
+                } finally {
+                  setProjectBusy(false);
+                }
+              }}
+            >
+              <label>
+                Project name
+                <input
+                  required
+                  maxLength={70}
+                  value={projectName}
+                  onChange={(event) => setProjectName(event.target.value)}
+                />
+              </label>
+              <label>
+                Project folder
+                <input
+                  required
+                  value={projectFolder}
+                  onChange={(event) => setProjectFolder(event.target.value)}
+                />
+              </label>
+              {desktop && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={async () => {
+                    const folder =
+                      await window.vizorDesktop?.terminals?.chooseFolder();
+                    if (folder) setProjectFolder(folder);
+                  }}
+                >
+                  Browse
+                </button>
+              )}
+              {projectError && <p role="alert">{projectError}</p>}
+              <button className="primary" type="submit" disabled={projectBusy}>
+                {projectBusy ? "Creating…" : "Create project"}
+              </button>
+            </form>
+          </Dialog>
         )}
       </main>
     </div>

@@ -23,6 +23,13 @@ module.exports = {
   extraResources: [
     { from: path.join(__dirname, "../public/intro"), to: "intro" },
     {
+      from:
+        process.env.VIZOR_GITHUB_CLI ||
+        path.join(__dirname, "../artifacts/github-cli"),
+      to: "vizor/terminal-host/github-cli",
+      filter: ["gh.exe", "LICENSE"],
+    },
+    {
       from: path.join(__dirname, "terminal-host/node_modules/@xterm/headless"),
       to: "vizor/terminal-host/node_modules/@xterm/headless",
       filter: ["package.json", "LICENSE", "lib-headless/**/*"],

@@ -19,7 +19,7 @@ export type TerminalEvent = TerminalState & {
 export type TerminalBridge = {
   tools(): Promise<{ engine: TerminalEngine; installed: boolean }[]>;
   install(engine: TerminalEngine): Promise<{ installed: boolean }>;
-  setup(engine: TerminalEngine): Promise<TerminalState>;
+  setup(engine: TerminalEngine | "github"): Promise<TerminalState>;
   chooseFolder(): Promise<string | null>;
   start(agentId: string, confirmShared?: boolean): Promise<TerminalState>;
   snapshot(agentId: string): Promise<TerminalState>;

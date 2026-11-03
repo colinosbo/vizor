@@ -113,6 +113,7 @@ writeFileSync(
   `// Private updater fixture only. Never distributed as Vizor.\nmodule.exports={publicKey:${JSON.stringify(publicKey)},feed:{provider:'generic',url:${JSON.stringify(feed)}},initialDelay:2500,async readAsset(version,name){const r=await fetch(${JSON.stringify(feed)}+'v'+version+'/'+name);if(!r.ok)throw Error('Fixture unavailable');return Buffer.from(await r.arrayBuffer());}};\n`,
 );
 process.env.VIZOR_INSTALLER_BUNDLE = portable.bundle;
+process.env.VIZOR_GITHUB_CLI = join(root, "artifacts/github-cli");
 const originalConfig = requireDesktop("./builder.cjs");
 async function build(version, out) {
   writeFileSync(

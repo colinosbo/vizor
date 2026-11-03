@@ -26,7 +26,11 @@ export async function deliverTerminalTask(
   let claimed = false;
   let deliveryAttempted = false;
   try {
-    const task = await api<{ agentId: string; text: string }>(
+    const task = await api<{
+      agentId: string;
+      text: string;
+      sharedApproved?: boolean;
+    }>(
       `terminal-dispatches/${proposalId}/claim`,
       "POST",
       undefined,
@@ -41,9 +45,12 @@ export async function deliverTerminalTask(
         );
       next = await bridge.start(task.agentId);
       if (next.conflict) {
-        if (automatic) {
+        if (automatic && !task.sharedApproved) {
           const target = workspace.agents.find(
             (agent) => agent.id === task.agentId,
+          );
+          const project = workspace.data?.projects?.find((item) =>
+            item.agents.some((agent) => agent.id === task.agentId),
           );
           const normalized = (path?: string) =>
             path?.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
@@ -53,9 +60,23 @@ export async function deliverTerminalTask(
               agent.engine !== "api" &&
               normalized(agent.projectPath) === normalized(target?.projectPath),
           );
-          if (!target || !peers.length)
+          const projectPeers = (workspace.data?.projects ?? [])
+            .filter(
+              (item) => normalized(item.folder) === normalized(project?.folder),
+            )
+            .flatMap((item) =>
+              item.agents.filter(
+                (agent) => agent.id !== task.agentId && agent.engine !== "api",
+              ),
+            );
+          const allPeers = [
+            ...new Map(
+              [...peers, ...projectPeers].map((agent) => [agent.id, agent]),
+            ).values(),
+          ];
+          if ((!target && !project) || !allPeers.length)
             throw Error("Check the other terminal before resuming the queue.");
-          for (const peer of peers) {
+          for (const peer of allPeers) {
             const state = await bridge.snapshot(peer.id);
             if (state.state === "running" && !state.inputReady)
               throw Error(
@@ -63,6 +84,8 @@ export async function deliverTerminalTask(
               );
           }
         } else if (
+          !automatic &&
+          !task.sharedApproved &&
           !confirm(
             "Another coding agent is open in this project. Their edits can conflict. Start this agent too?",
           )
@@ -663,6 +686,11 @@ function ProposalEditor({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [version] = useState(proposal.version);
+  const [writePathsText, setWritePathsText] = useState(
+    ("writePaths" in proposal.payload ? proposal.payload.writePaths : [])?.join(
+      "\n",
+    ) ?? "",
+  );
   const provider =
     payload.action === "create_agent"
       ? workspace.data?.providers.find((p) => p.id === payload.config.provider)
@@ -671,7 +699,21 @@ function ProposalEditor({
     event.preventDefault();
     setBusy(true);
     try {
-      await api(`proposals/${proposal.id}`, "PATCH", { version, payload });
+      const updated =
+        payload.action === "dispatch_terminal" ||
+        payload.action === "create_terminal_agent"
+          ? {
+              ...payload,
+              writePaths: writePathsText
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean),
+            }
+          : payload;
+      await api(`proposals/${proposal.id}`, "PATCH", {
+        version,
+        payload: updated,
+      });
       await workspace.reload();
       onClose();
     } catch (e) {
@@ -683,6 +725,20 @@ function ProposalEditor({
   return (
     <Dialog title="Edit proposal" onClose={onClose}>
       <form className="proposal-edit-form" onSubmit={save}>
+        {(payload.action === "dispatch_terminal" ||
+          payload.action === "create_terminal_agent") && (
+          <label>
+            Files this task may change, one path per line
+            <textarea
+              value={writePathsText}
+              onChange={(event) => setWritePathsText(event.target.value)}
+              rows={3}
+            />
+            <span className="field-note">
+              Leave empty to run this task exclusively.
+            </span>
+          </label>
+        )}
         {"agentId" in payload && (
           <label>
             Target agent

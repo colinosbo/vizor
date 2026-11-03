@@ -32,6 +32,7 @@ export function agentConfig(agent: AgentView): AgentConfig {
     permissionMode: agent.permissionMode ?? "acceptEdits",
     terminalAuthMode: agent.terminalAuthMode ?? "subscription",
     projectPath: agent.projectPath ?? "",
+    projectId: agent.projectId ?? null,
     provider: agent.provider,
     model: agent.model,
     systemPrompt: agent.systemPrompt,

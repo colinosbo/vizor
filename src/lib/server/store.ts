@@ -9,6 +9,8 @@ import { collectApiAgentReports } from "./api-agent-reports";
 import { budgetViews } from "./budgets";
 import { processTaskQueue } from "./task-queue";
 import { subscriptionAvailable } from "./subscription";
+import { ownedProject } from "./projects";
+import { processProjectMerges } from "./project-merge";
 export const defaultAgent = {
   name: "My assistant",
   provider: "anthropic",
@@ -42,10 +44,17 @@ export async function ownedRun(userId: string, id: string) {
     throw new AppError("not_found", "This response was not found.", 404);
   return run;
 }
-export async function workspace(user: { id: string; email: string }) {
+export async function workspace(
+  user: { id: string; email: string },
+  projectId?: string,
+) {
+  const selectedProject = projectId
+    ? await ownedProject(user.id, projectId)
+    : null;
   await collectTerminalReports(user.id);
   await collectApiAgentReports(user.id);
   await processTaskQueue(user.id);
+  void processProjectMerges(user.id).catch(() => {});
   const keys = await db.credential.findMany({
     where: { userId: user.id },
     select: { provider: true, last4: true },
@@ -61,7 +70,7 @@ export async function workspace(user: { id: string; email: string }) {
     select: { id: true, name: true, config: true },
   });
   const agents = await db.agent.findMany({
-    where: { userId: user.id },
+    where: { userId: user.id, projectId: projectId ?? null },
     orderBy: { createdAt: "asc" },
     include: {
       conversation: {
@@ -95,6 +104,7 @@ export async function workspace(user: { id: string; email: string }) {
     ? await db.terminalDispatch.findMany({
         where: {
           userId: user.id,
+          agent: { projectId: projectId ?? null },
           createdAt: { gte: chatStart },
           status: { notIn: ["superseded", "failed"] },
         },
@@ -105,6 +115,7 @@ export async function workspace(user: { id: string; email: string }) {
     ? await db.proposal.findMany({
         where: {
           userId: user.id,
+          projectId: projectId ?? null,
           createdAt: { gte: chatStart },
           action: { in: ["send_message", "create_terminal_agent"] },
           status: { in: ["approved", "executing"] },
@@ -114,6 +125,70 @@ export async function workspace(user: { id: string; email: string }) {
       })
     : [];
   return {
+    mergeJobs: await db.mergeJob.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true,
+        projectId: true,
+        status: true,
+        prUrl: true,
+        error: true,
+        updatedAt: true,
+      },
+    }),
+    notificationState: {
+      messages: await db.message.findMany({
+        where: {
+          conversation: { agent: { userId: user.id } },
+          OR: [
+            { role: "assistant" },
+            { origin: { in: ["terminal_report", "agent_report"] } },
+          ],
+        },
+        orderBy: { createdAt: "desc" },
+        take: 300,
+        select: { id: true, status: true },
+      }),
+      pendingProposals: (
+        await db.proposal.findMany({
+          where: { userId: user.id, status: "pending" },
+          orderBy: { createdAt: "desc" },
+          take: 1000,
+          select: { id: true },
+        })
+      ).map((item) => item.id),
+    },
+    projects: await db.project.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        name: true,
+        folder: true,
+        createdAt: true,
+        agents: {
+          where: { userId: user.id, kind: "agent", archived: false },
+          orderBy: { createdAt: "asc" },
+          select: {
+            id: true,
+            name: true,
+            color: true,
+            icon: true,
+            engine: true,
+            terminalState: true,
+            paused: true,
+            conversation: { select: { activeRunId: true } },
+            terminalDispatches: {
+              orderBy: { createdAt: "desc" },
+              take: 1,
+              select: { status: true, outcome: true },
+            },
+          },
+        },
+      },
+    }),
     hasPlanChat: !!chatStart,
     currentTeamIds: [
       ...new Set(
@@ -138,7 +213,9 @@ export async function workspace(user: { id: string; email: string }) {
       connected: keys.some((k) => k.provider === p.id),
       last4: keys.find((k) => k.provider === p.id)?.last4 ?? null,
     })),
-    layout: parseLayout(preferences.workspaceLayout),
+    layout: parseLayout(
+      selectedProject?.workspaceLayout ?? preferences.workspaceLayout,
+    ),
     templates: templates.map((t) => ({ ...t, config: JSON.parse(t.config) })),
     pricingDate: PRICING_DATE,
     agents: agents
@@ -149,27 +226,44 @@ export async function workspace(user: { id: string; email: string }) {
         .filter((agent) => agent.kind === "orchestrator")
         .map(({ userId: _owner, ...agent }) => agent)[0] ?? null,
     pendingProposalCount: await db.proposal.count({
-      where: { userId: user.id, status: "pending" },
+      where: {
+        userId: user.id,
+        status: "pending",
+        projectId: projectId ?? null,
+      },
     }),
     proposals: (
       await Promise.all([
         db.proposal.findMany({
-          where: { userId: user.id, status: "pending" },
+          where: {
+            userId: user.id,
+            status: "pending",
+            projectId: projectId ?? null,
+          },
           orderBy: { createdAt: "asc" },
           take: 100,
         }),
         db.proposal.findMany({
-          where: { userId: user.id, status: "queued" },
+          where: {
+            userId: user.id,
+            status: "queued",
+            projectId: projectId ?? null,
+          },
           orderBy: [{ approvedAt: "asc" }, { id: "asc" }],
         }),
         db.proposal.findMany({
-          where: { userId: user.id, status: { not: "pending" } },
+          where: {
+            userId: user.id,
+            status: { not: "pending" },
+            projectId: projectId ?? null,
+          },
           orderBy: { createdAt: "desc" },
           take: 50,
         }),
         db.proposal.findMany({
           where: {
             userId: user.id,
+            projectId: projectId ?? null,
             id: {
               in: (
                 await db.terminalDispatch.findMany({
@@ -204,6 +298,7 @@ export async function workspace(user: { id: string; email: string }) {
     terminalDispatches: await db.terminalDispatch.findMany({
       where: {
         userId: user.id,
+        agent: { projectId: projectId ?? null },
         status: { in: ["ready", "claimed", "delivered", "reported", "failed"] },
       },
       orderBy: { createdAt: "desc" },
@@ -214,9 +309,21 @@ export async function workspace(user: { id: string; email: string }) {
         text: true,
         status: true,
         error: true,
+        outcome: true,
         autoDeliver: true,
         questions: true,
       },
+    }),
+    allReadyDispatches: await db.terminalDispatch.findMany({
+      where: { userId: user.id, status: "ready" },
+      select: {
+        id: true,
+        proposalId: true,
+        agentId: true,
+        status: true,
+        autoDeliver: true,
+      },
+      orderBy: { createdAt: "asc" },
     }),
     budgets: await budgetViews(user.id),
     autopilot: preferences.autoApprove,

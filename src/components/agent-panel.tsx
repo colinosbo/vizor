@@ -79,6 +79,7 @@ export function AgentPanel({
   const end = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const initialScroll = useRef<string | null>(null);
+  const followLatest = useRef(true);
   const running = !!agent.conversation.activeRunId || pending;
   const blocked =
     running || agent.paused || agent.archived || !provider.connected;
@@ -90,8 +91,13 @@ export function AgentPanel({
     if (!area) return;
     if (initialScroll.current !== agent.id && messages.length) {
       initialScroll.current = agent.id;
+      followLatest.current = true;
       area.scrollTo({ top: area.scrollHeight, behavior: "instant" });
-    } else if (area.scrollHeight - area.scrollTop - area.clientHeight < 180)
+      requestAnimationFrame(() => {
+        if (followLatest.current && scroll.current === area)
+          area.scrollTo({ top: area.scrollHeight, behavior: "instant" });
+      });
+    } else if (followLatest.current)
       area.scrollTo({ top: area.scrollHeight, behavior: "instant" });
   }, [agent.id, messages]);
   function submit(
@@ -187,6 +193,11 @@ export function AgentPanel({
           <div
             className="chat-scroll"
             ref={scroll}
+            onScroll={(event) => {
+              const area = event.currentTarget;
+              followLatest.current =
+                area.scrollHeight - area.scrollTop - area.clientHeight < 180;
+            }}
             role="log"
             aria-label={`Conversation with ${agent.name}`}
             aria-live="off"
@@ -245,7 +256,8 @@ export function AgentPanel({
                     canRegenerate={
                       index === messages.length - 1 &&
                       !blocked &&
-                      message.origin !== "worker_reply"
+                      message.origin !== "worker_reply" &&
+                      message.origin !== "merge_status"
                     }
                     onEdit={() => {
                       setEdit(message);

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef } from "react";
-import { api, type useWorkspace } from "./use-workspace";
+import { api, ApiError, type useWorkspace } from "./use-workspace";
 import { deliverTerminalTask } from "./proposal-queue";
 export function AutomaticWorkerReplies({
   workspace,
@@ -15,7 +15,9 @@ export function AutomaticWorkerReplies({
       attempted.current.clear();
     enabled.current = !!workspace.data?.queueEnabled;
     if (busy.current || !window.vizorDesktop?.terminals) return;
-    const task = workspace.data?.terminalDispatches.find(
+    const task = (
+      workspace.data?.allReadyDispatches ?? workspace.data?.terminalDispatches
+    )?.find(
       (item) =>
         (item.autoDeliver || workspace.data?.queueEnabled) &&
         item.status === "ready" &&
@@ -38,6 +40,21 @@ export function AutomaticWorkerReplies({
         ),
       )
       .catch(async (error) => {
+        if (
+          error instanceof ApiError &&
+          [
+            "worker_busy",
+            "merge_busy",
+            "dispatch_unavailable",
+            "queue_waiting",
+          ].includes(error.code ?? "")
+        ) {
+          setTimeout(() => {
+            attempted.current.delete(task.id);
+            void workspace.reload();
+          }, 3000);
+          return;
+        }
         workspace.setError(`Task delivery needs attention: ${error.message}`);
         if (!task.autoDeliver)
           await api("automation", "PATCH", {

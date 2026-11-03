@@ -70,7 +70,12 @@ export async function owner(request: Request) {
   if (selfHost())
     return db.user.upsert({
       where: { id: "local-owner" },
-      create: { id: "local-owner", email: "owner@vizor.local" },
+      create: {
+        id: "local-owner",
+        email: "owner@vizor.local",
+        autoApprove: true,
+        queueEnabled: true,
+      },
       update: {},
       select: { id: true, email: true },
     });
@@ -117,7 +122,9 @@ export async function authenticate(
       parallelism: 1,
     });
     try {
-      user = await db.user.create({ data: { email, passwordHash } });
+      user = await db.user.create({
+        data: { email, passwordHash, autoApprove: true, queueEnabled: true },
+      });
     } catch {
       throw new AppError(
         "registration",

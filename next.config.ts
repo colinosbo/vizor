@@ -8,6 +8,9 @@ const config: NextConfig = {
       "./node_modules/argon2/build/Release/*.node",
     ],
   },
+  outputFileTracingExcludes: {
+    "/*": ["./artifacts/**/*", "./desktop/**/*", "./.env*", "./data/**/*"],
+  },
   poweredByHeader: false,
   serverExternalPackages: ["argon2", "better-sqlite3"],
   async headers() {

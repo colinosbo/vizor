@@ -4329,6 +4329,27 @@ summary:focus-visible,
 .team-toggle {
   cursor: pointer;
 }
+.project-list {
+  min-height: 0;
+  max-height: 42vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.project-agent {
+  padding-left: 24px;
+}
+.project-merge-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--text-soft);
+  font-size: 12px;
+}
 .coordinator-panel .message-list,
 .coordinator-panel .composer-area {
   max-width: 880px;

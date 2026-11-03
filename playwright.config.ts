@@ -28,7 +28,7 @@ export default defineConfig({
     },
     {
       name: "terminals",
-      testMatch: /(terminal-agents|subscription)\.spec\.ts/,
+      testMatch: /(terminal-agents|subscription|projects)\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:3105" },
     },
     {
