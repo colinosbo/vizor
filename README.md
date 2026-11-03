@@ -6,6 +6,8 @@ The proposed [intelligent orchestration architecture](docs/architecture/intellig
 
 ## Download and run
 
+**Want to use your Claude subscription? [Follow the short setup guide](QUICK-START.md).** Download the Windows **EXE installer** from [Releases](https://github.com/colinosbo/vizor/releases/latest), sign in with your own Claude account, and add a coding agent. No API key or commands needed. Subscription support requires the Windows desktop app; browser-only portable packages use API connections.
+
 **Windows:** download the current installer from the [latest release](https://github.com/colinosbo/vizor/releases/latest), then open **Vizor** from your desktop or Start menu shortcut. Installed copies can update automatically. **Help → Check for updates** checks immediately. Updates wait for running replies and terminal sessions; closing with live terminals asks you to stop them first. See the [Windows guide](WINDOWS.md) and [release workflow guide](UPDATE-RELEASES.md). The installer remains unsigned and Windows may show a publisher warning.
 
 Choose **New agent → Claude Code or Codex → Browse** to pick a project. **Set up / sign in** installs a checksum-verified official native tool if needed and opens its own sign-in interface. **Resume** opens that agent's terminal; **Interrupt** sends Ctrl+C; **Stop** closes only that terminal and keeps its native session. You can also rename, archive, arrange, resize and focus panels. Up to eight terminal processes can run at once. Reopening the app restores the board with terminals stopped until you resume them. The Orchestrator recommends a team size, shows each agent's assignment and status, and gathers agent reports into a leadership update. Approving a terminal task starts that agent and delivers the approved task automatically; CLI permission prompts remain under the tool's control. See [Terminal agents](TERMINAL-AGENTS.md) and the [verification report](verification/terminal-agents/REPORT.md).
@@ -99,7 +101,7 @@ Vizor uses charcoal grey surfaces and bright orange actions, selections and keyb
 
 ## Orchestrator and approvals
 
-1. Connect a provider, create your agents, then open **Orchestrator → Set up orchestrator**. Choose its provider, model and output cap. Configuring it makes no inference request.
+1. Open **Orchestrator → Set up orchestrator**. On Windows, choose **Claude Code subscription**, complete **Set up Claude subscription**, and choose a model. Alternatively connect an API provider and choose that connection. Configuring it makes no inference request.
 2. Select the agents to include in context (up to 20). Ask a question, choose **Summarize progress**, or choose **Draft next steps**. Each explicit turn uses at most three model calls. Every call is metered; continuation stops when a spending limit blocks it.
 3. Review drafts beside the conversation or under **Proposals**. Edit a draft's text, target or proposed agent configuration; then approve or reject it. Bulk approval reviews up to 20 pending items at a time and reports individual failures. Older pending drafts remain available as the oldest 100 are reviewed; the recent-decisions view shows the latest 50.
 4. **Audit history** records who proposed an action, who approved it, changes to drafts, sends, agent changes, provider connections, spending settings and failures. Load older events with the page control. History is read-only through the app, owner-scoped, and local database text; it is not a tamper-proof external audit service.
@@ -110,7 +112,7 @@ Only native, structured provider tool calls can create proposals. Available tool
 
 Approved messages are labelled **Orchestrator · Approved by you** in the target conversation. After approval, that message's response continues in the local Node process even if you leave the approval page; use the target agent's **Stop** control to cancel. Provider removal and pause/archive also cancel it. Restart recovery never automatically re-delivers an uncertain approved message: review its target history before proposing another one.
 
-**Autopilot remains disabled in the UI and server.** No scheduled replies, message-triggered loops, agent-triggered actions or background model summaries run. The bounded native-tool continuation within a turn happens only after an explicit user submission.
+Manual approval is the default. **Full auto approval** can explicitly approve subsequent proposals, and the optional **approved-task queue** can deliver ready tasks to idle workers. Native CLI permission prompts still apply. Review these settings before enabling them. Subscription planning uses Claude Code and shares its allowance with workers; it does not fall back to a paid API connection.
 
 ## Spending limits
 

@@ -165,6 +165,7 @@ cpSync(join(root, "prisma/migrations"), join(bundle, "migrations"), {
 for (const file of [
   "LICENSE",
   "START-HERE.md",
+  "QUICK-START.md",
   "WINDOWS.md",
   "TERMINAL-AGENTS.md",
 ])

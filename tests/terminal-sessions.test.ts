@@ -124,6 +124,19 @@ it("keeps the native Claude permission prompts and resumes Codex by its exact na
   ]);
   expect(f.bootstrap).not.toHaveBeenCalled();
 });
+it("opens native subscription login directly without starting a worker conversation", async () => {
+  const f = fixture();
+  await f.sessions.start(f.agent("setup-claude-code"), false, true);
+  expect(f.terminals[0].args).toEqual([
+    "auth",
+    "login",
+    "--claudeai",
+    "--settings",
+    '{"forceLoginMethod":"claudeai"}',
+  ]);
+  expect(f.bootstrap).not.toHaveBeenCalled();
+  expect(f.persist).not.toHaveBeenCalled();
+});
 it("prepares and persists a new Codex thread without starting an inference turn", async () => {
   const f = fixture();
   const result = await f.sessions.start(f.agent("a", "codex"));

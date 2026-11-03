@@ -326,7 +326,7 @@ async function start() {
             label: "Vizor guide",
             click: () =>
               openExternal(
-                "https://github.com/colinosbo/vizor/blob/main/WINDOWS.md",
+                "https://github.com/colinosbo/vizor/blob/main/QUICK-START.md",
               ),
           },
         ],

@@ -1,8 +1,10 @@
 # Vizor for Windows
 
+**For download and Claude subscription setup, start with [the short guide](QUICK-START.md).** This page covers Windows installation, data, updates, and troubleshooting.
+
 ## Install and open
 
-1. Download the current **Vizor-Setup-*-x64.exe** from the [latest release](https://github.com/colinosbo/vizor/releases/latest). Existing installed copies can use **Help → Check for updates**.
+1. Download the current **Vizor-Setup-\*-x64.exe** from the [latest release](https://github.com/colinosbo/vizor/releases/latest). Existing installed copies can use **Help → Check for updates**.
 2. Run it and accept the included license. Vizor installs for your Windows user; you do not need to install Node or run commands.
 3. Open **Vizor** from your desktop or Start menu. It opens in its own app window.
 4. Choose **New agent**, select **Claude Code**, **Codex**, or an **API connection**, and select a project for terminal agents. Use **Set up / sign in** if a CLI is missing or needs login. API agents use your own Anthropic/OpenAI key; API billing is separate from chat subscriptions.
@@ -16,8 +18,8 @@ The installer is for Windows 11 on Intel/AMD 64-bit PCs. It includes the app, it
 - **File → Open your data folder** opens your workspace in Explorer.
 - The app picks an available local port automatically and listens only on 127.0.0.1. It can run alongside a separate browser/portable installation without taking over that app's port.
 - External HTTPS links open in your normal browser. The app window stays on your local workspace. Camera, microphone, remote images and downloads are blocked inside the app; copy buttons can write to your clipboard.
-- Autopilot is off. Orchestrator proposals still require your approval. No telemetry or additional paid services are enabled.
-- Claude Code and Codex open their real native terminal interfaces. Each has its own session and project. Use **Resume**, **Interrupt**, **Stop**, or settings to rename/archive. Board layout and session IDs survive restarts; terminal processes never restart automatically. See [Terminal agents](TERMINAL-AGENTS.md).
+- Manual approval is the default. Full auto approval and the approved-task queue are optional settings. Claude's native permission prompts still apply.
+- Claude Code and Codex open their real native terminal interfaces. Each has its own session and project. Use **Resume**, **Interrupt**, **Stop**, or settings to rename/archive. Board layout and session IDs survive restarts. With the queue off, resume terminals yourself; an enabled approved-task queue can start a worker to deliver its ready task. See [Terminal agents](TERMINAL-AGENTS.md).
 - Closing with live terminals asks whether to stop them and quit. Updates wait for terminals to close. A native CLI can run subprocesses and edit files under its own permissions; the project folder is a starting directory, not a security boundary.
 
 ## Your keys and conversations
@@ -29,7 +31,7 @@ Program files install under `%LOCALAPPDATA%\Programs\vizor-desktop`. Saved infor
 
 The separate `shell` folder stores the app window's browser profile. Do not share any of these folders. Before a backup, quit Vizor and copy **both `.env` and the whole `data` folder** to a private backup location. Losing `.env` makes saved provider keys unreadable. Never replace its master key after saving keys.
 
-Terminal conversations and CLI authentication stay in each tool's own profile (normally `%USERPROFILE%\.claude` and `%USERPROFILE%\.codex`, or the tool's configured home). Back those up privately following the tool's guidance if you want to move terminal history. Vizor stores session identifiers, not a second copy of native history or subscription credentials. Managed native executables live under `%LOCALAPPDATA%\Vizor\tools`.
+Claude subscription conversations and authentication use the dedicated native profile `%LOCALAPPDATA%\Vizor\claude-subscription`; explicit Claude API workers use `claude-config` beside it. Codex uses its own profile (normally `%USERPROFILE%\.codex`, or its configured home). Back up native profiles privately following each tool's guidance if you want to move terminal history. Vizor stores session identifiers, not a second copy of native history or subscription credentials. Managed native executables live under `%LOCALAPPDATA%\Vizor\tools`.
 
 ## Update or uninstall
 
@@ -75,4 +77,4 @@ npm run test:updates
 
 The installer smoke check refuses an existing Vizor installation or shortcut. Use a clean Windows account/runner. It installs into a temporary folder, checks shortcuts and the installed app, reinstalls over the same version, uninstalls, and confirms private data was retained. Provider calls are not made by this check; separate application/portable checks use mocks. Packaged inspection uses Chromium's explicitly requested local debug port; ordinary launches do not enable it.
 
-Advanced users can set `VIZOR_DESKTOP_DATA_DIR` to an absolute local directory before launch to keep an independent workspace/profile. `VIZOR_DISABLE_UPDATES=1` forces update checks off for development/isolated tests. The default settings are recommended. Hosted accounts, Windows publisher signing and autopilot remain outside this release.
+Advanced users can set `VIZOR_DESKTOP_DATA_DIR` to an absolute local directory before launch to keep an independent workspace/profile. `VIZOR_DISABLE_UPDATES=1` forces update checks off for development/isolated tests. The default settings are recommended. Hosted accounts and Windows publisher signing remain outside this release.

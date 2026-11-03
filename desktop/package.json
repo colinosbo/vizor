@@ -1,7 +1,7 @@
 {
   "name": "vizor-desktop",
   "productName": "Vizor",
-  "version": "0.10.17",
+  "version": "0.10.18",
   "private": true,
   "license": "UNLICENSED",
   "description": "Your private local AI workspace",

@@ -217,7 +217,7 @@ class Sessions {
       const args = setup
         ? agent.engine === "codex"
           ? ["login"]
-          : []
+          : ["auth", "login", "--claudeai"]
         : agent.engine === "claude-code"
           ? [
               hasClaudeHistory ? "--resume" : "--session-id",

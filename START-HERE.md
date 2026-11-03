@@ -1,6 +1,8 @@
-# Start Vizor — no Node installation needed
+# Start Vizor
 
-This guide covers the portable archives. For the Windows desktop installer, shortcuts and automatic updates, use the [Windows app guide](WINDOWS.md).
+**Using your Claude subscription? Follow [QUICK-START.md](QUICK-START.md)** and download the Windows EXE installer. It includes the desktop features and native Claude Code sign-in. No API key is required for subscription mode.
+
+The instructions below cover the **browser-only portable archives**, which use separately billed API connections. They do not include the desktop terminal bridge or subscription Orchestrator. For installer updates and backups, see [WINDOWS.md](WINDOWS.md).
 
 1. Extract the **whole archive** into a folder you can write to. Do not run it inside the ZIP, Downloads preview, Program Files, a shared folder, or a cloud-synced folder.
 2. **Windows:** double-click **Start Vizor.cmd**. **macOS:** open **Start Vizor.command**. **Linux:** run `./start-vizor.sh` from a terminal.
@@ -30,4 +32,4 @@ Stop the old Vizor. Back up its `.env` and `data/` together. Extract the new pac
 
 If port 3000 is already occupied, stop the other copy or set `APP_ORIGIN="http://127.0.0.1:3001"` in `.env`. If the browser doesn't open automatically, visit that address manually.
 
-Vizor's code is rights reserved; see LICENSE. Third-party components retain their own licenses in THIRD-PARTY-LICENSES and runtime/LICENSE. Automatic updates, code signing, hosted accounts and autopilot are not included.
+Vizor's code is rights reserved; see LICENSE. Third-party components retain their own licenses in THIRD-PARTY-LICENSES and runtime/LICENSE. Portable packages do not update themselves. Windows desktop updates are described in [WINDOWS.md](WINDOWS.md).

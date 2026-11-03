@@ -45,3 +45,13 @@ Before installation, the real workspace database was backed up under its own `da
 Choose **Orchestrator settings → Claude Code subscription → Set up Claude subscription**, complete Claude Code's own sign-in and choose the Claude subscription account. Workers use the same dedicated native profile. Sign-in tokens and passwords are not copied into Vizor's database. Native subscription responses are excluded from API dollar totals; API spending caps do not measure subscription allowance. Authentication failures and usage limits do not trigger a paid API fallback.
 
 The implementation follows Claude Code's [native authentication](https://code.claude.com/docs/en/iam) and [CLI interface](https://code.claude.com/docs/en/cli-reference). Fixture tests do not prove that a particular subscription has available usage or that every possible project workflow is bug-free.
+
+## Public release follow-up: 0.10.18
+
+- The public latest release was still 0.10.2 even though newer source had been pushed. Version 0.10.18 is prepared for the trusted draft-release workflows; publication requires all release checks and complete assets.
+- Mac and Linux CI exposed two Windows terminal tests using `process.cwd()` as their Windows folder fixture. Both now use an explicit Windows fixture path; production Windows folder validation remains enforced.
+- Claude setup now invokes native `auth login --claudeai` directly, using the subscription profile and forced Claude-account setting. The bundled tool's login help confirms this command; a regression test checks that setup starts no worker conversation or inference.
+- Added [QUICK-START.md](../QUICK-START.md), linked from the README, Windows/portable guides, and desktop Help menu, and included it in downloadable packages. It explains the EXE download, native subscription sign-in, first worker, approval defaults, limits, and troubleshooting.
+- Root, desktop, and terminal-host versions and lockfiles now match at 0.10.18.
+
+Local verification: **159 tests passed**, production standalone build and formatting passed. Live subscription inference still depends on the user's own native login and available plan allowance; fixture tests do not establish this.

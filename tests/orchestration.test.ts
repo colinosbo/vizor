@@ -384,7 +384,7 @@ describe("orchestrator context and approval boundaries", () => {
         name: "create_terminal_agent",
         arguments: {
           name: "Robot Builder",
-          project_path: process.cwd(),
+          project_path: "C:\\projects\\worker-fixture",
           role_prompt: "Implement the assigned stage and report checks.",
           color: "amber",
           icon: "code",
@@ -407,7 +407,7 @@ describe("orchestrator context and approval boundaries", () => {
     });
     expect(created).toMatchObject({
       engine: "claude-code",
-      projectPath: process.cwd(),
+      projectPath: "C:\\projects\\worker-fixture",
       systemPrompt: "Implement the assigned stage and report checks.",
     });
     expect(created.nativeSessionId).toMatch(/^[0-9a-f-]{36}$/i);
@@ -961,7 +961,7 @@ it("creates a dependent worker without starting inference or queueing an empty t
         action: "create_terminal_agent",
         config: {
           name: "Dependent reviewer",
-          projectPath: process.cwd(),
+          projectPath: "C:\\projects\\worker-fixture",
           systemPrompt: "Review after the builder report.",
           color: "blue",
           icon: "search",
