@@ -271,19 +271,19 @@ it("supports cancellation before native launch", async () => {
   ).rejects.toThrow();
   expect(invocations).toHaveLength(0);
 });
-it("removes alternate billing routes while preserving native subscription sign-in", () => {
+it("removes alternate billing routes and inherited tokens for dedicated native sign-in", () => {
   const env = native.subscriptionEnvironment({
     PATH: "fixture",
     ANTHROPIC_API_KEY: "private",
+    CLAUDE_CODE_OAUTH_TOKEN: "private",
     ANTHROPIC_AUTH_TOKEN: "private",
     ANTHROPIC_BASE_URL: "private",
     CLAUDE_CODE_USE_BEDROCK: "1",
     MASTER_KEY: "private",
-    CLAUDE_CODE_OAUTH_TOKEN: "native-test-token",
   });
   expect(env.ANTHROPIC_API_KEY).toBeUndefined();
   expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
   expect(env.CLAUDE_CODE_USE_BEDROCK).toBeUndefined();
   expect(env.MASTER_KEY).toBeUndefined();
-  expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBe("native-test-token");
+  expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
 });

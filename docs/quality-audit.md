@@ -53,5 +53,6 @@ The implementation follows Claude Code's [native authentication](https://code.cl
 - Claude setup now invokes native `auth login --claudeai` directly, using the subscription profile and forced Claude-account setting. The bundled tool's login help confirms this command; a regression test checks that setup starts no worker conversation or inference.
 - Added [QUICK-START.md](../QUICK-START.md), linked from the README, Windows/portable guides, and desktop Help menu, and included it in downloadable packages. It explains the EXE download, native subscription sign-in, first worker, approval defaults, limits, and troubleshooting.
 - Root, desktop, and terminal-host versions and lockfiles now match at 0.10.18.
+- Native workers and subscription planning strip an inherited `CLAUDE_CODE_OAUTH_TOKEN` so an external token cannot override Vizor's dedicated native sign-in. Both environment regression checks cover this.
 
 Local verification: **159 tests passed**, production standalone build and formatting passed. Live subscription inference still depends on the user's own native login and available plan allowance; fixture tests do not establish this.
