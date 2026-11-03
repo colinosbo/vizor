@@ -28,6 +28,9 @@ export function OrchestratorPanel({
 }) {
   const [settings, setSettings] = useState(false);
   const [showTeam, setShowTeam] = useState(false);
+  useEffect(() => {
+    if (workspace.data?.pendingProposalCount) setShowTeam(true);
+  }, [workspace.data?.pendingProposalCount]);
   const [confirmNewChat, setConfirmNewChat] = useState(false);
   const [clearingChat, setClearingChat] = useState(false);
   const active = workspace.agents.filter(
@@ -94,7 +97,11 @@ export function OrchestratorPanel({
           {workspace.data?.pendingProposalCount
             ? ` · ${workspace.data.pendingProposalCount}`
             : ""}
-          {workspace.data?.autopilot ? " · Auto on" : ""}
+          {workspace.data?.autopilot ? (
+            " · Auto on"
+          ) : (
+            <span>Autopilot off</span>
+          )}
         </button>
       </div>
       {!agent ? (
