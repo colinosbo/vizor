@@ -13,6 +13,7 @@ import { api, type useWorkspace } from "./use-workspace";
 import { AgentPanel } from "./agent-panel";
 import { Dialog } from "./ui";
 import { ProposalQueue } from "./proposal-queue";
+import { TerminalSurface } from "./terminal-panel";
 type WorkspaceState = ReturnType<typeof useWorkspace>;
 export function OrchestratorPanel({
   workspace,
@@ -38,9 +39,17 @@ export function OrchestratorPanel({
   const setScope = (update: (old: string[]) => string[]) =>
     workspace.setContextScope(update(scope));
   const agent = workspace.orchestrator;
-  const provider = workspace.data!.providers.find(
+  const configuredProvider = workspace.data!.providers.find(
     (p) => p.id === agent?.provider,
   );
+  const provider =
+    configuredProvider && agent?.orchestratorMode === "subscription"
+      ? {
+          ...configuredProvider,
+          connected: !!workspace.data?.subscriptionAvailable,
+          label: "Claude subscription",
+        }
+      : configuredProvider;
   function ask(text: string) {
     if (agent)
       void workspace.send(agent.id, text, "send", undefined, {
@@ -89,22 +98,26 @@ export function OrchestratorPanel({
           </span>
           <h2>Set up your team lead.</h2>
           <p>
-            The orchestrator uses your API connection to plan work and propose
-            tasks for your agents. Choose manual or automatic approval.
+            The orchestrator uses your Claude subscription or an API connection
+            to plan work and propose tasks. Choose manual or automatic approval.
           </p>
           <button
             className="primary"
-            disabled={!workspace.data?.providers.some((p) => p.connected)}
+            disabled={
+              !workspace.data?.subscriptionAvailable &&
+              !workspace.data?.providers.some((p) => p.connected)
+            }
             onClick={() => setSettings(true)}
           >
             Set up orchestrator
             <ArrowRight size={15} />
           </button>
-          {!workspace.data?.providers.some((p) => p.connected) && (
-            <button className="secondary" onClick={onConnections}>
-              Connect an API key
-            </button>
-          )}
+          {!workspace.data?.subscriptionAvailable &&
+            !workspace.data?.providers.some((p) => p.connected) && (
+              <button className="secondary" onClick={onConnections}>
+                Connect an API key
+              </button>
+            )}
         </div>
       ) : (
         <div className="orchestrator-columns">
@@ -155,9 +168,11 @@ export function OrchestratorPanel({
               agent={agent}
               provider={provider!}
               modelName={
-                workspace.models[agent.provider]?.models.find(
-                  (m) => m.id === agent.model,
-                )?.name ?? agent.model
+                agent.orchestratorMode === "subscription"
+                  ? `Claude ${agent.model} · subscription`
+                  : (workspace.models[agent.provider]?.models.find(
+                      (m) => m.id === agent.model,
+                    )?.name ?? agent.model)
               }
               coordinator
               compact={false}
@@ -416,6 +431,9 @@ function OrchestratorSettings({
   const initial = workspace.orchestrator;
   const fallback = workspace.data!.providers.find((p) => p.connected)!;
   const [config, setConfig] = useState({
+    orchestratorMode:
+      initial?.orchestratorMode ??
+      (workspace.data?.subscriptionAvailable ? "subscription" : "api"),
     provider: initial?.provider ?? fallback?.id ?? "anthropic",
     model: initial?.model ?? fallback?.defaultModel ?? "claude-sonnet-4-6",
     maxTokens: initial?.maxTokens ?? 2048,
@@ -428,7 +446,22 @@ function OrchestratorSettings({
   });
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [showSetup, setShowSetup] = useState(false);
+  useEffect(() => {
+    if (!showSetup) return;
+    const bridge = window.vizorDesktop?.terminals;
+    return () => {
+      void bridge
+        ?.snapshot("setup-claude-code")
+        .then((state) => {
+          if (state.state === "running" && state.token)
+            return bridge.stop(state.agentId, state.token);
+        })
+        .catch(() => {});
+    };
+  }, [showSetup]);
   const models = workspace.models[config.provider];
+  const subscription = config.orchestratorMode === "subscription";
   return (
     <Dialog title="Orchestrator settings" onClose={onClose}>
       <form
@@ -437,11 +470,19 @@ function OrchestratorSettings({
           event.preventDefault();
           setBusy(true);
           try {
-            await api("orchestrator", "PATCH", config);
+            await api("orchestrator", "PATCH", {
+              ...config,
+              ...(subscription
+                ? {
+                    provider: "anthropic",
+                    model: ["sonnet", "opus", "haiku"].includes(config.model)
+                      ? config.model
+                      : "sonnet",
+                  }
+                : {}),
+            });
             await workspace.reload();
-            workspace.setNotice(
-              "Orchestrator is ready. Approval is required for every action.",
-            );
+            workspace.setNotice("Orchestrator settings saved.");
             onClose();
           } catch (e) {
             setError((e as Error).message);
@@ -451,67 +492,177 @@ function OrchestratorSettings({
         }}
       >
         <label>
-          Provider
+          Connection
           <select
-            aria-label="Orchestrator provider"
-            value={config.provider}
-            onChange={(e) => {
-              const next = workspace.data!.providers.find(
-                (p) => p.id === e.target.value,
-              )!;
+            aria-label="Orchestrator connection"
+            value={config.orchestratorMode}
+            onChange={(event) =>
               setConfig({
                 ...config,
-                provider: next.id,
-                model: next.defaultModel,
-              });
-            }}
-          >
-            {workspace.data?.providers.map((p) => (
-              <option key={p.id} value={p.id} disabled={!p.connected}>
-                {p.label}
-                {p.connected ? "" : " · connect key first"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Model
-          <select
-            aria-label="Orchestrator model"
-            value={config.model}
-            onChange={(e) => setConfig({ ...config, model: e.target.value })}
-          >
-            {!models?.models.some((m) => m.id === config.model) && (
-              <option value={config.model}>{config.model}</option>
-            )}
-            {models?.models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        {models?.fallback && (
-          <p className="field-note warning">Fallback list · {models.message}</p>
-        )}
-        <label>
-          Maximum output tokens per model call
-          <input
-            type="number"
-            min={64}
-            max={8192}
-            required
-            value={config.maxTokens}
-            onChange={(e) =>
-              setConfig({ ...config, maxTokens: Number(e.target.value) })
+                orchestratorMode: event.target.value as "api" | "subscription",
+                provider: "anthropic",
+                model:
+                  event.target.value === "subscription"
+                    ? "sonnet"
+                    : "claude-sonnet-4-6",
+              })
             }
-          />
+          >
+            <option
+              value="subscription"
+              disabled={!workspace.data?.subscriptionAvailable}
+            >
+              Claude Code subscription
+              {workspace.data?.subscriptionAvailable ? "" : " · Windows app"}
+            </option>
+            <option value="api">API credits</option>
+          </select>
         </label>
-        <p className="field-note">
-          A turn uses at most three model calls. Long plans can raise the first
-          call’s output limit to prepare complete task proposals; all usage
-          counts toward this provider’s spending limit.
-        </p>
+        {subscription ? (
+          <>
+            <label>
+              Model
+              <select
+                aria-label="Orchestrator subscription model"
+                value={
+                  ["sonnet", "opus", "haiku"].includes(config.model)
+                    ? config.model
+                    : "sonnet"
+                }
+                onChange={(event) =>
+                  setConfig({ ...config, model: event.target.value })
+                }
+              >
+                <option value="sonnet">Claude Sonnet</option>
+                <option value="opus">Claude Opus</option>
+                <option value="haiku">Claude Haiku</option>
+              </select>
+            </label>
+            <p className="field-note">
+              Runs your installed Claude Code with its own subscription sign-in.
+              Subscription usage limits apply. No API key or API billing
+              fallback.
+            </p>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const bridge = window.vizorDesktop?.terminals;
+                  if (!bridge)
+                    throw Error("Open the Windows desktop app first.");
+                  const tools = await bridge.tools();
+                  if (
+                    !tools.find((tool) => tool.engine === "claude-code")
+                      ?.installed
+                  )
+                    await bridge.install("claude-code");
+                  await bridge.setup("claude-code");
+                  setShowSetup(true);
+                } catch (error) {
+                  setError((error as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Set up Claude subscription
+            </button>
+            {showSetup && window.vizorDesktop?.terminals && (
+              <div className="subscription-setup">
+                <p>
+                  Complete Claude Code’s native sign-in here. Choose your Claude
+                  subscription account.
+                </p>
+                <div className="subscription-setup-surface">
+                  <TerminalSurface
+                    agentId="setup-claude-code"
+                    bridge={window.vizorDesktop.terminals}
+                    onState={() => {}}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowSetup(false)}
+                >
+                  Close sign-in terminal
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <label>
+              Provider
+              <select
+                aria-label="Orchestrator provider"
+                value={config.provider}
+                onChange={(e) => {
+                  const next = workspace.data!.providers.find(
+                    (p) => p.id === e.target.value,
+                  )!;
+                  setConfig({
+                    ...config,
+                    provider: next.id,
+                    model: next.defaultModel,
+                  });
+                }}
+              >
+                {workspace.data?.providers.map((p) => (
+                  <option key={p.id} value={p.id} disabled={!p.connected}>
+                    {p.label}
+                    {p.connected ? "" : " · connect key first"}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Model
+              <select
+                aria-label="Orchestrator model"
+                value={config.model}
+                onChange={(e) =>
+                  setConfig({ ...config, model: e.target.value })
+                }
+              >
+                {!models?.models.some((m) => m.id === config.model) && (
+                  <option value={config.model}>{config.model}</option>
+                )}
+                {models?.models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {models?.fallback && (
+              <p className="field-note warning">
+                Fallback list · {models.message}
+              </p>
+            )}
+            <label>
+              Maximum output tokens per model call
+              <input
+                type="number"
+                min={64}
+                max={8192}
+                required
+                value={config.maxTokens}
+                onChange={(e) =>
+                  setConfig({ ...config, maxTokens: Number(e.target.value) })
+                }
+              />
+            </label>
+            <p className="field-note">
+              A turn uses at most three model calls. Long plans can raise the
+              first call’s output limit to prepare complete task proposals; all
+              usage counts toward this provider’s spending limit.
+            </p>
+          </>
+        )}
         <label>
           Project instructions
           <textarea

@@ -1,6 +1,6 @@
 # Vizor
 
-A local dashboard for your agents. Run real Claude Code and Codex terminals alongside your API conversations, give each agent its own project, and switch between them while they work. Everyone runs their own installation with their own accounts and data. **Autopilot is off.**
+A local dashboard for your agents. Run real Claude Code and Codex terminals alongside your API conversations, give each agent its own project, and switch between them while they work. Everyone runs their own installation with their own accounts and data. **Manual approval is the default; an optional approved-task queue and full auto approval switch are available.**
 
 The proposed [intelligent orchestration architecture](docs/architecture/intelligent-orchestration.md) defines the next layer of cost-efficient task routing, context management, verification, and agent coordination. Its [Agent Skills and model routing design](docs/architecture/agent-skills-and-routing.md) covers portable skills, progressive loading, model/effort selection, and evidence-based escalation. These are engineering guidelines for future implementation; they do not enable new runtime behavior.
 
@@ -10,7 +10,7 @@ The proposed [intelligent orchestration architecture](docs/architecture/intellig
 
 Choose **New agent → Claude Code or Codex → Browse** to pick a project. **Set up / sign in** installs a checksum-verified official native tool if needed and opens its own sign-in interface. **Resume** opens that agent's terminal; **Interrupt** sends Ctrl+C; **Stop** closes only that terminal and keeps its native session. You can also rename, archive, arrange, resize and focus panels. Up to eight terminal processes can run at once. Reopening the app restores the board with terminals stopped until you resume them. The Orchestrator recommends a team size, shows each agent's assignment and status, and gathers agent reports into a leadership update. Approving a terminal task starts that agent and delivers the approved task automatically; CLI permission prompts remain under the tool's control. See [Terminal agents](TERMINAL-AGENTS.md) and the [verification report](verification/terminal-agents/REPORT.md).
 
-Terminal agents use the account selected inside each CLI and retain native permission prompts. No API key is required for them. API agents and credits remain available under **API keys**; Vizor's dollar caps apply only to API calls. The orchestrator does not control or read terminal conversations in this release.
+Terminal agents use the account selected inside each CLI and retain native permission prompts. No API key is required for them. API agents and credits remain available under **API keys**; Vizor's dollar caps apply only to API calls. The Windows Orchestrator can also use a Claude Code subscription, with native sign-in and no API fallback. It receives structured worker reports, not private terminal transcripts.
 
 The Windows app and installer keep the approved orange Claude character inside a scope. See the [icon update verification](verification/icon-refresh/REPORT.md).
 

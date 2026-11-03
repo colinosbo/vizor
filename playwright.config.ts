@@ -1,6 +1,7 @@
 import { defineConfig } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 const master = randomBytes(32).toString("base64");
+process.env.VIZOR_VERIFICATION_DIR ??= "artifacts/verification";
 export default defineConfig({
   testDir: "./tests/browser",
   fullyParallel: false,
@@ -27,7 +28,7 @@ export default defineConfig({
     },
     {
       name: "terminals",
-      testMatch: /terminal-agents\.spec\.ts/,
+      testMatch: /(terminal-agents|subscription)\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:3105" },
     },
     {

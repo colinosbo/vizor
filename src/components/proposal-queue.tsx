@@ -369,6 +369,19 @@ function ProposalCard({
       setBusy(false);
     }
   }
+  async function cancelDelivery() {
+    setBusy(true);
+    setError("");
+    try {
+      await api(`terminal-dispatches/${proposal.id}/cancel`, "POST");
+      await workspace.reload();
+      workspace.setNotice("Unsent task cancelled.");
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <article
       className="proposal-card"
@@ -504,18 +517,27 @@ function ProposalCard({
           </button>
         </div>
       ) : isTerminalTask(payload.action) && dispatch?.status === "ready" ? (
-        <button
-          className="primary"
-          disabled={busy}
-          onClick={() => void launchTerminalTask()}
-        >
-          {busy ? (
-            <LoaderCircle className="spin" size={14} />
-          ) : (
-            <ArrowRight size={14} />
-          )}
-          Retry delivery
-        </button>
+        <div className="proposal-actions">
+          <button
+            className="primary"
+            disabled={busy}
+            onClick={() => void launchTerminalTask()}
+          >
+            {busy ? (
+              <LoaderCircle className="spin" size={14} />
+            ) : (
+              <ArrowRight size={14} />
+            )}
+            Retry delivery
+          </button>
+          <button
+            className="secondary"
+            disabled={busy}
+            onClick={() => void cancelDelivery()}
+          >
+            Cancel queued task
+          </button>
+        </div>
       ) : isTerminalTask(payload.action) && dispatch?.status === "delivered" ? (
         <p className="field-note">Task sent to this terminal agent.</p>
       ) : agent && onFocus ? (

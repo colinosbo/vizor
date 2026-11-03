@@ -12,6 +12,7 @@ import { publish } from "./events";
 import { meteredStream, recoverSpending } from "./budgets";
 import { streamOrchestrator } from "./orchestrator-stream";
 import { audit } from "./audit";
+import { streamSubscription } from "./subscription";
 type Active = {
   userId: string;
   agentId: string;
@@ -108,6 +109,9 @@ export async function startChat(
 ) {
   await recoverRuns();
   const agent = await ownedAgent(userId, agentId);
+  const subscription =
+    agent.kind === "orchestrator" && agent.orchestratorMode === "subscription";
+  const runProvider = subscription ? "claude-subscription" : agent.provider;
   if (agent.engine !== "api")
     throw new AppError(
       "terminal_manual",
@@ -157,23 +161,27 @@ export async function startChat(
       status: previous.status,
     });
   }
-  const credential = await db.credential.findUnique({
-    where: { userId_provider: { userId, provider: agent.provider } },
-  });
-  if (!credential)
+  const credential = subscription
+    ? null
+    : await db.credential.findUnique({
+        where: { userId_provider: { userId, provider: agent.provider } },
+      });
+  if (!subscription && !credential)
     throw new AppError(
       "provider_required",
       `Connect ${getProvider(agent.provider).label} in API keys before sending a message.`,
       400,
     );
-  const key = decryptKey(credential.encrypted, userId, agent.provider);
+  const key = credential
+    ? decryptKey(credential.encrypted, userId, agent.provider)
+    : "";
   const runId = randomUUID();
   const assistantId = randomUUID();
   const abort = new AbortController();
   active.set(runId, {
     userId,
     agentId,
-    provider: agent.provider,
+    provider: runProvider,
     controller: abort,
   });
   try {
@@ -259,7 +267,7 @@ export async function startChat(
           clientId: input.clientId,
           assistantId,
           model: agent.model,
-          provider: agent.provider,
+          provider: runProvider,
           proposalId: options.proposalId,
         },
       });
@@ -270,7 +278,7 @@ export async function startChat(
         {
           runId,
           mode: input.mode,
-          provider: agent.provider,
+          provider: runProvider,
           model: agent.model,
         },
         {
@@ -334,7 +342,7 @@ export async function startChat(
               runId,
               assistantId,
               model: agent.model,
-              provider: agent.provider,
+              provider: runProvider,
               text,
               status: "running",
               inputTokens: usage.inputTokens,
@@ -353,15 +361,17 @@ export async function startChat(
         emit("start", { runId, assistantId });
         try {
           // Recheck after registering cancellation, so key deletion cannot race a new call.
-          const present = await db.credential.findFirst({
-            where: {
-              id: credential.id,
-              userId,
-              encrypted: credential.encrypted,
-            },
-            select: { id: true },
-          });
-          if (!present)
+          const present = credential
+            ? await db.credential.findFirst({
+                where: {
+                  id: credential.id,
+                  userId,
+                  encrypted: credential.encrypted,
+                },
+                select: { id: true },
+              })
+            : null;
+          if (!subscription && !present)
             throw new AppError(
               "provider_required",
               "The provider connection changed. Please try again.",
@@ -399,8 +409,9 @@ export async function startChat(
             maxTokens: agent.maxTokens,
             signal: abort.signal,
           };
-          const events =
-            agent.kind === "orchestrator"
+          const events = subscription
+            ? streamSubscription(userId, runId, modelInput, options.scope)
+            : agent.kind === "orchestrator"
               ? streamOrchestrator(
                   userId,
                   runId,

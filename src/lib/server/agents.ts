@@ -114,6 +114,8 @@ export async function agentAction(
     const config = agentSchema.parse({
       name: `${agent.name.slice(0, 64)} copy`,
       engine: agent.engine,
+      terminalAuthMode: agent.terminalAuthMode,
+      permissionMode: agent.permissionMode,
       projectPath: agent.projectPath,
       provider: agent.provider,
       model: agent.model,

@@ -5,6 +5,7 @@ import { ORCHESTRATOR_PROMPT } from "./orchestrator-context";
 import { AppError } from "./errors";
 import { audit } from "./audit";
 import { publish } from "./events";
+import { subscriptionAvailable } from "./subscription";
 export async function coordinator(userId: string) {
   const agent = await db.agent.findFirst({
     where: { userId, kind: "orchestrator" },
@@ -25,11 +26,29 @@ export async function configureOrchestrator(
     maxTokens: number;
     temperature: number;
     projectInstructions?: string;
+    orchestratorMode?: "api" | "subscription";
   },
 ) {
-  const { projectInstructions, ...modelConfig } = config;
+  const {
+    projectInstructions,
+    orchestratorMode = "api",
+    ...modelConfig
+  } = config;
+  const subscription = orchestratorMode === "subscription";
+  if (
+    subscription &&
+    (!subscriptionAvailable() ||
+      !["sonnet", "opus", "haiku"].includes(config.model))
+  )
+    throw new AppError(
+      "subscription_setup",
+      "Choose a Claude subscription model in the Windows desktop app.",
+    );
   const validated = agentSchema.parse({
     ...modelConfig,
+    ...(subscription
+      ? { provider: "anthropic", model: "claude-sonnet-4-6" }
+      : {}),
     name: "Orchestrator",
     systemPrompt:
       ORCHESTRATOR_PROMPT +
@@ -39,7 +58,8 @@ export async function configureOrchestrator(
     color: "blue",
     icon: "spark",
   });
-  await requireProvider(userId, config.provider);
+  if (subscription) validated.model = config.model;
+  else await requireProvider(userId, config.provider);
   const result = await db.$transaction(async (tx) => {
     const existing = await tx.agent.findFirst({
       where: { userId, kind: "orchestrator" },
@@ -54,12 +74,16 @@ export async function configureOrchestrator(
     if (projectInstructions === undefined && existing)
       validated.systemPrompt = existing.systemPrompt;
     const agent = existing
-      ? await tx.agent.update({ where: { id: existing.id }, data: validated })
+      ? await tx.agent.update({
+          where: { id: existing.id },
+          data: { ...validated, orchestratorMode },
+        })
       : await tx.agent.create({
           data: {
             userId,
             kind: "orchestrator",
             ...validated,
+            orchestratorMode,
             conversation: { create: {} },
           },
         });

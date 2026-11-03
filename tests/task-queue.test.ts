@@ -19,6 +19,7 @@ import {
   claimTerminalDispatch,
   completeTerminalDispatch,
   recoverTerminalDispatches,
+  cancelTerminalDispatch,
 } from "../src/lib/server/terminal-dispatches";
 import { toolResult } from "../src/lib/server/orchestrator-tools";
 import { recoverRuns } from "../src/lib/server/chat";
@@ -96,6 +97,50 @@ it("defaults to manual approval and persists both automation switches independen
       where: { userId, action: "automation.changed" },
     }),
   ).toBe(2);
+});
+it("preserves approval order when several tasks are added in the same millisecond", async () => {
+  const clock = vi.spyOn(Date, "now").mockReturnValue(1900000000000);
+  try {
+    const first = await addQueuedTask(userId, {
+      agentId: workerId,
+      text: "First",
+    });
+    const second = await addQueuedTask(userId, {
+      agentId: workerId,
+      text: "Second",
+    });
+    const a = await db.proposal.findUniqueOrThrow({ where: { id: first.id } });
+    const b = await db.proposal.findUniqueOrThrow({ where: { id: second.id } });
+    expect(b.approvedAt!.getTime()).toBeGreaterThan(a.approvedAt!.getTime());
+  } finally {
+    clock.mockRestore();
+  }
+});
+it("cancels only owned unsent deliveries and unblocks the next task", async () => {
+  const first = await addQueuedTask(userId, {
+    agentId: workerId,
+    text: "Cancel this",
+  });
+  const second = await addQueuedTask(userId, {
+    agentId: workerId,
+    text: "Next",
+  });
+  await setAutomation(userId, { queueEnabled: true, autoApprove: false });
+  await processTaskQueue(userId);
+  await expect(cancelTerminalDispatch(otherId, first.id)).rejects.toMatchObject(
+    { status: 404 },
+  );
+  await cancelTerminalDispatch(userId, first.id);
+  await processTaskQueue(userId);
+  expect(
+    await db.terminalDispatch.findUniqueOrThrow({
+      where: { proposalId: first.id },
+    }),
+  ).toMatchObject({ status: "superseded" });
+  await claimTerminalDispatch(userId, second.id, true);
+  await expect(cancelTerminalDispatch(userId, second.id)).rejects.toMatchObject(
+    { status: 409 },
+  );
 });
 it("keeps multiple approved tasks durable and paused without creating a terminal delivery", async () => {
   const first = await addQueuedTask(userId, {

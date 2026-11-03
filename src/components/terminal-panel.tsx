@@ -329,7 +329,9 @@ export function TerminalPanel({
   const billingNote =
     engine === "codex"
       ? "Usage and permissions are managed inside Codex. This terminal uses the Codex account signed in on this computer."
-      : "Uses the Anthropic Console key saved in Vizor, with a separate Claude Code profile. Terminal API charges appear in Claude Code; Vizor spending limits do not cover them.";
+      : agent.terminalAuthMode === "api"
+        ? "Uses the saved Anthropic API key in a separate Claude Code profile. Vizor API budgets do not cover terminal charges."
+        : "Uses your Claude subscription through Claude Code’s own sign-in. Vizor does not supply an API key. Subscription usage limits apply.";
   const actions = (
     <>
       {state.state === "running" ? (

@@ -5,6 +5,7 @@ export const agentSchema = z
   .object({
     name: z.string().trim().min(1).max(70),
     engine: z.enum(["api", "claude-code", "codex"]).default("api"),
+    terminalAuthMode: z.enum(["subscription", "api"]).default("subscription"),
     permissionMode: z
       .enum(["default", "acceptEdits", "auto"])
       .default("acceptEdits"),

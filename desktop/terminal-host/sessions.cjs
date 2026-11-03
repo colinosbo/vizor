@@ -10,7 +10,7 @@ function environment(source = process.env) {
   const env = { ...source, TERM: "xterm-256color", COLORTERM: "truecolor" };
   for (const key of Object.keys(env))
     if (
-      /^(MASTER_KEY|DATABASE_URL|ANTHROPIC_API_KEY|OPENAI_API_KEY|CODEX_API_KEY|GH_TOKEN|GITHUB_TOKEN|VIZOR_UPDATE_SIGNING_KEY|VIZOR_TERMINAL_TOKEN|NODE_OPTIONS|ELECTRON_RUN_AS_NODE|APP_ORIGIN|VIZOR_WORKSPACE|VIZOR_TERMINALS)$/i.test(
+      /^(MASTER_KEY|DATABASE_URL|ANTHROPIC_API_KEY|ANTHROPIC_AUTH_TOKEN|ANTHROPIC_BASE_URL|CLAUDE_CODE_USE_BEDROCK|CLAUDE_CODE_USE_VERTEX|CLAUDE_CODE_USE_FOUNDRY|OPENAI_API_KEY|CODEX_API_KEY|GH_TOKEN|GITHUB_TOKEN|VIZOR_UPDATE_SIGNING_KEY|VIZOR_TERMINAL_TOKEN|NODE_OPTIONS|ELECTRON_RUN_AS_NODE|APP_ORIGIN|VIZOR_WORKSPACE|VIZOR_TERMINALS)$/i.test(
         key,
       )
     )
@@ -128,6 +128,7 @@ class Sessions {
     persist = async () => {},
     terminate = (terminal) => terminal.kill(),
     claudeConfigDir = null,
+    subscriptionConfigDir = null,
   }) {
     Object.assign(this, {
       pty,
@@ -138,6 +139,7 @@ class Sessions {
       persist,
       terminate,
       claudeConfigDir,
+      subscriptionConfigDir,
     });
     this.sessions = new Map();
     this.pending = new Set();
@@ -195,7 +197,7 @@ class Sessions {
       let hasClaudeHistory = false;
       if (agent.engine === "claude-code" && agent.terminalStarted) {
         const projects = join(
-          this.claudeConfigDir ||
+          (claudeApiKey ? this.claudeConfigDir : this.subscriptionConfigDir) ||
             this.env.CLAUDE_CONFIG_DIR ||
             join(this.env.USERPROFILE || "", ".claude"),
           "projects",
@@ -237,6 +239,11 @@ class Sessions {
       // Recheck after asynchronous preparation: another agent may have claimed this project.
       if (!setup && !confirmShared && this.list().some(same))
         return { conflict: true };
+      if (agent.engine === "claude-code" && !claudeApiKey)
+        args.push(
+          "--settings",
+          JSON.stringify({ forceLoginMethod: "claudeai" }),
+        );
       const terminalEnv =
         agent.engine === "claude-code" &&
         typeof claudeApiKey === "string" &&
@@ -248,7 +255,9 @@ class Sessions {
                 : {}),
               ANTHROPIC_API_KEY: claudeApiKey,
             }
-          : this.env;
+          : agent.engine === "claude-code" && this.subscriptionConfigDir
+            ? { ...this.env, CLAUDE_CONFIG_DIR: this.subscriptionConfigDir }
+            : this.env;
       const terminal = this.pty.spawn(file, args, {
         name: "xterm-256color",
         cols: 100,

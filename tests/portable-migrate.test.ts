@@ -27,7 +27,9 @@ afterEach(() => {
 });
 it("creates a fresh database with Prisma-compatible migration history and is repeatable", async () => {
   const options = fixture();
-  expect((await migrate(options)).applied).toBe(7);
+  expect((await migrate(options)).applied).toBe(
+    readdirSync(options.migrations).filter((name) => /^\d/.test(name)).length,
+  );
   expect(await migrate(options)).toEqual({ applied: 0, backup: undefined });
   const db = new Database(options.database);
   try {
@@ -37,7 +39,10 @@ it("creates a fresh database with Prisma-compatible migration history and is rep
           'SELECT COUNT(*) AS n FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND applied_steps_count = 1',
         )
         .get(),
-    ).toEqual({ n: 7 });
+    ).toEqual({
+      n: readdirSync(options.migrations).filter((name) => /^\d/.test(name))
+        .length,
+    });
     expect(db.pragma("foreign_key_check")).toEqual([]);
     expect(db.prepare("SELECT COUNT(*) AS n FROM User").get()).toEqual({
       n: 0,
@@ -86,7 +91,7 @@ it("preserves populated Prisma-created history, Windows checksums, foreign keys 
     writeFileSync(join(options.migrations, name, "migration.sql"), sql);
   }
   const result = await migrate(options);
-  expect(result.applied).toBe(6);
+  expect(result.applied).toBe(later.length);
   expect(result.backup).toBeTruthy();
   db = new Database(options.database);
   try {

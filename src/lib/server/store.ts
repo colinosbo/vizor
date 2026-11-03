@@ -8,6 +8,7 @@ import { collectTerminalReports } from "./terminal-reports";
 import { collectApiAgentReports } from "./api-agent-reports";
 import { budgetViews } from "./budgets";
 import { processTaskQueue } from "./task-queue";
+import { subscriptionAvailable } from "./subscription";
 export const defaultAgent = {
   name: "My assistant",
   provider: "anthropic",
@@ -122,6 +123,7 @@ export async function workspace(user: { id: string; email: string }) {
       ),
     ],
     selfHost: selfHost(),
+    subscriptionAvailable: subscriptionAvailable(),
     email: user.email,
     provider: { connected: !!key, last4: key?.last4 ?? null },
     providers: providers.map((p) => ({

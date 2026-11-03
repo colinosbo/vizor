@@ -296,21 +296,27 @@ export function AgentPanel({
               <div className="composer-bottom">
                 <span>
                   <span>{modelName}</span>
-                  {last && (
-                    <>
-                      <span className="composer-divider" />
+                  {last &&
+                    (agent.orchestratorMode === "subscription" ? (
                       <span className="panel-live-usage">
-                        {(
-                          (last.inputTokens ?? 0) + (last.outputTokens ?? 0)
-                        ).toLocaleString()}{" "}
-                        tokens ·{" "}
-                        {last.cost == null
-                          ? "Cost unavailable"
-                          : `${money(last.cost)} est.`}
-                        {last.usageComplete ? "" : " · partial"}
+                        {" "}
+                        · Subscription usage
                       </span>
-                    </>
-                  )}
+                    ) : (
+                      <>
+                        <span className="composer-divider" />
+                        <span className="panel-live-usage">
+                          {(
+                            (last.inputTokens ?? 0) + (last.outputTokens ?? 0)
+                          ).toLocaleString()}{" "}
+                          tokens ·{" "}
+                          {last.cost == null
+                            ? "Cost unavailable"
+                            : `${money(last.cost)} est.`}
+                          {last.usageComplete ? "" : " · partial"}
+                        </span>
+                      </>
+                    ))}
                 </span>
                 {running ? (
                   <button

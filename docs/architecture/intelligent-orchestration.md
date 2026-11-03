@@ -1,7 +1,7 @@
 # Vizor intelligent orchestration architecture
 
-Date: 2026-10-30  
-Status: Proposed architecture and implementation guidance; no runtime behavior is enabled by this document.  
+Date: 2026-10-30
+Status: Proposed architecture and implementation guidance; no runtime behavior is enabled by this document.
 Decision: Extend Vizor's existing local control plane with skill-aware routing, structured task state, and measured context management. Start with route previews and preserve the existing execution boundaries.
 
 ## Objective and engineering guidelines

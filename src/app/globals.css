@@ -4569,7 +4569,7 @@ body {
 }
 .layout-saved {
   font-size: 11px;
-  opacity: 0.55;
+  opacity: 1;
 }
 .reading-control select {
   min-height: 30px;
@@ -4910,6 +4910,12 @@ body {
 }
 
 /* Task automation follows the warm, minimal desktop theme. */
+.subscription-setup-surface {
+  height: 320px;
+  display: flex;
+  flex-direction: column;
+  background: #1c1b1a;
+}
 .automation-controls {
   border: 1px solid var(--line);
   border-radius: 12px;

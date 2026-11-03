@@ -17,6 +17,8 @@ export type AgentView = {
   terminalStarted?: boolean;
   terminalState?: string;
   permissionMode?: "default" | "acceptEdits" | "auto";
+  terminalAuthMode?: "subscription" | "api";
+  orchestratorMode?: "api" | "subscription";
   provider: string;
   model: string;
   systemPrompt: string;
@@ -65,12 +67,14 @@ export type Workspace = {
   budgets: BudgetView[];
   autopilot: boolean;
   queueEnabled?: boolean;
+  subscriptionAvailable?: boolean;
 };
 export type AgentConfig = Pick<
   AgentView,
   | "name"
   | "engine"
   | "permissionMode"
+  | "terminalAuthMode"
   | "projectPath"
   | "provider"
   | "model"

@@ -37,7 +37,8 @@ async function collect(userId: string) {
     where: { userId, kind: "orchestrator" },
     include: { conversation: true },
   });
-  if (!coordinator?.conversation || coordinator.conversation.activeRunId) return;
+  if (!coordinator?.conversation || coordinator.conversation.activeRunId)
+    return;
 
   const runs = await db.run.findMany({
     where: {

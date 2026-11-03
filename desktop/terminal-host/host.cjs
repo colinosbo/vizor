@@ -5,6 +5,7 @@ const { mkdirSync } = require("node:fs");
 const { join } = require("node:path");
 mkdirSync(join(home, "setup"), { recursive: true });
 mkdirSync(join(home, "claude-config"), { recursive: true });
+mkdirSync(join(home, "claude-subscription"), { recursive: true });
 const origin = process.env.VIZOR_TERMINAL_ORIGIN;
 const token = process.env.VIZOR_TERMINAL_TOKEN;
 if (
@@ -53,6 +54,7 @@ const sessions = new Sessions({
   notify,
   findTool: (engine) => findTool(engine, home),
   claudeConfigDir: join(home, "claude-config"),
+  subscriptionConfigDir: join(home, "claude-subscription"),
   persist: (id, nativeSessionId, event) => api(id, { nativeSessionId, event }),
 });
 let installing = false;
@@ -96,7 +98,9 @@ process.on("message", async (message) => {
         agent,
         args.confirmShared === true,
         false,
-        agent.engine === "claude-code" ? await claudeApiKey() : null,
+        agent.engine === "claude-code" && agent.terminalAuthMode === "api"
+          ? await claudeApiKey()
+          : null,
       );
     } else if (action === "setup")
       result = await sessions.start(
@@ -107,7 +111,7 @@ process.on("message", async (message) => {
         },
         false,
         true,
-        args.engine === "claude-code" ? await claudeApiKey() : null,
+        null,
       );
     else if (action === "snapshot") result = sessions.snapshot(args.agentId);
     else if (action === "sendTask") {

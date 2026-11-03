@@ -1,6 +1,6 @@
 # Agent Skills and model routing
 
-Date: 2026-10-30  
+Date: 2026-10-30
 Status: Proposed technical design; companion to [Vizor intelligent orchestration](intelligent-orchestration.md).
 
 ## The central interaction

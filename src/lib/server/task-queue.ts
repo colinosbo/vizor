@@ -6,6 +6,16 @@ import { audit } from "./audit";
 import { publish } from "./events";
 import type { Prisma } from "@/generated/prisma/client";
 
+async function nextApprovalTime(tx: Prisma.TransactionClient, userId: string) {
+  const last = await tx.proposal.aggregate({
+    where: { userId },
+    _max: { approvedAt: true },
+  });
+  return new Date(
+    Math.max(Date.now(), (last._max.approvedAt?.getTime() ?? 0) + 1),
+  );
+}
+
 export const automationSettings = z
   .object({
     queueEnabled: z.boolean(),
@@ -49,7 +59,7 @@ export async function enqueueProposal(
       data: {
         status: "queued",
         approvedBy: userId,
-        approvedAt: new Date(),
+        approvedAt: await nextApprovalTime(tx, userId),
         version: { increment: 1 },
         error: null,
       },
@@ -112,7 +122,7 @@ export async function addQueuedTask(
         status: "queued",
         origin: "manual_queue",
         approvedBy: userId,
-        approvedAt: new Date(),
+        approvedAt: await nextApprovalTime(tx, userId),
       },
     });
     await audit(

@@ -158,3 +158,34 @@ export async function releaseTerminalDispatch(
   );
   publish(userId);
 }
+
+export async function cancelTerminalDispatch(
+  userId: string,
+  proposalId: string,
+) {
+  const dispatch = await ownedDispatch(userId, proposalId);
+  await db.$transaction(async (tx) => {
+    const result = await tx.terminalDispatch.updateMany({
+      where: { id: dispatch.id, userId, status: "ready" },
+      data: {
+        status: "superseded",
+        error: "Cancelled by the user before delivery.",
+      },
+    });
+    if (!result.count)
+      throw new AppError(
+        "dispatch_unavailable",
+        "Only an unsent task can be cancelled. Check the worker before stopping delivered work.",
+        409,
+      );
+    await audit(
+      userId,
+      "terminal_task.cancelled",
+      dispatch.agentId,
+      {},
+      { proposalId },
+      tx,
+    );
+  });
+  publish(userId);
+}

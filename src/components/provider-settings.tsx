@@ -37,9 +37,9 @@ export function ProviderSettings({
       </h1>
       <p className="page-intro">
         Connect Anthropic or OpenAI for the orchestrator and API chat agents.
-        Claude Code terminals also use your saved Anthropic Console key. All
-        Claude API usage draws from your Console balance; it is separate from a
-        Claude subscription. Codex uses the account signed in inside Codex.
+        Claude Code can use your Claude subscription through its own sign-in.
+        API connections are optional and billed separately. Codex uses the
+        account signed in inside Codex.
       </p>
       <div className="provider-cards">
         {providers.map((provider) => (

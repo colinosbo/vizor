@@ -53,6 +53,7 @@ import {
   completeTerminalDispatch,
   recoverTerminalDispatches,
   releaseTerminalDispatch,
+  cancelTerminalDispatch,
 } from "@/lib/server/terminal-dispatches";
 import {
   createAgent,
@@ -169,6 +170,10 @@ async function handle(
       method === "POST"
     ) {
       const proposalId = path[1];
+      if (path[2] === "cancel") {
+        await cancelTerminalDispatch(user.id, proposalId);
+        return Response.json({ ok: true });
+      }
       if (path[2] === "claim")
         return Response.json(
           await claimTerminalDispatch(
@@ -227,11 +232,19 @@ async function handle(
             temperature: z.number().min(0).max(1),
             maxTokens: z.number().int().min(64).max(8192),
             projectInstructions: z.string().max(12000).optional(),
+            orchestratorMode: z.enum(["api", "subscription"]).optional(),
           })
           .strict()
           .refine(
-            ({ projectInstructions: _instructions, ...config }) =>
-              agentSchema.safeParse({ ...defaultAgent, ...config }).success,
+            ({
+              projectInstructions: _instructions,
+              orchestratorMode,
+              ...config
+            }) =>
+              orchestratorMode === "subscription"
+                ? config.provider === "anthropic" &&
+                  ["sonnet", "opus", "haiku"].includes(config.model)
+                : agentSchema.safeParse({ ...defaultAgent, ...config }).success,
           ),
       );
       return Response.json(await configureOrchestrator(user.id, input));

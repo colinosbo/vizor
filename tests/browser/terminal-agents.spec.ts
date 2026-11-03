@@ -1,134 +1,147 @@
 import { test, expect } from "@playwright/test";
 
-test("approving a terminal task delivers it automatically and routes input once", async ({
-  page,
-}) => {
-  const state = await (await page.request.get("/api/workspace")).json();
-  const created = await page.request.post("/api/agents", {
-    headers: { origin: "http://127.0.0.1:3105" },
-    data: {
-      name: "Dispatch fixture",
-      engine: "claude-code",
-      projectPath: "C:\\Dispatch fixture",
-      provider: "anthropic",
-      model: "claude-sonnet-4-6",
-      systemPrompt: "Fixture",
-      temperature: 0.4,
-      maxTokens: 512,
-      color: "amber",
-      icon: "code",
-    },
-  });
-  expect(created.ok()).toBe(true);
-  const agentId = (await created.json()).id;
-  const fresh = await (await page.request.get("/api/workspace")).json();
-  let approved = false,
-    delivered = false;
-  const proposal = {
-    id: "dispatch-ui-fixture",
-    action: "dispatch_terminal",
-    agentId,
-    status: "pending",
-    version: 0,
-    createdAt: new Date().toISOString(),
-    resultRunId: null,
-    error: null,
-    approvedBy: false,
-    payload: {
-      action: "dispatch_terminal",
-      agentId,
-      text: "Read-only fixture task",
-    },
-  };
-  await page.route("**/api/workspace", (route) =>
-    route.fulfill({
-      json: {
-        ...fresh,
-        proposals: [
-          {
-            ...proposal,
-            status: approved ? "approved" : "pending",
-            approvedBy: approved,
-          },
-        ],
-        pendingProposalCount: approved ? 0 : 1,
-        terminalDispatches: approved
-          ? [
+for (const automatic of [false, true]) {
+  test(
+    automatic
+      ? "approved queue delivers terminal work without a per-task click"
+      : "approving a terminal task delivers it automatically and routes input once",
+    async ({ page }) => {
+      const state = await (await page.request.get("/api/workspace")).json();
+      const created = await page.request.post("/api/agents", {
+        headers: { origin: "http://127.0.0.1:3105" },
+        data: {
+          name: "Dispatch fixture",
+          engine: "claude-code",
+          projectPath: "C:\\Dispatch fixture",
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          systemPrompt: "Fixture",
+          temperature: 0.4,
+          maxTokens: 512,
+          color: "amber",
+          icon: "code",
+        },
+      });
+      expect(created.ok()).toBe(true);
+      const agentId = (await created.json()).id;
+      const fresh = await (await page.request.get("/api/workspace")).json();
+      let approved = automatic,
+        delivered = false;
+      const proposal = {
+        id: "dispatch-ui-fixture",
+        action: "dispatch_terminal",
+        agentId,
+        status: "pending",
+        version: 0,
+        createdAt: new Date().toISOString(),
+        resultRunId: null,
+        error: null,
+        approvedBy: false,
+        payload: {
+          action: "dispatch_terminal",
+          agentId,
+          text: "Read-only fixture task",
+        },
+      };
+      await page.route("**/api/workspace", (route) =>
+        route.fulfill({
+          json: {
+            ...fresh,
+            queueEnabled: automatic,
+            proposals: [
               {
-                id: "dispatch-fixture",
-                proposalId: proposal.id,
-                agentId,
-                text: proposal.payload.text,
-                status: delivered ? "delivered" : "ready",
-                error: null,
+                ...proposal,
+                status: approved ? "approved" : "pending",
+                approvedBy: approved,
               },
-            ]
-          : [],
-      },
-    }),
-  );
-  await page.route("**/api/proposals/*/approve", (route) => {
-    approved = true;
-    return route.fulfill({ json: { ok: true } });
-  });
-  await page.route("**/api/terminal-dispatches/*/claim", (route) =>
-    route.fulfill({ json: { agentId, text: proposal.payload.text } }),
-  );
-  await page.route("**/api/terminal-dispatches/*/complete", (route) => {
-    delivered = true;
-    return route.fulfill({ json: { ok: true } });
-  });
-  await page.addInitScript(() => {
-    const update = async () => ({
-      state: "idle" as const,
-      automatic: true,
-      currentVersion: "0.10.4",
-    });
-    (window as any).__sent = [];
-    window.vizorDesktop = {
-      getUpdateState: update,
-      checkForUpdates: update,
-      setAutomaticUpdates: update,
-      restartToUpdate: async () => ({ ok: false }),
-      onUpdateState: () => () => {},
-      terminals: {
-        snapshot: async (id: string) => ({
-          agentId: id,
-          state: "running",
-          token: id,
+            ],
+            pendingProposalCount: approved ? 0 : 1,
+            terminalDispatches: approved
+              ? [
+                  {
+                    id: "dispatch-fixture",
+                    proposalId: proposal.id,
+                    agentId,
+                    text: proposal.payload.text,
+                    status: delivered ? "delivered" : "ready",
+                    error: null,
+                  },
+                ]
+              : [],
+          },
         }),
-        input: async (id: string, token: string, text: string) => {
-          (window as any).__sent.push({ id, token, text });
-        },
-        onEvent: () => () => {},
-        sendTask: async (id: string, token: string, text: string) => {
-          if (id !== token) throw Error("Wrong session");
-          (window as any).__sent.push({ id, token, text: `${text}\r` });
-          return { ok: true as const };
-        },
-      } as any,
-    };
-  });
-  await page.goto("/");
-  await expect(page.locator(".startup-intro")).toHaveCount(0);
-  await page
-    .locator(".sidebar")
-    .getByRole("button", { name: /^Approvals/ })
-    .click();
-  await page.getByRole("button", { name: "Approve", exact: true }).click();
-  await expect(
-    page.getByText("Task sent to the selected terminal agent."),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Retry delivery", exact: true }),
-  ).toHaveCount(0);
-  expect(await page.evaluate(() => (window as any).__sent)).toEqual([
-    { id: agentId, token: agentId, text: "Read-only fixture task\r" },
-  ]);
-  await page.request.post(`/api/agents/${agentId}/archive`, {
-    headers: { origin: "http://127.0.0.1:3105" },
-  });
-});
+      );
+      await page.route("**/api/proposals/*/approve", (route) => {
+        approved = true;
+        return route.fulfill({ json: { ok: true } });
+      });
+      await page.route("**/api/terminal-dispatches/*/claim", (route) =>
+        route.fulfill({ json: { agentId, text: proposal.payload.text } }),
+      );
+      await page.route("**/api/terminal-dispatches/*/complete", (route) => {
+        delivered = true;
+        return route.fulfill({ json: { ok: true } });
+      });
+      await page.addInitScript(() => {
+        const update = async () => ({
+          state: "idle" as const,
+          automatic: true,
+          currentVersion: "0.10.4",
+        });
+        (window as any).__sent = [];
+        window.vizorDesktop = {
+          getUpdateState: update,
+          checkForUpdates: update,
+          setAutomaticUpdates: update,
+          restartToUpdate: async () => ({ ok: false }),
+          onUpdateState: () => () => {},
+          terminals: {
+            snapshot: async (id: string) => ({
+              agentId: id,
+              state: "running",
+              token: id,
+            }),
+            input: async (id: string, token: string, text: string) => {
+              (window as any).__sent.push({ id, token, text });
+            },
+            onEvent: () => () => {},
+            sendTask: async (id: string, token: string, text: string) => {
+              if (id !== token) throw Error("Wrong session");
+              (window as any).__sent.push({ id, token, text: `${text}\r` });
+              return { ok: true as const };
+            },
+          } as any,
+        };
+      });
+      await page.goto("/");
+      await expect(page.locator(".startup-intro")).toHaveCount(0);
+      await page
+        .locator(".sidebar")
+        .getByRole("button", { name: /^Approvals/ })
+        .click();
+      if (!automatic)
+        await page
+          .getByRole("button", { name: "Approve", exact: true })
+          .click();
+      await expect(
+        page.getByText(
+          automatic
+            ? "Queued task sent to the worker."
+            : "Task sent to the selected terminal agent.",
+        ),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Retry delivery", exact: true }),
+      ).toHaveCount(0);
+      expect(await page.evaluate(() => (window as any).__sent)).toEqual([
+        { id: agentId, token: agentId, text: "Read-only fixture task\r" },
+      ]);
+      await page.request.post(`/api/agents/${agentId}/archive`, {
+        headers: { origin: "http://127.0.0.1:3105" },
+      });
+    },
+  );
+}
 test("desktop terminal agents need no API key and keep independent sessions across layout changes", async ({
   page,
 }) => {

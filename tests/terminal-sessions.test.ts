@@ -113,6 +113,7 @@ it("keeps the native Claude permission prompts and resumes Codex by its exact na
   const f = fixture();
   await f.sessions.start(f.agent("a"));
   expect(f.terminals[0].args).toContain("acceptEdits");
+  expect(f.terminals[0].args).toContain('{"forceLoginMethod":"claudeai"}');
   expect(f.terminals[0].args).not.toContain("--dangerously-skip-permissions");
   const a = f.agent("b", "codex");
   a.nativeSessionId = randomUUID();

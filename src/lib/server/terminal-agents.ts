@@ -27,6 +27,7 @@ export async function terminalAgent(userId: string, id: string) {
     terminalStarted: agent.terminalStarted,
     terminalState: agent.terminalState,
     permissionMode: agent.permissionMode,
+    terminalAuthMode: agent.terminalAuthMode,
     archived: agent.archived,
     paused: agent.paused,
   };

@@ -387,6 +387,8 @@ async function start() {
     NEXT_TELEMETRY_DISABLED: "1",
     CHECKPOINT_DISABLE: "1",
     VIZOR_TERMINALS: "1",
+    VIZOR_NATIVE_HOST: join(resources, "terminal-host"),
+    VIZOR_NATIVE_HOME: paths.home,
     VIZOR_TERMINAL_TOKEN: terminalToken,
   };
   // Installed workspaces always use their own persistent configuration, not a developer's shell variables.

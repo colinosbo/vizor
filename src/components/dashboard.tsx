@@ -128,7 +128,9 @@ export default function Dashboard() {
   const runs = [
     ...agents,
     ...(workspace.orchestrator ? [workspace.orchestrator] : []),
-  ].flatMap((agent) => agent.conversation.runs);
+  ]
+    .flatMap((agent) => agent.conversation.runs)
+    .filter((run) => run.provider !== "claude-subscription");
   const initialView = useRef(false);
   useEffect(() => {
     if (data && !initialView.current) {

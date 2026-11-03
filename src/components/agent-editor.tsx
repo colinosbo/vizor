@@ -30,6 +30,7 @@ export function agentConfig(agent: AgentView): AgentConfig {
     name: agent.name,
     engine: agent.engine ?? "api",
     permissionMode: agent.permissionMode ?? "acceptEdits",
+    terminalAuthMode: agent.terminalAuthMode ?? "subscription",
     projectPath: agent.projectPath ?? "",
     provider: agent.provider,
     model: agent.model,
@@ -218,6 +219,31 @@ export function AgentEditor({
                 <small>
                   The CLI handles its own sign-in, model, permissions and
                   history. Use a new agent for a different project.
+                </small>
+              </label>
+            )}
+            {config.engine === "claude-code" && (
+              <label>
+                Claude Code billing
+                <select
+                  aria-label="Claude Code billing"
+                  value={config.terminalAuthMode ?? "subscription"}
+                  onChange={(event) =>
+                    setConfig({
+                      ...config,
+                      terminalAuthMode: event.target.value as
+                        "subscription" | "api",
+                    })
+                  }
+                >
+                  <option value="subscription">
+                    Claude subscription · native sign-in
+                  </option>
+                  <option value="api">API credits · saved Anthropic key</option>
+                </select>
+                <small>
+                  Applies on the next start. Subscription mode uses Claude
+                  Code’s own account and never receives Vizor’s API key.
                 </small>
               </label>
             )}

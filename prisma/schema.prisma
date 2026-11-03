@@ -53,6 +53,8 @@ model Agent {
   terminalStarted Boolean @default(false)
   terminalState String @default("stopped")
   permissionMode String @default("acceptEdits")
+  terminalAuthMode String @default("subscription")
+  orchestratorMode String @default("api")
   provider String @default("anthropic")
   model String
   systemPrompt String
