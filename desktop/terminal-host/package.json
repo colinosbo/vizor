@@ -1,6 +1,6 @@
 {
   "name": "vizor-terminal-host",
-  "version": "0.10.18",
+  "version": "0.10.19",
   "private": true,
   "type": "commonjs",
   "dependencies": {

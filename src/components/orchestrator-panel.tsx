@@ -27,6 +27,7 @@ export function OrchestratorPanel({
   onConnections: () => void;
 }) {
   const [settings, setSettings] = useState(false);
+  const [showTeam, setShowTeam] = useState(false);
   const [confirmNewChat, setConfirmNewChat] = useState(false);
   const [clearingChat, setClearingChat] = useState(false);
   const active = workspace.agents.filter(
@@ -80,16 +81,21 @@ export function OrchestratorPanel({
     <div className="orchestrator-view">
       <div className="orchestrator-heading">
         <div>
-          <div className="eyebrow">PLAN · DELEGATE · REVIEW</div>
-          <h1>What are we building?</h1>
-          <p>Give your team a direction. Manage tasks and automation below.</p>
+          <h1>Orchestrator</h1>
         </div>
-        <span className="approval-only">
+        <button
+          className="approval-only team-toggle"
+          onClick={() => setShowTeam((value) => !value)}
+          aria-expanded={showTeam}
+          aria-controls="orchestrator-team"
+        >
           <ShieldCheck size={14} />
-          {workspace.data?.autopilot
-            ? "Full auto approval on"
-            : "Autopilot off"}
-        </span>
+          Team &amp; approvals
+          {workspace.data?.pendingProposalCount
+            ? ` · ${workspace.data.pendingProposalCount}`
+            : ""}
+          {workspace.data?.autopilot ? " · Auto on" : ""}
+        </button>
       </div>
       {!agent ? (
         <div className="welcome">
@@ -120,7 +126,9 @@ export function OrchestratorPanel({
             )}
         </div>
       ) : (
-        <div className="orchestrator-columns">
+        <div
+          className={`orchestrator-columns ${showTeam ? "team-open" : "team-closed"}`}
+        >
           <div className="orchestrator-conversation">
             <div className="orchestrator-shortcuts">
               <button
@@ -195,7 +203,11 @@ export function OrchestratorPanel({
               notify={workspace.setNotice}
             />
           </div>
-          <aside className="orchestrator-context">
+          <aside
+            id="orchestrator-team"
+            className="orchestrator-context"
+            hidden={!showTeam}
+          >
             <details className="team-guide" open={!active.length}>
               <summary>How delegation works</summary>
               <div className="team-guide-heading">
@@ -213,8 +225,8 @@ export function OrchestratorPanel({
                 </li>
               </ol>
               <p>
-                Orchestrator: API usage. Coding terminals: the account signed
-                into each tool.
+                The Orchestrator uses its selected connection. Coding terminals
+                use the account signed into each tool.
               </p>
             </details>
             <details className="context-picker" open>

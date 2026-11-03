@@ -4312,6 +4312,27 @@ summary:focus-visible,
    Loaded last so it overrides earlier rules. Original file backed up in
    .ui-backup/ at the project root.
    ========================================================================== */
+.orchestrator-heading {
+  padding: 14px 24px 10px;
+}
+.orchestrator-heading h1 {
+  font-size: 20px;
+  margin: 0;
+  letter-spacing: -0.3px;
+}
+.orchestrator-columns.team-closed {
+  grid-template-columns: minmax(0, 1fr);
+}
+.orchestrator-context[hidden] {
+  display: none;
+}
+.team-toggle {
+  cursor: pointer;
+}
+.coordinator-panel .message-list,
+.coordinator-panel .composer-area {
+  max-width: 880px;
+}
 :root {
   --bg: #262624;
   --panel: #2d2c2a;

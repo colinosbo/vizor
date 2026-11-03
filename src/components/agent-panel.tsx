@@ -78,6 +78,7 @@ export function AgentPanel({
   const [editText, setEditText] = useState("");
   const end = useRef<HTMLDivElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
+  const initialScroll = useRef<string | null>(null);
   const running = !!agent.conversation.activeRunId || pending;
   const blocked =
     running || agent.paused || agent.archived || !provider.connected;
@@ -86,9 +87,13 @@ export function AgentPanel({
   const state = agentStatus(agent, pending);
   useEffect(() => {
     const area = scroll.current;
-    if (area && area.scrollHeight - area.scrollTop - area.clientHeight < 180)
+    if (!area) return;
+    if (initialScroll.current !== agent.id && messages.length) {
+      initialScroll.current = agent.id;
       area.scrollTo({ top: area.scrollHeight, behavior: "instant" });
-  }, [messages]);
+    } else if (area.scrollHeight - area.scrollTop - area.clientHeight < 180)
+      area.scrollTo({ top: area.scrollHeight, behavior: "instant" });
+  }, [agent.id, messages]);
   function submit(
     text = draft,
     mode: "send" | "edit" | "regenerate" = "send",
