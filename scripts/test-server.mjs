@@ -10,6 +10,16 @@ execFileSync(
   ["node_modules/prisma/build/index.js", "migrate", "deploy"],
   { stdio: "inherit", env: { ...process.env, CHECKPOINT_DISABLE: "1" } },
 );
+// These scenarios exercise manual approvals; default auto mode is covered separately.
+if (process.env.SELF_HOST === "true") {
+  const fixture = new Database(process.env.DATABASE_URL.slice(5));
+  fixture
+    .prepare(
+      "INSERT INTO User (id, email, autoApprove, queueEnabled) VALUES ('local-owner', 'owner@vizor.local', 0, 0)",
+    )
+    .run();
+  fixture.close();
+}
 const child = spawn(
   process.execPath,
   [

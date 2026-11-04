@@ -34,6 +34,7 @@ function run(script, args = [], env = process.env, cwd = root) {
   });
   if (result.status !== 0) throw new Error("Windows installer build failed.");
 }
+run(join(root, "scripts/prepare-github-cli.mjs"));
 run(join(root, "scripts/build-icons.mjs"));
 const builder = join(
   root,
@@ -47,6 +48,7 @@ run(
   {
     ...process.env,
     VIZOR_INSTALLER_BUNDLE: portable.bundle,
+    VIZOR_GITHUB_CLI: join(root, "artifacts/github-cli"),
     CSC_IDENTITY_AUTO_DISCOVERY: "false",
   },
   join(root, "desktop"),
@@ -115,6 +117,21 @@ for (const file of [
   if (!Buffer.from(packed).equals(readFileSync(join(root, "desktop", file))))
     throw new Error(
       "The packaged update code does not match the production source.",
+    );
+}
+for (const file of ["gh.exe", "LICENSE"]) {
+  const packed = join(
+    dirname(installer),
+    "win-unpacked/resources/vizor/terminal-host/github-cli",
+    file,
+  );
+  if (
+    !readFileSync(packed).equals(
+      readFileSync(join(root, "artifacts/github-cli", file)),
+    )
+  )
+    throw new Error(
+      "The packaged GitHub CLI does not match the verified download.",
     );
 }
 for (const file of ["index.html", "intro.css", "intro.js"]) {

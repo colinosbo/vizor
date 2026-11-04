@@ -32,6 +32,9 @@ export async function answerWorkerQuestion(
         userId,
         conversation: { agent: { userId, kind: "orchestrator" } },
       },
+      include: {
+        conversation: { include: { agent: { select: { projectId: true } } } },
+      },
     });
     if (!currentRun)
       throw new AppError("not_found", "Orchestrator run unavailable.", 404);
@@ -42,6 +45,7 @@ export async function answerWorkerQuestion(
         status: "reported",
         agent: {
           userId,
+          projectId: currentRun.conversation.agent.projectId,
           engine: "claude-code",
           archived: false,
           paused: false,
@@ -66,6 +70,7 @@ export async function answerWorkerQuestion(
         where: {
           origin: "terminal_report",
           proposalId: original.proposalId,
+          conversationId: currentRun.conversationId,
           conversation: { agent: { userId, kind: "orchestrator" } },
         },
       }))
@@ -107,6 +112,7 @@ export async function answerWorkerQuestion(
     const proposal = await tx.proposal.create({
       data: {
         userId,
+        projectId: currentRun.conversation.agent.projectId,
         runId,
         toolCallId: call.id,
         agentId: original.agentId,

@@ -24,7 +24,13 @@ test("subscription Orchestrator setup and composer work without a provider key",
     conversation: {
       id: "subscription-conversation",
       activeRunId: null,
-      messages: [],
+      messages: Array.from({ length: 35 }, (_, index) => ({
+        id: `message-${index}`,
+        role: index % 2 ? "assistant" : "user",
+        text: `Earlier message ${index} with enough content to fill the conversation.`,
+        status: "complete",
+        createdAt: new Date(2026, 0, 1, 0, index).toISOString(),
+      })),
       runs: [],
     },
   };
@@ -58,6 +64,15 @@ test("subscription Orchestrator setup and composer work without a provider key",
   });
   await page.goto("/");
   await expect(page.locator(".startup-intro")).toHaveCount(0);
+  await page.getByRole("button", { name: "Mute notifications" }).click();
+  await expect(
+    page.getByRole("button", { name: "Unmute notifications" }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".startup-intro")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Unmute notifications" }),
+  ).toBeVisible();
   await page
     .locator(".sidebar")
     .getByRole("button", { name: /^Orchestrator/ })
@@ -80,6 +95,31 @@ test("subscription Orchestrator setup and composer work without a provider key",
   await expect(
     page.getByLabel("Message Orchestrator", { exact: true }),
   ).toBeEnabled();
+  const chat = page.getByRole("log", {
+    name: "Conversation with Orchestrator",
+  });
+  await expect
+    .poll(() =>
+      chat.evaluate(
+        (area) => area.scrollHeight - area.scrollTop - area.clientHeight,
+      ),
+    )
+    .toBeLessThan(5);
+  await page
+    .locator(".sidebar")
+    .getByRole("button", { name: /^Agent board/ })
+    .click();
+  await page
+    .locator(".sidebar")
+    .getByRole("button", { name: /^Orchestrator/ })
+    .click();
+  await expect
+    .poll(() =>
+      chat.evaluate(
+        (area) => area.scrollHeight - area.scrollTop - area.clientHeight,
+      ),
+    )
+    .toBeLessThan(5);
   await expect(page.locator(".coordinator-panel")).not.toContainText(
     "Connect Claude in API keys",
   );

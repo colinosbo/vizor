@@ -56,6 +56,7 @@ for (const automatic of [false, true]) {
               },
             ],
             pendingProposalCount: approved ? 0 : 1,
+            allReadyDispatches: undefined,
             terminalDispatches: approved
               ? [
                   {
@@ -123,13 +124,13 @@ for (const automatic of [false, true]) {
         await page
           .getByRole("button", { name: "Approve", exact: true })
           .click();
-      await expect(
-        page.getByText(
-          automatic
-            ? "Queued task sent to the worker."
-            : "Task sent to the selected terminal agent.",
-        ),
-      ).toBeVisible();
+      if (!automatic)
+        await expect(
+          page.getByText("Task sent to the selected terminal agent."),
+        ).toBeVisible();
+      await expect
+        .poll(() => page.evaluate(() => (window as any).__sent.length))
+        .toBe(1);
       await expect(
         page.getByRole("button", { name: "Retry delivery", exact: true }),
       ).toHaveCount(0);
@@ -485,6 +486,7 @@ for (const stopped of [false, true]) {
           ...fresh,
           proposals: [],
           currentTeamIds: [agentId],
+          allReadyDispatches: undefined,
           terminalDispatches: [
             {
               id: "auto-reply",

@@ -105,7 +105,7 @@ cpSync(source, join(bundle, "app"), {
     return (
       !parts.some(
         (part) => part.startsWith(".env") || /\.db(?:-|$)/.test(part),
-      ) && parts[0] !== "data"
+      ) && !["data", "artifacts", "desktop"].includes(parts[0])
     );
   },
 });

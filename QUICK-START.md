@@ -1,40 +1,39 @@
-# Vizor: download, sign in, start working
+# Vizor: install, connect, and start
 
-**For Windows 11, Intel/AMD 64-bit.** You need internet and your own Claude account with a subscription that includes Claude Code. No API key, Node installation, or commands are needed. Claude's normal subscription usage limits still apply.
+## What you need
 
-## 1. Install Vizor
+A 64-bit Windows 11 PC, internet, a Claude account with access to Claude Code, and a folder for your project. Claude subscription limits apply. To use GitHub pull requests and automatic merges, also install [Git for Windows](https://git-scm.com/download/win), have access to a GitHub repository, and configure at least one required GitHub check on its default branch. GitHub CLI is included in the Windows app.
 
-Open **[the latest GitHub release](https://github.com/colinosbo/vizor/releases/latest)**. Under **Assets**, download **`Vizor-Setup-<version>-x64.exe`**. Run it, accept the license, and open **Vizor** from your desktop or Start menu.
+## 1. Install
 
-Choose the **EXE installer**, not GitHub's **Source code** ZIP or a portable archive. The installer is unsigned, so Windows may show an unknown-publisher warning. Only proceed if you trust this project's release; a managed PC may block unsigned apps.
+Open [the latest release](https://github.com/colinosbo/vizor/releases/latest), expand **Assets**, and download **Vizor-Setup-<version>-x64.exe**. Run it and open Vizor. Windows can show an unknown-publisher warning because the installer is unsigned. Only run a download you trust.
 
-## 2. Connect your Claude subscription
+## 2. Create your first project
 
-Open **Orchestrator → Set up orchestrator** (or its settings if already configured). Choose **Claude Code subscription**, then **Set up Claude subscription**.
+Select **Create project**, name the feature or piece of work, and choose its folder. You can create another project for a different feature even if it uses the same repository. Each project has its own Orchestrator, agents, tasks, and conversation.
 
-Vizor downloads the official Claude Code tool if needed and opens its native login. Complete the browser sign-in using the Claude account that has your subscription. If asked for an account type, choose your **Claude subscription**, not Anthropic Console/API billing. Return to Vizor when Claude confirms login, choose **Sonnet** to start, and save the Orchestrator settings.
+## 3. Connect Claude
 
-Vizor keeps a separate Claude login profile, so you may need to sign in here even if you already use Claude elsewhere. Your Claude password and sign-in tokens are handled by Claude Code, not pasted into Vizor's API key settings. The Orchestrator and subscription workers share this profile.
+Open the project's **Orchestrator**, select **Set up orchestrator**, and choose **Claude Code subscription**. Select **Set up Claude subscription** and finish Claude's sign-in in the terminal/browser, choosing your subscription account. Save the settings. Vizor installs Claude Code if needed and uses the same subscription sign-in for the Orchestrator and its coding workers. No Anthropic API key is needed for this mode. Claude's own usage limits apply.
 
-## 3. Add a coding agent
+## 4. Connect GitHub
 
-Choose **New agent → Claude Code**. Give it a name, use **Browse** to choose the project folder it should work in, and leave billing on **Claude subscription**. Save it, then use **Set up / sign in** or **Resume** to open its terminal. Complete any Claude theme, trust, or permission prompts shown there.
+In **Orchestrator settings**, select **Connect GitHub**. Follow the device sign-in instructions and authorize your own GitHub account in your browser. Your repository must have an `origin` pointing to GitHub, and your account needs permission to push branches and create and merge pull requests. Install Git for Windows first; reopen Vizor after installation so it can find Git.
 
-Start with a simple task: **“Read this project and explain what it does. Do not change files yet.”** You can type directly in that agent's terminal. Claude can edit files and run commands when you allow it, so choose the project folder carefully.
+## 5. Give it work
 
-## 4. Use the Orchestrator
+Tell the Orchestrator what you want built and the outcome you expect. It chooses a suitable coding team with separate assignments. New accounts start with **Full auto approval** and **Run approved queue** enabled. Turn these controls off in **Approvals** if you want to approve tasks yourself. Existing accounts retain their saved settings. Claude Code may still ask you to trust the folder or approve a command; open the worker if it needs attention.
 
-Tell it what you want done and which project to use. Review and approve its proposed agents or tasks. Approved tasks are delivered to the workers; Claude's own permission prompts may still need your attention.
+Workers in the same folder can run together when their declared file scopes do not overlap. Those scopes are coordination instructions, not an operating-system sandbox. Avoid making conflicting changes manually while they work.
 
-Manual approval is the default. Leave **full auto approval** and the **approved-task queue** off until you understand how they work. Subscription mode does not fall back to paid API requests. Vizor's API dollar caps do not measure Claude subscription usage.
+For a GitHub-backed project, the Orchestrator can have a coding worker prepare and push a feature branch, then request a normal pull request. Vizor checks the branch, reported work and required GitHub checks before merging. It reports missing checks, authentication problems, conflicts, failures, or uncertain merge results as blockers. Other approval controls still apply; the requested merge is automatic once its checks pass.
 
-## If something gets stuck
+## Notifications and troubleshooting
 
-- **Login or “credit balance too low”:** repeat **Set up Claude subscription** and sign in with the correct subscribed Claude account. Do not add an API key to fix subscription login.
-- **Usage limit:** wait for your Claude allowance to reset or check your plan in Claude. Vizor cannot bypass it.
-- **Worker waiting:** open its terminal and answer any setup, trust, or permission prompt. Use **Interrupt** to stop a response or **Stop** to close that agent's terminal.
-- **Update Vizor:** use **Help → Check for updates**. Close running agent sessions before restarting to install it.
+- The sound button in the sidebar mutes or unmutes message and approval sounds. Your choice is saved on this PC.
+- If Claude reports a billing or login problem, repeat **Set up Claude subscription** with the subscribed account. Subscription mode does not fall back to API billing.
+- If a worker is waiting, open its terminal and handle any Claude setup or permission prompt.
+- If GitHub verification is blocked, confirm Git is installed, GitHub is connected, the repository has required checks configured, and the feature branch is pushed. Read the specific blocker in Vizor.
+- Use **Help → Check for updates** to update. Stop active coding sessions first.
 
-Still stuck? [Open an issue](https://github.com/colinosbo/vizor/issues) with your Windows version, Vizor version, and the error text. Never share passwords, tokens, `.env`, databases, or private project files.
-
-Want the browser-only portable app or an API connection instead? See [START-HERE.md](START-HERE.md). Backups and uninstall steps are in [WINDOWS.md](WINDOWS.md). Claude's account requirements and login behavior are documented in its [authentication guide](https://code.claude.com/docs/en/iam) and [CLI reference](https://code.claude.com/docs/en/cli-reference).
+Your new installation starts with its own empty workspace; it does not include the developer's projects, conversations, credentials, or agents. Keep your own backups private. See [WINDOWS.md](WINDOWS.md) for backup and uninstall details. Never share credentials, `.env`, databases, or private project files in an issue.

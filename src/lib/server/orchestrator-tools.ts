@@ -8,6 +8,8 @@ import { audit } from "./audit";
 import { publish } from "./events";
 import type { ToolCall } from "../providers/types";
 import { answerWorkerQuestion } from "./worker-questions";
+import { writePathsSchema } from "./work-scopes";
+import { requireCodingWorker, requireProjectFolder } from "./projects";
 export const proposalActions = [
   "send_message",
   "dispatch_terminal",
@@ -30,6 +32,7 @@ export const proposalPayload = z.discriminatedUnion("action", [
       action: z.literal("dispatch_terminal"),
       agentId: z.string().min(1).max(100),
       text: z.string().trim().min(1).max(32000),
+      writePaths: writePathsSchema.optional(),
     })
     .strict(),
   z
@@ -45,6 +48,7 @@ export const proposalPayload = z.discriminatedUnion("action", [
         })
         .strict(),
       text: z.string().trim().max(32000),
+      writePaths: writePathsSchema.optional(),
     })
     .strict(),
   z.object({ action: z.literal("create_agent"), config: agentSchema }).strict(),
@@ -76,21 +80,34 @@ export async function toolResult(
 ) {
   try {
     z.string().min(1).max(200).parse(call.id);
-    if (
-      !(await db.run.findFirst({
-        where: {
-          id: runId,
-          userId,
-          conversation: { agent: { kind: "orchestrator", userId } },
-        },
-        select: { id: true },
-      }))
-    )
+    const sourceRun = await db.run.findFirst({
+      where: {
+        id: runId,
+        userId,
+        conversation: { agent: { kind: "orchestrator", userId } },
+      },
+      select: {
+        id: true,
+        conversation: { select: { agent: { select: { projectId: true } } } },
+      },
+    });
+    if (!sourceRun)
       throw new AppError(
         "not_found",
         "This orchestrator run is unavailable.",
         404,
       );
+    const projectId = sourceRun.conversation.agent.projectId;
+    if (call.name === "finish_project") {
+      if (!projectId)
+        throw new AppError(
+          "project_required",
+          "Choose a project before requesting a merge.",
+          400,
+        );
+      const { requestProjectMerge } = await import("./project-merge");
+      return await requestProjectMerge(userId, projectId, runId, call);
+    }
     if (call.name === "answer_worker_question")
       return await answerWorkerQuestion(userId, runId, call);
     if (call.name === "summarize") {
@@ -119,6 +136,12 @@ export async function toolResult(
     }
     let payload: z.infer<typeof proposalPayload>;
     if (call.name === "create_agent") {
+      if (projectId)
+        throw new AppError(
+          "coding_workers_only",
+          "Projects use Claude Code coding workers.",
+          400,
+        );
       const input = z
         .object({ config: agentSchema })
         .strict()
@@ -147,6 +170,7 @@ export async function toolResult(
         .object({
           agent_id: z.string().min(1).max(100),
           text: z.string().trim().min(1).max(32000),
+          write_paths: writePathsSchema.default([]),
         })
         .strict()
         .parse(call.arguments);
@@ -154,6 +178,7 @@ export async function toolResult(
         action: "dispatch_terminal",
         agentId: input.agent_id,
         text: input.text,
+        writePaths: input.write_paths,
       };
     } else if (call.name === "create_terminal_agent") {
       const input = z
@@ -164,9 +189,11 @@ export async function toolResult(
           color: z.enum(["mint", "amber", "blue", "rose"]),
           icon: z.enum(["spark", "code", "pen", "search"]),
           task: z.string().trim().max(32000),
+          write_paths: writePathsSchema.default([]),
         })
         .strict()
         .parse(call.arguments);
+      if (projectId) requireCodingWorker(input.name, input.role_prompt);
       const config = agentSchema.parse({
         name: input.name,
         engine: "claude-code",
@@ -179,6 +206,18 @@ export async function toolResult(
         color: input.color,
         icon: input.icon,
       });
+      if (projectId) {
+        const project = await db.project.findFirst({
+          where: { id: projectId, userId },
+        });
+        if (!project)
+          throw new AppError(
+            "project_folder",
+            "Workers must use the selected project folder.",
+            400,
+          );
+        requireProjectFolder(project.folder, config.projectPath);
+      }
       payload = {
         action: "create_terminal_agent",
         config: {
@@ -189,6 +228,7 @@ export async function toolResult(
           icon: config.icon,
         },
         text: input.task,
+        writePaths: input.write_paths,
       };
     } else if (call.name === "rename_agent") {
       const input = z
@@ -221,6 +261,7 @@ export async function toolResult(
         where: {
           id: payload.agentId,
           userId,
+          projectId,
           kind: "agent",
           archived: false,
           engine: terminalDispatch ? "claude-code" : "api",
@@ -250,6 +291,7 @@ export async function toolResult(
       const result = await tx.proposal.create({
         data: {
           userId,
+          projectId,
           runId,
           toolCallId: call.id,
           action: payload.action,

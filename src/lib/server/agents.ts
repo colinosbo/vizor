@@ -8,6 +8,11 @@ import { AppError } from "./errors";
 import { audit } from "./audit";
 import { selfHost } from "./security";
 import { randomUUID } from "node:crypto";
+import {
+  ownedProject,
+  requireCodingWorker,
+  requireProjectFolder,
+} from "./projects";
 function requireEngine(config: z.infer<typeof agentSchema>) {
   if (
     config.engine !== "api" &&
@@ -35,6 +40,17 @@ export async function createAgent(
   input: z.input<typeof agentSchema>,
 ) {
   const config = agentSchema.parse(input);
+  if (config.projectId) {
+    const project = await ownedProject(userId, config.projectId);
+    if (config.engine !== "claude-code")
+      throw new AppError(
+        "coding_workers_only",
+        "Projects use Claude Code coding workers.",
+        400,
+      );
+    requireCodingWorker(config.name, config.systemPrompt);
+    requireProjectFolder(project.folder, config.projectPath);
+  }
   requireEngine(config);
   if (config.engine === "api") await requireProvider(userId, config.provider);
   const agent = await db.$transaction(async (tx) => {
@@ -69,10 +85,12 @@ export async function editAgent(
   const previous = await ownedAgent(userId, id);
   if (previous.kind !== "agent")
     throw new AppError("not_found", "This agent was not found.", 404);
+  if (previous.projectId) requireCodingWorker(config.name, config.systemPrompt);
   requireEngine(config);
   if (
     previous.engine !== config.engine ||
-    previous.projectPath !== config.projectPath
+    previous.projectPath !== config.projectPath ||
+    (config.projectId ?? null) !== previous.projectId
   )
     throw new AppError(
       "engine_locked",
@@ -117,6 +135,7 @@ export async function agentAction(
       terminalAuthMode: agent.terminalAuthMode,
       permissionMode: agent.permissionMode,
       projectPath: agent.projectPath,
+      projectId: agent.projectId,
       provider: agent.provider,
       model: agent.model,
       systemPrompt: agent.systemPrompt,
@@ -146,7 +165,9 @@ export async function agentAction(
 export async function saveLayout(
   userId: string,
   layout: z.infer<typeof layoutSchema>,
+  projectId: string | null = null,
 ) {
+  if (projectId) await ownedProject(userId, projectId);
   const ids = new Set([
     ...layout.order,
     ...layout.pinned,
@@ -157,7 +178,7 @@ export async function saveLayout(
     ),
   ]);
   const owned = await db.agent.count({
-    where: { userId, id: { in: [...ids] } },
+    where: { userId, projectId, id: { in: [...ids] } },
   });
   if (owned !== ids.size)
     throw new AppError(
@@ -165,9 +186,15 @@ export async function saveLayout(
       "One or more layout agents were not found.",
       404,
     );
-  await db.user.update({
-    where: { id: userId },
-    data: { workspaceLayout: JSON.stringify(layout) },
-  });
+  if (projectId)
+    await db.project.update({
+      where: { id: projectId },
+      data: { workspaceLayout: JSON.stringify(layout) },
+    });
+  else
+    await db.user.update({
+      where: { id: userId },
+      data: { workspaceLayout: JSON.stringify(layout) },
+    });
   publish(userId);
 }

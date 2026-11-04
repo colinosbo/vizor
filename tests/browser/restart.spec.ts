@@ -1,3 +1,4 @@
+import { createServer } from "node:net";
 import { test, expect } from "@playwright/test";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -7,6 +8,13 @@ test("real server restart preserves history and keys and recovers an interrupted
   page,
 }) => {
   test.setTimeout(60000);
+  const listener = createServer();
+  await new Promise<void>((resolve) =>
+    listener.listen(0, "127.0.0.1", resolve),
+  );
+  const port = (listener.address() as { port: number }).port;
+  await new Promise<void>((resolve) => listener.close(() => resolve()));
+  const origin = `http://127.0.0.1:${port}`;
   const dbPath = `data/restart-${process.pid}.db`;
   const database = new Database(dbPath);
   database.pragma("journal_mode=WAL");
@@ -16,11 +24,16 @@ test("real server restart preserves history and keys and recovers an interrupted
     database.exec(
       readFileSync(`prisma/migrations/${migration}/migration.sql`, "utf8"),
     );
+  database
+    .prepare(
+      "INSERT INTO User (id, email, autoApprove, queueEnabled) VALUES ('local-owner', 'owner@vizor.local', 0, 0)",
+    )
+    .run();
   database.close();
   const env = {
     ...process.env,
     SELF_HOST: "true",
-    APP_ORIGIN: "http://127.0.0.1:3102",
+    APP_ORIGIN: origin,
     DATABASE_URL: `file:./${dbPath}`,
     MASTER_KEY: randomBytes(32).toString("base64"),
     NEXT_TELEMETRY_DISABLED: "1",
@@ -37,7 +50,7 @@ test("real server restart preserves history and keys and recovers an interrupted
         "--hostname",
         "127.0.0.1",
         "--port",
-        "3102",
+        String(port),
       ],
       { env, stdio: "ignore", windowsHide: true },
     );
@@ -45,7 +58,7 @@ test("real server restart preserves history and keys and recovers an interrupted
       .poll(
         async () => {
           try {
-            return (await fetch("http://127.0.0.1:3102")).status;
+            return (await fetch(origin)).status;
           } catch {
             return 0;
           }
@@ -64,7 +77,7 @@ test("real server restart preserves history and keys and recovers an interrupted
   }
   try {
     await start();
-    await page.goto("http://127.0.0.1:3102");
+    await page.goto(origin);
     await expect(page.locator(".startup-intro")).toHaveCount(0);
     await page
       .getByLabel("Your Anthropic API key")
@@ -88,9 +101,9 @@ test("real server restart preserves history and keys and recovers an interrupted
       .getByRole("button", { name: "Pin My assistant", exact: true })
       .click();
     await expect(page.getByText("Layout saved", { exact: true })).toBeVisible();
-    const apiHeaders = { origin: "http://127.0.0.1:3102" };
+    const apiHeaders = { origin: origin };
     const savedCoordinator = await page.request.patch(
-      "http://127.0.0.1:3102/api/orchestrator",
+      `${origin}/api/orchestrator`,
       {
         headers: apiHeaders,
         data: {
@@ -103,7 +116,7 @@ test("real server restart preserves history and keys and recovers an interrupted
     );
     expect(savedCoordinator.ok()).toBe(true);
     const draft = await page.request.post(
-      "http://127.0.0.1:3102/api/orchestrator/messages",
+      `${origin}/api/orchestrator/messages`,
       {
         headers: apiHeaders,
         data: {
@@ -115,17 +128,17 @@ test("real server restart preserves history and keys and recovers an interrupted
     );
     expect(await draft.text()).toContain("event: done");
     const savedState = await (
-      await page.request.get("http://127.0.0.1:3102/api/workspace")
+      await page.request.get(`${origin}/api/workspace`)
     ).json();
     const pendingId = savedState.proposals.find(
       (p: { status: string }) => p.status === "pending",
     ).id;
     expect(
       (
-        await page.request.patch(
-          "http://127.0.0.1:3102/api/budgets/anthropic",
-          { headers: apiHeaders, data: { limit: 0.05 } },
-        )
+        await page.request.patch(`${origin}/api/budgets/anthropic`, {
+          headers: apiHeaders,
+          data: { limit: 0.05 },
+        })
       ).ok(),
     ).toBe(true);
     await page
@@ -153,7 +166,7 @@ test("real server restart preserves history and keys and recovers an interrupted
     await page.reload();
     await expect(page.locator(".startup-intro")).toHaveCount(0);
     const restored = await (
-      await page.request.get("http://127.0.0.1:3102/api/workspace")
+      await page.request.get(`${origin}/api/workspace`)
     ).json();
     expect(restored.autopilot).toBe(false);
     expect(restored.orchestrator.id).toBe(savedState.orchestrator.id);
@@ -172,7 +185,7 @@ test("real server restart preserves history and keys and recovers an interrupted
     ).toBeGreaterThan(0.03);
     expect(
       (
-        await (await page.request.get("http://127.0.0.1:3102/api/audit")).json()
+        await (await page.request.get(`${origin}/api/audit`)).json()
       ).entries.some(
         (e: { action: string }) => e.action === "proposal.created",
       ),

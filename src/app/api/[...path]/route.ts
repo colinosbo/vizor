@@ -17,6 +17,7 @@ import {
   layoutSchema,
 } from "@/lib/server/validation";
 import { workspace, defaultAgent, ownedAgent } from "@/lib/server/store";
+import { createProject, projectInput } from "@/lib/server/projects";
 import { encryptKey, decryptKey } from "@/lib/server/crypto";
 import { getProvider } from "@/lib/providers";
 import { recoverRuns, startChat, stopOwner, stopRun } from "@/lib/server/chat";
@@ -196,7 +197,16 @@ async function handle(
       }
     }
     if (route === "workspace" && method === "GET")
-      return Response.json(await workspace(user));
+      return Response.json(
+        await workspace(
+          user,
+          new URL(request.url).searchParams.get("projectId") ?? undefined,
+        ),
+      );
+    if (route === "projects" && method === "POST")
+      return Response.json(
+        await createProject(user.id, await readJson(request, projectInput)),
+      );
     if (route === "automation" && method === "PATCH")
       return Response.json(
         await setAutomation(
@@ -233,12 +243,14 @@ async function handle(
             maxTokens: z.number().int().min(64).max(8192),
             projectInstructions: z.string().max(12000).optional(),
             orchestratorMode: z.enum(["api", "subscription"]).optional(),
+            projectId: z.string().min(1).max(100).nullable().optional(),
           })
           .strict()
           .refine(
             ({
               projectInstructions: _instructions,
               orchestratorMode,
+              projectId: _projectId,
               ...config
             }) =>
               orchestratorMode === "subscription"
@@ -250,18 +262,24 @@ async function handle(
       return Response.json(await configureOrchestrator(user.id, input));
     }
     if (route === "orchestrator/clear" && method === "POST")
-      return Response.json(await clearOrchestratorChat(user.id));
+      return Response.json(
+        await clearOrchestratorChat(
+          user.id,
+          new URL(request.url).searchParams.get("projectId"),
+        ),
+      );
     if (route === "orchestrator/messages" && method === "POST") {
       await rateLimit(`chat:${user.id}`, 20);
       const input = await readJson(
         request,
         messageSchema.extend({
           agentIds: z.array(z.string().min(1).max(100)).max(20).optional(),
+          projectId: z.string().min(1).max(100).nullable().optional(),
         }),
       );
       return await startChat(
         user.id,
-        (await coordinator(user.id)).id,
+        (await coordinator(user.id, input.projectId)).id,
         input,
         request.signal,
         { orchestrator: true, scope: input.agentIds },
@@ -416,7 +434,11 @@ async function handle(
       );
     }
     if (route === "layout" && method === "PATCH") {
-      await saveLayout(user.id, await readJson(request, layoutSchema));
+      await saveLayout(
+        user.id,
+        await readJson(request, layoutSchema),
+        new URL(request.url).searchParams.get("projectId"),
+      );
       return Response.json({ ok: true });
     }
     if (path[0] === "providers" && path.length === 2 && method === "POST") {

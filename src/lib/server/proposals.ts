@@ -7,6 +7,11 @@ import { publish } from "./events";
 import { startChat, stopAgent } from "./chat";
 import { agentSchema } from "./validation";
 import { assertQueueCanRun } from "./task-queue";
+import {
+  ownedProject,
+  requireCodingWorker,
+  requireProjectFolder,
+} from "./projects";
 export async function ownedProposal(userId: string, id: string) {
   const proposal = await db.proposal.findFirst({ where: { id, userId } });
   if (!proposal)
@@ -42,6 +47,7 @@ export async function editProposal(
       where: {
         id: payload.agentId,
         userId,
+        projectId: original.projectId,
         kind: "agent",
         archived: false,
         engine: terminalDispatch ? "claude-code" : "api",
@@ -146,6 +152,13 @@ export async function approveProposal(
       alreadyReviewed: true,
     };
   const payload = proposalPayload.parse(JSON.parse(existing.payload));
+  if (existing.projectId && payload.action === "create_terminal_agent") {
+    requireCodingWorker(payload.config.name, payload.config.systemPrompt);
+    requireProjectFolder(
+      (await ownedProject(userId, existing.projectId)).folder,
+      payload.config.projectPath,
+    );
+  }
   const queued = existing.status === "queued";
   if (queued && !existing.approvedBy)
     throw new AppError(
@@ -187,6 +200,7 @@ export async function approveProposal(
                   maxTokens: 4096,
                 }),
                 userId,
+                projectId: existing.projectId,
                 nativeSessionId: randomUUID(),
                 conversation: { create: {} },
               },
@@ -196,6 +210,7 @@ export async function approveProposal(
               where: {
                 id: payload.agentId,
                 userId,
+                projectId: existing.projectId,
                 kind: "agent",
                 archived: false,
                 engine: "claude-code",
@@ -253,6 +268,7 @@ export async function approveProposal(
               payload.config.systemPrompt.trim()
                 ? `ROLE GUIDANCE\n${payload.config.systemPrompt.trim()}\n\nASSIGNED TASK\n${payload.text}`
                 : payload.text,
+            writePaths: JSON.stringify(payload.writePaths ?? []),
           },
         });
       await audit(

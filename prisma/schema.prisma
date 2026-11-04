@@ -24,6 +24,45 @@ model User {
   budgetMonths BudgetMonth[]
   spending SpendEntry[]
   terminalDispatches TerminalDispatch[]
+  projects Project[]
+  mergeJobs MergeJob[]
+}
+model Project {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name String
+  folder String
+  workspaceLayout String @default("{}")
+  createdAt DateTime @default(now())
+  agents Agent[]
+  mergeJobs MergeJob[]
+  @@index([userId, createdAt])
+}
+model MergeJob {
+  id String @id @default(cuid())
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runId String
+  toolCallId String
+  title String
+  summary String
+  status String @default("queued")
+  expectedHead String?
+  prNumber Int?
+  prUrl String?
+  repository String?
+  checksPassedAt DateTime?
+  checksHash String?
+  nextCheckAt DateTime?
+  claimedAt DateTime?
+  error String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([runId, toolCallId])
+  @@index([userId, status])
 }
 model Session {
   id String @id
@@ -47,6 +86,8 @@ model Agent {
   userId String
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   name String
+  projectId String?
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
   engine String @default("api")
   projectPath String @default("")
   nativeSessionId String?
@@ -133,6 +174,7 @@ model AgentTemplate {
 model Proposal {
   id String @id @default(cuid())
   userId String
+  projectId String?
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   runId String
   toolCallId String
@@ -150,6 +192,7 @@ model Proposal {
   updatedAt DateTime @updatedAt
   @@unique([runId, toolCallId])
   @@index([userId, status, createdAt])
+  @@index([userId, projectId])
 }
 model TerminalDispatch {
   id String @id @default(cuid())
@@ -159,6 +202,8 @@ model TerminalDispatch {
   agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
   proposalId String @unique
   text String
+  writePaths String @default("[]")
+  outcome String?
   status String @default("ready")
   error String?
   questions String @default("[]")

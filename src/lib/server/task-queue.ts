@@ -5,6 +5,7 @@ import { AppError, safeError } from "./errors";
 import { audit } from "./audit";
 import { publish } from "./events";
 import type { Prisma } from "@/generated/prisma/client";
+import { parseWritePaths, scopesConflict } from "./work-scopes";
 
 async function nextApprovalTime(tx: Prisma.TransactionClient, userId: string) {
   const last = await tx.proposal.aggregate({
@@ -114,6 +115,7 @@ export async function addQueuedTask(
     const task = await tx.proposal.create({
       data: {
         userId,
+        projectId: agent.projectId,
         runId: `manual-${randomUUID()}`,
         toolCallId: randomUUID(),
         action,
@@ -148,16 +150,97 @@ export async function assertQueueCanRun(
   const owner = await tx.user.findUniqueOrThrow({ where: { id: userId } });
   if (!owner.queueEnabled)
     throw new AppError("queue_paused", "The task queue is paused.", 409);
-  const first = await tx.proposal.findFirst({
-    where: { userId, status: "queued" },
-    orderBy: [{ approvedAt: "asc" }, { id: "asc" }],
-  });
-  if (first?.id !== id || (await queueBusy(tx, userId)))
+  const first = await nextEligible(tx, userId);
+  if (first?.id !== id)
     throw new AppError(
       "queue_waiting",
       "Waiting for the earlier task to finish and report.",
       409,
     );
+}
+async function nextEligible(tx: Prisma.TransactionClient, userId: string) {
+  const queued = await tx.proposal.findMany({
+    where: { userId, status: "queued" },
+    orderBy: [{ approvedAt: "asc" }, { id: "asc" }],
+    take: 100,
+  });
+  for (const proposal of queued) {
+    if (
+      !proposal.projectId ||
+      !["create_terminal_agent", "dispatch_terminal"].includes(proposal.action)
+    ) {
+      if (!(await queueBusy(tx, userId))) return proposal;
+      continue;
+    }
+    const project = await tx.project.findFirst({
+      where: { id: proposal.projectId, userId },
+    });
+    if (!project) continue;
+    const merges = await tx.mergeJob.findMany({
+      where: {
+        userId,
+        status: {
+          in: [
+            "queued",
+            "checking",
+            "waiting_checks",
+            "merging",
+            "waiting_merge",
+          ],
+        },
+      },
+      select: { project: { select: { folder: true } } },
+    });
+    if (
+      merges.some((job) =>
+        scopesConflict(project.folder, [], job.project.folder, []),
+      )
+    )
+      continue;
+    let paths: string[] = [];
+    try {
+      paths = parseWritePaths(
+        JSON.stringify(JSON.parse(proposal.payload).writePaths ?? []),
+      );
+    } catch {}
+    const active = await tx.terminalDispatch.findMany({
+      where: { userId, status: { in: ["ready", "claimed", "delivered"] } },
+      select: {
+        agentId: true,
+        writePaths: true,
+        agent: { select: { projectPath: true, projectId: true } },
+      },
+    });
+    if (
+      active.some(
+        (task) =>
+          (proposal.agentId && task.agentId === proposal.agentId) ||
+          (task.agent.projectId !== proposal.projectId &&
+            scopesConflict(project.folder, [], task.agent.projectPath, [])) ||
+          scopesConflict(
+            project.folder,
+            paths,
+            task.agent.projectPath,
+            parseWritePaths(task.writePaths),
+          ),
+      )
+    )
+      continue;
+    if (
+      await tx.run.findFirst({
+        where: {
+          userId,
+          status: "running",
+          conversation: { agent: { kind: "agent" } },
+        },
+      })
+    )
+      continue;
+    if (await tx.proposal.findFirst({ where: { userId, status: "executing" } }))
+      continue;
+    return proposal;
+  }
+  return null;
 }
 async function queueBusy(tx: Prisma.TransactionClient, userId: string) {
   return !!(
@@ -203,11 +286,8 @@ async function tick(userId: string) {
       }
     }
   }
-  if (!settings.queueEnabled || (await queueBusy(db, userId))) return;
-  const next = await db.proposal.findFirst({
-    where: { userId, status: "queued" },
-    orderBy: [{ approvedAt: "asc" }, { id: "asc" }],
-  });
+  if (!settings.queueEnabled) return;
+  const next = await nextEligible(db, userId);
   if (!next) return;
   try {
     const { approveProposal } = await import("./proposals");

@@ -13,6 +13,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public code?: string,
   ) {
     super(message);
   }
@@ -34,7 +35,11 @@ export async function api<T = unknown>(
   });
   const result = await response.json();
   if (!response.ok)
-    throw new ApiError(result.message ?? "Please try again.", response.status);
+    throw new ApiError(
+      result.message ?? "Please try again.",
+      response.status,
+      result.code,
+    );
   return result;
 }
 export type ModelList = {
@@ -88,6 +93,8 @@ export function overlayAgent(
 }
 export function useWorkspace() {
   const [data, setData] = useState<Workspace | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const currentProject = useRef<string | null>(null);
   const [auth, setAuth] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -108,7 +115,10 @@ export function useWorkspace() {
   const reload = useCallback(async () => {
     const id = ++sequence.current;
     try {
-      const next = await api<Workspace>("workspace");
+      const projectQuery = currentProject.current
+        ? `?projectId=${encodeURIComponent(currentProject.current)}`
+        : "";
+      const next = await api<Workspace>(`workspace${projectQuery}`);
       if (id !== sequence.current || disposed.current) return next;
       setData(next);
       setAuth(false);
@@ -128,6 +138,15 @@ export function useWorkspace() {
       );
       return next;
     } catch (e) {
+      if (id !== sequence.current || disposed.current) return;
+      if (e instanceof ApiError && e.status === 404 && currentProject.current) {
+        currentProject.current = null;
+        setProjectId(null);
+        try {
+          localStorage.removeItem("vizor.activeProject");
+        } catch {}
+        return await reload();
+      }
       if (e instanceof ApiError && e.status === 401) {
         setAuth(true);
         setContextScope(null);
@@ -140,12 +159,27 @@ export function useWorkspace() {
   }, []);
   useEffect(() => {
     disposed.current = false;
+    try {
+      currentProject.current = localStorage.getItem("vizor.activeProject");
+    } catch {}
+    setProjectId(currentProject.current);
     void reload();
     return () => {
       disposed.current = true;
       for (const request of requests.current.values()) request.abort();
     };
   }, [reload]);
+  async function selectProject(id: string | null) {
+    currentProject.current = id;
+    setProjectId(id);
+    setContextScope(null);
+    setLive({});
+    try {
+      if (id) localStorage.setItem("vizor.activeProject", id);
+      else localStorage.removeItem("vizor.activeProject");
+    } catch {}
+    return await reload();
+  }
   useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 4500);
@@ -204,6 +238,21 @@ export function useWorkspace() {
     const timer = setInterval(() => void reload(), 3000);
     return () => clearInterval(timer);
   }, [connected, !!data, reload]);
+  const mergePending =
+    data?.mergeJobs?.some((job) =>
+      [
+        "queued",
+        "checking",
+        "waiting_checks",
+        "merging",
+        "waiting_merge",
+      ].includes(job.status),
+    ) ?? false;
+  useEffect(() => {
+    if (!mergePending) return;
+    const timer = setInterval(() => void reload(), 15000);
+    return () => clearInterval(timer);
+  }, [mergePending, reload]);
   const agents = useMemo(
     () =>
       data?.agents.map((agent) => overlayAgent(agent, live[agent.id])) ?? [],
@@ -218,13 +267,18 @@ export function useWorkspace() {
   );
   function updateLayout(next: WorkspaceLayout) {
     setLayout(next);
+    const layoutProject = currentProject.current;
     saveCount.current++;
     setSaving(true);
     saveQueue.current = saveQueue.current
       .catch(() => {})
       .then(async () => {
         try {
-          await api("layout", "PATCH", next);
+          await api(
+            `layout${layoutProject ? `?projectId=${encodeURIComponent(layoutProject)}` : ""}`,
+            "PATCH",
+            next,
+          );
         } catch (e) {
           setError(`Layout not saved: ${(e as Error).message}`);
         } finally {
@@ -261,7 +315,12 @@ export function useWorkspace() {
             mode,
             ...(mode !== "regenerate" ? { text } : {}),
             ...(messageId ? { messageId, confirm: true } : {}),
-            ...(options.orchestrator ? { agentIds: options.agentIds } : {}),
+            ...(options.orchestrator
+              ? {
+                  agentIds: options.agentIds,
+                  projectId: currentProject.current,
+                }
+              : {}),
           }),
           signal: abort.signal,
         },
@@ -314,6 +373,8 @@ export function useWorkspace() {
     await reload();
   }
   return {
+    projectId,
+    selectProject,
     contextScope,
     setContextScope,
     orchestrator,

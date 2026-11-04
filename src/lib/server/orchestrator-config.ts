@@ -6,9 +6,14 @@ import { AppError } from "./errors";
 import { audit } from "./audit";
 import { publish } from "./events";
 import { subscriptionAvailable } from "./subscription";
-export async function coordinator(userId: string) {
+import { ownedProject } from "./projects";
+export async function coordinator(
+  userId: string,
+  projectId: string | null = null,
+) {
+  if (projectId) await ownedProject(userId, projectId);
   const agent = await db.agent.findFirst({
-    where: { userId, kind: "orchestrator" },
+    where: { userId, kind: "orchestrator", projectId },
     select: { id: true },
   });
   if (!agent)
@@ -27,13 +32,16 @@ export async function configureOrchestrator(
     temperature: number;
     projectInstructions?: string;
     orchestratorMode?: "api" | "subscription";
+    projectId?: string | null;
   },
 ) {
   const {
     projectInstructions,
     orchestratorMode = "api",
+    projectId = null,
     ...modelConfig
   } = config;
+  if (projectId) await ownedProject(userId, projectId);
   const subscription = orchestratorMode === "subscription";
   if (
     subscription &&
@@ -62,7 +70,7 @@ export async function configureOrchestrator(
   else await requireProvider(userId, config.provider);
   const result = await db.$transaction(async (tx) => {
     const existing = await tx.agent.findFirst({
-      where: { userId, kind: "orchestrator" },
+      where: { userId, kind: "orchestrator", projectId },
       include: { conversation: { select: { activeRunId: true } } },
     });
     if (existing?.conversation?.activeRunId)
@@ -82,6 +90,7 @@ export async function configureOrchestrator(
           data: {
             userId,
             kind: "orchestrator",
+            projectId,
             ...validated,
             orchestratorMode,
             conversation: { create: {} },
@@ -101,12 +110,16 @@ export async function configureOrchestrator(
   return result;
 }
 
-export async function clearOrchestratorChat(userId: string) {
+export async function clearOrchestratorChat(
+  userId: string,
+  projectId: string | null = null,
+) {
+  if (projectId) await ownedProject(userId, projectId);
   let cancelledProposals = 0;
   let retiredTasks = 0;
   await db.$transaction(async (tx) => {
     const agent = await tx.agent.findFirst({
-      where: { userId, kind: "orchestrator" },
+      where: { userId, kind: "orchestrator", projectId },
       select: {
         id: true,
         conversation: { select: { id: true, activeRunId: true } },
@@ -124,6 +137,7 @@ export async function clearOrchestratorChat(userId: string) {
     const proposals = await tx.proposal.findMany({
       where: {
         userId,
+        projectId,
         status: { in: ["pending", "queued"] },
       },
       select: { id: true, agentId: true },
@@ -149,6 +163,7 @@ export async function clearOrchestratorChat(userId: string) {
     const unsent = await tx.terminalDispatch.updateMany({
       where: {
         userId,
+        agent: { projectId },
         status: "ready",
       },
       data: {
@@ -161,7 +176,7 @@ export async function clearOrchestratorChat(userId: string) {
       where: {
         userId,
         status: "delivered",
-        agent: { userId, terminalState: "stopped" },
+        agent: { userId, projectId, terminalState: "stopped" },
       },
       data: {
         status: "superseded",
@@ -170,10 +185,11 @@ export async function clearOrchestratorChat(userId: string) {
       },
     });
     retiredTasks = unsent.count + stopped.count;
-    await tx.user.update({
-      where: { id: userId },
-      data: { queueEnabled: false, autoApprove: false },
-    });
+    if (!projectId)
+      await tx.user.update({
+        where: { id: userId },
+        data: { queueEnabled: false, autoApprove: false },
+      });
 
     await tx.message.deleteMany({
       where: {

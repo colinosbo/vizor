@@ -153,7 +153,7 @@ try {
   await start();
   let state = await request("workspace");
   assert.equal(state.selfHost, true);
-  assert.equal(state.autopilot, false);
+  assert.equal(state.autopilot, true);
   assert.equal(state.agents.length, 0);
   assert(state.providers.every((provider) => !provider.connected));
   const config = readFileSync(join(bundle, ".env"), "utf8");
@@ -209,7 +209,7 @@ try {
   assert(
     state.providers.find((provider) => provider.id === "anthropic").connected,
   );
-  assert.equal(state.autopilot, false);
+  assert.equal(state.autopilot, true);
   await request("providers/anthropic", "DELETE");
   assert(
     !(await request("workspace")).providers.find(
@@ -245,7 +245,7 @@ try {
     200,
   );
   console.log(
-    "PASS: extracted portable wrapper runs with no Node/npm on PATH; offline first boot, local assets, mocked connection/streaming, key removal, restart persistence, native account registration, autopilot off.",
+    "PASS: extracted portable wrapper runs with no Node/npm on PATH; offline first boot, local assets, mocked connection/streaming, key removal, restart persistence, native account registration, full auto defaults.",
   );
   writeFileSync(
     join(root, "artifacts/portable-smoke-result.json"),

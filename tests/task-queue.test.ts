@@ -73,6 +73,68 @@ async function draft(text = "Scoped task") {
     },
   });
 }
+it("starts disjoint project tasks together while overlapping work waits", async () => {
+  const project = await db.project.create({
+    data: { userId, name: "Feature", folder: process.cwd() },
+  });
+  const agents = await Promise.all(
+    ["a", "b", "c"].map((name) =>
+      db.agent.create({
+        data: {
+          ...defaultAgent,
+          userId,
+          projectId: project.id,
+          name,
+          engine: "claude-code",
+          projectPath: process.cwd(),
+          conversation: { create: {} },
+        },
+      }),
+    ),
+  );
+  const paths = [["src/a"], ["src/b"], ["src/a/deeper"]];
+  const proposals = [];
+  for (let i = 0; i < agents.length; i++) {
+    proposals.push(
+      await db.proposal.create({
+        data: {
+          userId,
+          projectId: project.id,
+          runId: randomUUID(),
+          toolCallId: randomUUID(),
+          action: "dispatch_terminal",
+          agentId: agents[i].id,
+          status: "queued",
+          approvedBy: userId,
+          approvedAt: new Date(Date.now() + i),
+          payload: JSON.stringify({
+            action: "dispatch_terminal",
+            agentId: agents[i].id,
+            text: "Implement scoped change",
+            writePaths: paths[i],
+          }),
+        },
+      }),
+    );
+  }
+  await setAutomation(userId, { queueEnabled: true, autoApprove: false });
+  await processTaskQueue(userId);
+  await processTaskQueue(userId);
+  await processTaskQueue(userId);
+  expect(
+    (
+      await db.terminalDispatch.findMany({
+        where: { userId, agentId: { in: agents.map((agent) => agent.id) } },
+      })
+    )
+      .map((task) => task.agentId)
+      .sort(),
+  ).toEqual([agents[0].id, agents[1].id].sort());
+  expect(
+    (await db.proposal.findUniqueOrThrow({ where: { id: proposals[2].id } }))
+      .status,
+  ).toBe("queued");
+});
 it("defaults to manual approval and persists both automation switches independently of layout", async () => {
   expect(
     await db.user.findUniqueOrThrow({ where: { id: userId } }),
