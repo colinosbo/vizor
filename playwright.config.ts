@@ -28,7 +28,7 @@ export default defineConfig({
     },
     {
       name: "terminals",
-      testMatch: /(terminal-agents|subscription)\.spec\.ts/,
+      testMatch: /(terminal-agents|subscription|projects)\.spec\.ts/,
       use: { baseURL: "http://127.0.0.1:3105" },
     },
     {
@@ -58,6 +58,7 @@ export default defineConfig({
       SELF_HOST: port === 3101 ? "false" : "true",
       APP_ORIGIN: `http://127.0.0.1:${port}`,
       NEXT_TELEMETRY_DISABLED: "1",
+      VIZOR_DEFAULT_APPROVAL: "manual",
       DATABASE_URL: `file:./data/browser-${port}-${process.pid}.db`,
     },
   })),

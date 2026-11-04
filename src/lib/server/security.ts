@@ -3,6 +3,12 @@ import argon2 from "argon2";
 import { db } from "./db";
 import { AppError } from "./errors";
 export const selfHost = () => process.env.SELF_HOST !== "false";
+// New accounts start in full auto mode. Test servers set VIZOR_DEFAULT_APPROVAL=manual
+// so approval-flow tests keep exercising manual approval.
+const newAccountApproval = () => {
+  const automatic = process.env.VIZOR_DEFAULT_APPROVAL !== "manual";
+  return { autoApprove: automatic, queueEnabled: automatic };
+};
 export function checkRequest(request: Request) {
   const origin = new URL(process.env.APP_ORIGIN ?? "http://127.0.0.1:3000");
   if (request.headers.get("host") !== origin.host)
@@ -70,7 +76,11 @@ export async function owner(request: Request) {
   if (selfHost())
     return db.user.upsert({
       where: { id: "local-owner" },
-      create: { id: "local-owner", email: "owner@vizor.local" },
+      create: {
+        id: "local-owner",
+        email: "owner@vizor.local",
+        ...newAccountApproval(),
+      },
       update: {},
       select: { id: true, email: true },
     });
@@ -117,7 +127,9 @@ export async function authenticate(
       parallelism: 1,
     });
     try {
-      user = await db.user.create({ data: { email, passwordHash } });
+      user = await db.user.create({
+        data: { email, passwordHash, ...newAccountApproval() },
+      });
     } catch {
       throw new AppError(
         "registration",

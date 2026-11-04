@@ -12,6 +12,7 @@ import {
   orchestratorTools,
 } from "./orchestrator-context";
 import { toolResult } from "./orchestrator-tools";
+import { db } from "./db";
 export async function* streamOrchestrator(
   userId: string,
   runId: string,
@@ -19,7 +20,17 @@ export async function* streamOrchestrator(
   input: SendInput,
   scope?: string[],
 ): AsyncGenerator<StreamEvent> {
-  const context = await orchestratorContext(userId, scope);
+  const run = await db.run.findFirstOrThrow({
+    where: { id: runId, userId },
+    select: {
+      conversation: { select: { agent: { select: { projectId: true } } } },
+    },
+  });
+  const context = await orchestratorContext(
+    userId,
+    scope,
+    run.conversation.agent.projectId,
+  );
   const ids = context.agents.map((agent) => agent.id);
   const recent = input.messages
     .filter((message) => message.role !== "tool")

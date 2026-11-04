@@ -10,6 +10,7 @@ export const agentSchema = z
       .enum(["default", "acceptEdits", "auto"])
       .default("acceptEdits"),
     projectPath: z.string().max(4096).default(""),
+    projectId: z.string().min(1).max(100).nullable().optional(),
     provider: z.string().max(40).default("anthropic"),
     model: z
       .string()

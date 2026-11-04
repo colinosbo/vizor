@@ -3,11 +3,18 @@ import { AppError } from "./errors";
 import { audit } from "./audit";
 import { publish } from "./events";
 import { reportInstructions } from "./terminal-reports";
+import { parseWritePaths, scopesConflict } from "./work-scopes";
 
 async function ownedDispatch(userId: string, proposalId: string) {
   const dispatch = await db.terminalDispatch.findFirst({
     where: { userId, proposalId },
-    select: { id: true, agentId: true, text: true, status: true },
+    select: {
+      id: true,
+      agentId: true,
+      text: true,
+      status: true,
+      writePaths: true,
+    },
   });
   if (!dispatch)
     throw new AppError("not_found", "This terminal task was not found.", 404);
@@ -52,7 +59,7 @@ export async function claimTerminalDispatch(
       throw new AppError("queue_paused", "The task queue is paused.", 409);
     const agent = await tx.agent.findFirst({
       where: { id: dispatch.agentId, userId, archived: false, paused: false },
-      select: { projectPath: true },
+      select: { projectPath: true, projectId: true },
     });
     if (!agent)
       throw new AppError(
@@ -60,17 +67,62 @@ export async function claimTerminalDispatch(
         "This worker is paused or unavailable.",
         409,
       );
-    const other = await tx.terminalDispatch.findFirst({
+    const merges = await tx.mergeJob.findMany({
+      where: {
+        userId,
+        status: {
+          in: [
+            "queued",
+            "checking",
+            "waiting_checks",
+            "merging",
+            "waiting_merge",
+          ],
+        },
+      },
+      select: { project: { select: { folder: true } } },
+    });
+    if (
+      merges.some((job) =>
+        scopesConflict(agent.projectPath, [], job.project.folder, []),
+      )
+    )
+      throw new AppError(
+        "merge_busy",
+        "GitHub verification is using this project folder. Wait for it to finish.",
+        409,
+      );
+    const others = await tx.terminalDispatch.findMany({
       where: {
         userId,
         id: { not: dispatch.id },
         status: { in: ["claimed", "delivered"] },
-        ...(automatic
-          ? { agent: { projectPath: agent.projectPath } }
-          : { agentId: dispatch.agentId }),
+      },
+      select: {
+        agentId: true,
+        writePaths: true,
+        agent: { select: { projectPath: true, projectId: true } },
       },
     });
-    if (other)
+    const paths = parseWritePaths(dispatch.writePaths);
+    const conflict = others.some(
+      (other) =>
+        other.agentId === dispatch.agentId ||
+        (agent.projectId &&
+          other.agent.projectId !== agent.projectId &&
+          scopesConflict(agent.projectPath, [], other.agent.projectPath, [])) ||
+        (agent.projectId
+          ? scopesConflict(
+              agent.projectPath,
+              paths,
+              other.agent.projectPath,
+              parseWritePaths(other.writePaths),
+            )
+          : automatic &&
+            other.agent.projectPath.toLowerCase() ===
+              agent.projectPath.toLowerCase()),
+    );
+    if (conflict)
       throw new AppError(
         "worker_busy",
         "Waiting for the previous project task's report.",
@@ -94,12 +146,17 @@ export async function claimTerminalDispatch(
   try {
     const agent = await db.agent.findFirstOrThrow({
       where: { id: dispatch.agentId, userId },
-      select: { projectPath: true },
+      select: { projectPath: true, projectId: true },
     });
     return {
       agentId: dispatch.agentId,
+      sharedApproved:
+        !!agent.projectId && parseWritePaths(dispatch.writePaths).length > 0,
       text:
         dispatch.text +
+        (parseWritePaths(dispatch.writePaths).length
+          ? `\n\nVIZOR WRITE SCOPE\nEdit only these project-relative paths: ${parseWritePaths(dispatch.writePaths).join(", ")}. Other workers may edit different paths concurrently. Do not run Git commit, checkout, reset, merge, rebase, push, or pull while parallel tasks are running; report when your scoped edits are ready.`
+          : "") +
         (await reportInstructions(agent.projectPath, dispatch.id)),
     };
   } catch {

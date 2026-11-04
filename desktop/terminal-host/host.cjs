@@ -1,7 +1,7 @@
 const { Sessions } = require("./sessions.cjs");
 const { findTool, installTool } = require("./tools.cjs");
 const home = process.env.VIZOR_TOOLS_HOME;
-const { mkdirSync } = require("node:fs");
+const { mkdirSync, existsSync } = require("node:fs");
 const { join } = require("node:path");
 mkdirSync(join(home, "setup"), { recursive: true });
 mkdirSync(join(home, "claude-config"), { recursive: true });
@@ -52,7 +52,11 @@ const pty = require("./isolated-pty.cjs");
 const sessions = new Sessions({
   pty,
   notify,
-  findTool: (engine) => findTool(engine, home),
+  findTool: (engine) => {
+    if (engine !== "github") return findTool(engine, home);
+    const bundled = join(__dirname, "github-cli", "gh.exe");
+    return existsSync(bundled) ? bundled : null;
+  },
   claudeConfigDir: join(home, "claude-config"),
   subscriptionConfigDir: join(home, "claude-subscription"),
   persist: (id, nativeSessionId, event) => api(id, { nativeSessionId, event }),
@@ -102,7 +106,9 @@ process.on("message", async (message) => {
           ? await claudeApiKey()
           : null,
       );
-    } else if (action === "setup")
+    } else if (action === "setup") {
+      if (!["claude-code", "codex", "github"].includes(args.engine))
+        throw Error("Unknown setup tool.");
       result = await sessions.start(
         {
           id: `setup-${args.engine}`,
@@ -113,7 +119,7 @@ process.on("message", async (message) => {
         true,
         null,
       );
-    else if (action === "snapshot") result = sessions.snapshot(args.agentId);
+    } else if (action === "snapshot") result = sessions.snapshot(args.agentId);
     else if (action === "sendTask") {
       await sessions.sendTask(args.agentId, args.token, args.text);
       result = { ok: true };

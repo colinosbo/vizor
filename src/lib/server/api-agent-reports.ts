@@ -33,13 +33,6 @@ export async function collectApiAgentReports(userId: string) {
 }
 
 async function collect(userId: string) {
-  const coordinator = await db.agent.findFirst({
-    where: { userId, kind: "orchestrator" },
-    include: { conversation: true },
-  });
-  if (!coordinator?.conversation || coordinator.conversation.activeRunId)
-    return;
-
   const runs = await db.run.findMany({
     where: {
       userId,
@@ -54,9 +47,21 @@ async function collect(userId: string) {
     },
   });
 
-  let imported: { id: string; agentName: string; status: string } | undefined;
+  let imported:
+    | { id: string; agentName: string; status: string; coordinatorId: string }
+    | undefined;
   for (const run of runs) {
     if (!run.proposalId) continue;
+    const coordinator = await db.agent.findFirst({
+      where: {
+        userId,
+        kind: "orchestrator",
+        projectId: run.conversation.agent.projectId,
+      },
+      include: { conversation: true },
+    });
+    if (!coordinator?.conversation || coordinator.conversation.activeRunId)
+      continue;
     const id = reportId(run.id);
     if (!(await db.message.findUnique({ where: { id } }))) {
       const response = await db.message.findFirst({
@@ -132,6 +137,7 @@ async function collect(userId: string) {
       id: run.id,
       agentName: run.conversation.agent.name,
       status: run.status,
+      coordinatorId: coordinator.id,
     };
     break;
   }
@@ -146,7 +152,7 @@ async function collect(userId: string) {
       import("./db"),
     ]);
     const current = await database.agent.findFirst({
-      where: { id: coordinator.id, userId, kind: "orchestrator" },
+      where: { id: imported.coordinatorId, userId, kind: "orchestrator" },
       select: { id: true, conversation: { select: { activeRunId: true } } },
     });
     if (!current || current.conversation?.activeRunId) return;

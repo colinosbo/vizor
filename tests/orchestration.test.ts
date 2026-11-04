@@ -727,7 +727,7 @@ describe("orchestrator context and approval boundaries", () => {
         req("orchestrator", "PATCH", {
           ...config,
           projectInstructions:
-            "Coordinate BlackForge; one writer per checkout.",
+            "Coordinate ExampleProject; one writer per checkout.",
         }),
         ctx("orchestrator"),
       );
@@ -735,9 +735,9 @@ describe("orchestrator context and approval boundaries", () => {
       await configureOrchestrator(alice, config);
       const saved = await ownedAgent(alice, orchestrator);
       expect(saved.systemPrompt).toContain("one writer per checkout");
-      expect(saved.systemPrompt).toContain("Autopilot is OFF");
+      expect(saved.systemPrompt).toContain("Autopilot ON means");
       expect((await ownedAgent(bob, foreign)).systemPrompt).not.toContain(
-        "BlackForge",
+        "ExampleProject",
       );
       vi.mocked(anthropic.stream).mockImplementation(async function* (input) {
         expect(input.system).toBe(saved.systemPrompt);

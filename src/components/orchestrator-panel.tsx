@@ -43,6 +43,9 @@ export function OrchestratorPanel({
   const setScope = (update: (old: string[]) => string[]) =>
     workspace.setContextScope(update(scope));
   const agent = workspace.orchestrator;
+  const mergeJob = workspace.data?.mergeJobs?.find(
+    (job) => job.projectId === workspace.projectId,
+  );
   const configuredProvider = workspace.data!.providers.find(
     (p) => p.id === agent?.provider,
   );
@@ -68,7 +71,10 @@ export function OrchestratorPanel({
       const result = await api<{
         cancelledProposals: number;
         retiredTasks: number;
-      }>("orchestrator/clear", "POST");
+      }>(
+        `orchestrator/clear${workspace.projectId ? `?projectId=${encodeURIComponent(workspace.projectId)}` : ""}`,
+        "POST",
+      );
       await workspace.reload();
       workspace.setNotice(
         `Fresh Orchestrator chat started. Cleared ${result.cancelledProposals} pending approval${result.cancelledProposals === 1 ? "" : "s"} and retired ${result.retiredTasks} unsent or stopped task${result.retiredTasks === 1 ? "" : "s"}. Running terminals were left alone.`,
@@ -137,6 +143,27 @@ export function OrchestratorPanel({
           className={`orchestrator-columns ${showTeam ? "team-open" : "team-closed"}`}
         >
           <div className="orchestrator-conversation">
+            {mergeJob && (
+              <div className="project-merge-status" role="status">
+                <span>
+                  {mergeJob.status === "merged"
+                    ? "Merged on GitHub"
+                    : mergeJob.status === "blocked"
+                      ? "GitHub merge needs attention"
+                      : mergeJob.status === "waiting_checks"
+                        ? "Waiting for GitHub checks"
+                        : mergeJob.status === "waiting_merge"
+                          ? "Waiting for GitHub to finish merging"
+                          : "Checking GitHub merge"}
+                </span>
+                {mergeJob.error && <span>{mergeJob.error}</span>}
+                {mergeJob.prUrl && (
+                  <a href={mergeJob.prUrl} target="_blank" rel="noreferrer">
+                    View pull request
+                  </a>
+                )}
+              </div>
+            )}
             <div className="orchestrator-shortcuts">
               <button
                 disabled={
@@ -466,6 +493,7 @@ function OrchestratorSettings({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [showSetup, setShowSetup] = useState(false);
+  const [showGithubSetup, setShowGithubSetup] = useState(false);
   useEffect(() => {
     if (!showSetup) return;
     const bridge = window.vizorDesktop?.terminals;
@@ -479,6 +507,19 @@ function OrchestratorSettings({
         .catch(() => {});
     };
   }, [showSetup]);
+  useEffect(() => {
+    if (!showGithubSetup) return;
+    const bridge = window.vizorDesktop?.terminals;
+    return () => {
+      void bridge
+        ?.snapshot("setup-github")
+        .then((state) => {
+          if (state.state === "running" && state.token)
+            return bridge.stop(state.agentId, state.token);
+        })
+        .catch(() => {});
+    };
+  }, [showGithubSetup]);
   const models = workspace.models[config.provider];
   const subscription = config.orchestratorMode === "subscription";
   return (
@@ -491,6 +532,7 @@ function OrchestratorSettings({
           try {
             await api("orchestrator", "PATCH", {
               ...config,
+              projectId: workspace.projectId,
               ...(subscription
                 ? {
                     provider: "anthropic",
@@ -510,6 +552,57 @@ function OrchestratorSettings({
           }
         }}
       >
+        {typeof window !== "undefined" && window.vizorDesktop?.terminals && (
+          <div className="subscription-setup">
+            <p className="field-note">
+              Connect GitHub to create pull requests and merge after required
+              checks pass. Git for Windows is also required.
+            </p>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const bridge = window.vizorDesktop?.terminals;
+                  if (!bridge)
+                    throw Error("Open the Windows desktop app first.");
+                  await bridge.setup("github");
+                  setShowGithubSetup(true);
+                } catch (error) {
+                  setError((error as Error).message);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            >
+              Connect GitHub
+            </button>
+            {showGithubSetup && (
+              <>
+                <p>
+                  Follow the sign-in instructions here and finish authorization
+                  in your browser.
+                </p>
+                <div className="subscription-setup-surface">
+                  <TerminalSurface
+                    agentId="setup-github"
+                    bridge={window.vizorDesktop.terminals}
+                    onState={() => {}}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowGithubSetup(false)}
+                >
+                  Close GitHub sign-in
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <label>
           Connection
           <select

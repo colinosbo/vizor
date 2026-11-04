@@ -88,6 +88,65 @@ afterAll(async () => {
   vi.restoreAllMocks();
   await db.$disconnect();
 });
+it("keeps projects owned by their creator and allows features to share a folder", async () => {
+  for (const name of ["First feature", "Second feature"]) {
+    const response = await POST(
+      req("projects", "POST", { name, folder: "C:\\projects\\shared" }),
+      ctx("projects"),
+    );
+    expect(response.status).toBe(200);
+  }
+  const aliceProjects = (
+    await workspace({ id: alice, email: "alice@test.local" })
+  ).projects;
+  const bobProjects = (await workspace({ id: bob, email: "bob@test.local" }))
+    .projects;
+  expect(aliceProjects.map((project) => project.name)).toEqual([
+    "First feature",
+    "Second feature",
+  ]);
+  expect(bobProjects).toEqual([]);
+  const [first, second] = aliceProjects;
+  const firstAgent = await db.agent.create({
+    data: {
+      ...defaultAgent,
+      name: "First worker",
+      userId: alice,
+      projectId: first.id,
+      conversation: { create: {} },
+    },
+  });
+  const secondAgent = await db.agent.create({
+    data: {
+      ...defaultAgent,
+      name: "Second worker",
+      userId: alice,
+      projectId: second.id,
+      conversation: { create: {} },
+    },
+  });
+  const one = await workspace(
+    { id: alice, email: "alice@test.local" },
+    first.id,
+  );
+  const two = await workspace(
+    { id: alice, email: "alice@test.local" },
+    second.id,
+  );
+  expect(one.agents.map((agent) => agent.id)).toEqual([firstAgent.id]);
+  expect(two.agents.map((agent) => agent.id)).toEqual([secondAgent.id]);
+  await expect(
+    workspace({ id: bob, email: "bob@test.local" }, first.id),
+  ).rejects.toMatchObject({ status: 404 });
+  await db.agent.deleteMany({
+    where: { id: { in: [firstAgent.id, secondAgent.id] } },
+  });
+  const invalid = await POST(
+    req("projects", "POST", { name: "Invalid", folder: "relative" }),
+    ctx("projects"),
+  );
+  expect(invalid.status).toBe(400);
+});
 describe("real SQLite isolation and sessions", () => {
   it("hashes passwords and session tokens", async () => {
     const user = await db.user.findUniqueOrThrow({ where: { id: alice } });

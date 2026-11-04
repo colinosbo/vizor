@@ -57,6 +57,20 @@ function fixture() {
   });
   return { sessions, terminals, pty, notify, persist, bootstrap, agent };
 }
+it("opens GitHub's device sign-in without exposing app credentials", async () => {
+  const f = fixture();
+  await f.sessions.start(f.agent("setup-github", "github"), false, true);
+  expect(f.pty.spawn.mock.calls[0][1]).toEqual([
+    "auth",
+    "login",
+    "--hostname",
+    "github.com",
+    "--web",
+    "--git-protocol",
+    "https",
+  ]);
+  expect(f.pty.spawn.mock.calls[0][2].env.ANTHROPIC_API_KEY).toBeUndefined();
+});
 it("isolates input, resize and stop by agent AND live session token", async () => {
   const f = fixture();
   const a = await f.sessions.start(f.agent("a"));

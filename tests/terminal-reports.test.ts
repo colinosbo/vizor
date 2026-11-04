@@ -129,6 +129,43 @@ it("imports a bounded report only for its owner, labels provenance, redacts keys
   expect(messages[0].text).not.toContain("sk-ant-private");
   expect(fetch).not.toHaveBeenCalled();
 });
+it("delivers a worker report only to its own project's Orchestrator", async () => {
+  const feature = await db.project.create({
+    data: { userId: owner, name: "Feature", folder: project },
+  });
+  const lead = await db.agent.create({
+    data: {
+      ...defaultAgent,
+      userId: owner,
+      projectId: feature.id,
+      kind: "orchestrator",
+      conversation: { create: {} },
+    },
+    include: { conversation: true },
+  });
+  const task = await db.terminalDispatch.findUniqueOrThrow({
+    where: { id: dispatch },
+  });
+  await db.agent.update({
+    where: { id: task.agentId },
+    data: { projectId: feature.id },
+  });
+  await report();
+  await collectTerminalReports(owner);
+  expect(
+    await db.message.count({
+      where: {
+        conversationId: lead.conversation!.id,
+        origin: "terminal_report",
+      },
+    }),
+  ).toBe(1);
+  expect(
+    await db.message.count({
+      where: { conversationId: conversation, origin: "terminal_report" },
+    }),
+  ).toBe(0);
+});
 it("ignores mismatched, malformed, and oversized reports but accepts a later complete write", async () => {
   const file = await report({ dispatchId: "wrong" });
   await collectTerminalReports(owner);
