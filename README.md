@@ -2,8 +2,6 @@
 
 A local dashboard for your coding agents. Create projects for features, connect your own Claude Code subscription, and let each project's Orchestrator coordinate its coding team. Everyone runs their own installation with their own accounts and data. **New accounts start in full auto mode: the Orchestrator decides and Vizor approves and dispatches its proposals. Turn off Full auto approval and the approved-task queue to approve everything by hand. Existing accounts keep their saved settings.**
 
-The proposed [intelligent orchestration architecture](docs/architecture/intelligent-orchestration.md) defines the next layer of cost-efficient task routing, context management, verification, and agent coordination. Its [Agent Skills and model routing design](docs/architecture/agent-skills-and-routing.md) covers portable skills, progressive loading, model/effort selection, and evidence-based escalation. These are engineering guidelines for future implementation; they do not enable new runtime behavior.
-
 ## Download and run
 
 **Want to use your Claude subscription? [Follow the short setup guide](QUICK-START.md).** Download the Windows **EXE installer** from [Releases](https://github.com/colinosbo/vizor/releases/latest), sign in with your own Claude account, and add a coding agent. No API key or commands needed. Subscription support requires the Windows desktop app; browser-only portable packages use API connections.
@@ -13,10 +11,6 @@ The proposed [intelligent orchestration architecture](docs/architecture/intellig
 Choose **New agent → Claude Code or Codex → Browse** to pick a project. **Set up / sign in** installs a checksum-verified official native tool if needed and opens its own sign-in interface. **Resume** opens that agent's terminal; **Interrupt** sends Ctrl+C; **Stop** closes only that terminal and keeps its native session. You can also rename, archive, arrange, resize and focus panels. Up to eight terminal processes can run at once. Reopening the app restores the board with terminals stopped until you resume them. The Orchestrator recommends a team size, shows each agent's assignment and status, and gathers agent reports into a leadership update. Approving a terminal task starts that agent and delivers the approved task automatically; CLI permission prompts remain under the tool's control. See [Terminal agents](TERMINAL-AGENTS.md) and the [verification report](verification/terminal-agents/REPORT.md).
 
 Terminal agents use the account selected inside each CLI and retain native permission prompts. No API key is required for them. API agents and credits remain available under **API keys**; Vizor's dollar caps apply only to API calls. The Windows Orchestrator can also use a Claude Code subscription, with native sign-in and no API fallback. It receives structured worker reports, not private terminal transcripts.
-
-The Windows app and installer keep the approved orange Claude character inside a scope. See the [icon update verification](verification/icon-refresh/REPORT.md).
-
-The [v0.8.0 automatic update report](verification/automatic-updates/REPORT.md) records the signed-release checks, real Windows upgrade tests and verification boundaries.
 
 **Portable downloads** remain available for Windows, macOS and Linux:
 
@@ -182,7 +176,13 @@ Tests use invented credentials and mocked provider HTTP transport; they make no 
 
 Live inference, billing eligibility and model access require your own key entered through the app and remain untested unless explicitly recorded in that report.
 
+For release history, see the [v0.8.0 automatic update report](verification/automatic-updates/REPORT.md) and the [Windows icon update report](verification/icon-refresh/REPORT.md).
+
 ## Later stages
+
+The [development automation plan](docs/automation-plan.md) describes the proposed GitHub issue, webhook, agent, and dashboard workflow. See [repository decisions](AGENTS.md) for the rules agents should follow.
+
+The proposed [intelligent orchestration architecture](docs/architecture/intelligent-orchestration.md) and [Agent Skills and model routing design](docs/architecture/agent-skills-and-routing.md) cover portable skills, model selection, context management, and verification.
 
 Stages three/four and provider spending limits are delivered here. Bounded autopilot, hourly/loop limits and a global kill switch for autonomous activity remain future work. User preference for that stage: bounded agent-triggered replies may be automatic; agent-management actions require approval. Its provenance/permission design still needs review before implementation. Hosted PostgreSQL and public deployment also remain separate work.
 
