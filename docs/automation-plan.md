@@ -19,4 +19,11 @@ For the first test, run `cloudflared` on the Vizor PC and expose only the GitHub
 
 **First milestone:** One approved GitHub issue dispatches one real agent. The dashboard shows queued, working, and PR ready, with a link to the resulting PR. Resending the same delivery starts no additional run.
 
+**Pilot evidence checklist:** Record these before marking the first milestone done.
+
+- [ ] Delivery ID: the GitHub `X-GitHub-Delivery` value of the accepted webhook delivery.
+- [ ] Observed dashboard states: queued, working, and PR ready, as shown for that run.
+- [ ] PR link: the URL of the resulting pull request.
+- [ ] Duplicate check: resending the same delivery ID started no additional run.
+
 **Open decisions:** Finalize the dispatch label and how Vizor handles missed deliveries after downtime. Choose a stable tunnel hostname if the temporary Quick Tunnel URL becomes a daily setup burden.
