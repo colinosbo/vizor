@@ -18,8 +18,21 @@ const oldManagerId = randomUUID();
 const admin = "Basic " + Buffer.from(`owner:${password}`).toString("base64");
 const origin = "http://127.0.0.1:4387";
 let relay: ChildProcess, url: string, webhookUrl: string;
-async function start(port = 0, webhook?: Record<string, string>) {
-  relay = spawn(process.execPath, ["scripts/shared-relay.mjs"], {
+async function start(
+  port = 0,
+  webhook?: Record<string, string>,
+  advanceMs = 0,
+) {
+  const args = ["scripts/shared-relay.mjs"];
+  if (advanceMs) {
+    const clock = join(folder, "advance-clock.cjs");
+    writeFileSync(
+      clock,
+      "const now = Date.now; Date.now = () => now() + " + advanceMs,
+    );
+    args.unshift("--require", clock);
+  }
+  relay = spawn(process.execPath, args, {
     windowsHide: true,
     env: {
       ...process.env,
@@ -239,6 +252,19 @@ it("dispatches only the configured signed GitHub issue and preserves one assignm
     assignee: developer.agent.id,
     retryAt,
   });
+  await stop();
+  await start(0, settings, 3 * 60 * 60 * 1000 + 1000);
+  expect(
+    (await send(developer.key, project.id, { kind: "work_start", ...turn }))
+      .status,
+  ).toBe(200);
+  const resumed = (await state(manager.key, project.id)).queue[0];
+  expect(resumed).toMatchObject({
+    status: "working",
+    executionId: dispatchId,
+    attempts: 1,
+  });
+  expect(resumed.retryAt).toBeUndefined();
   await stop();
   await start();
 });
@@ -536,12 +562,25 @@ it("migrates existing state and runs an isolated project queue through dependenc
       })
     ).status,
   ).toBe(409);
-  await send(manager.key, project, {
+  await stop();
+  await start();
+  const clarification = {
     kind: "reply",
     turnId: question.id,
     basis: question.id,
     text: "Preserve the documented default.",
-  });
+  };
+  expect(
+    (
+      await post(
+        "/dashboard/project",
+        admin,
+        { id: randomUUID(), action: clarification },
+        project,
+      )
+    ).status,
+  ).toBe(200);
+  expect((await send(manager.key, project, clarification)).status).toBe(409);
   const answer = (await state(second.key, project)).turn;
   await send(second.key, project, {
     kind: "claim",

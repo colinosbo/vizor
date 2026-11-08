@@ -575,6 +575,40 @@ function publicationButton(task) {
   });
   return button;
 }
+function replyToWorker(turnId) {
+  const form = node("form");
+  const label = node("label", "Answer worker question");
+  const answer = node("textarea");
+  answer.required = true;
+  answer.maxLength = 6000;
+  answer.rows = 3;
+  label.append(answer);
+  const submit = node("button", "Send answer");
+  submit.type = "submit";
+  form.append(label, submit);
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!answer.value.trim()) return;
+    submit.disabled = true;
+    alert("");
+    try {
+      await saveAgentAction("/dashboard/project", {
+        id: crypto.randomUUID(),
+        action: {
+          kind: "reply",
+          basis: latestState.latest.id,
+          turnId,
+          text: answer.value.trim(),
+        },
+      });
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  return form;
+}
 function renderQueue(state) {
   const container = document.getElementById("task-queue");
   const expanded = new Set(
@@ -594,17 +628,27 @@ function renderQueue(state) {
       .filter((task) => filter === "all" || task.status === filter)
       .map((task) => {
         const row = node("article", "", "row queued-task");
+        const question = state.tasks.find(
+          (thread) =>
+            thread.task.id === task.executionId &&
+            thread.turn.kind === "report" &&
+            thread.turn.needsReply,
+        )?.turn;
         const heading = node("div", "", "section-bar");
         heading.append(
           node("h3", task.title),
           badge(
             task.retryAt
               ? "Waiting for Claude usage"
-              : task.handoff && !task.handoff.prUrl && !task.publicationApproved
-                ? "Publication approval needed"
-                : task.status === "review"
-                  ? "Ready for review"
-                  : task.status,
+              : question
+                ? "Needs answer"
+                : task.handoff &&
+                    !task.handoff.prUrl &&
+                    !task.publicationApproved
+                  ? "Publication approval needed"
+                  : task.status === "review"
+                    ? "Ready for review"
+                    : task.status,
             task.status === "complete" ? "open" : "agent",
           ),
         );
@@ -641,7 +685,7 @@ function renderQueue(state) {
           );
         const details = node("details");
         details.dataset.task = task.id;
-        details.open = expanded.has(task.id);
+        details.open = Boolean(question) || expanded.has(task.id);
         details.append(
           node("summary", "Task details"),
           node("h4", "Acceptance criteria"),
@@ -684,6 +728,7 @@ function renderQueue(state) {
           }
         }
         row.append(details);
+        if (question && !state.decision) row.append(replyToWorker(question.id));
         const controls = node("div", "", "runner-actions");
         if (task.handoff && !task.handoff.prUrl && !task.publicationApproved)
           controls.append(publicationButton(task));

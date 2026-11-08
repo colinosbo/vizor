@@ -37,3 +37,7 @@ For the first test, run `cloudflared` on the Vizor PC and expose only the GitHub
 5. Review the worker's checks and approve publication of its exact candidate commit in Vizor. Verify the PR link in the task, then remove the temporary repository webhook and stop the tunnel.
 
 If Claude Code reports that the subscription usage limit is exhausted, the worker saves the assignment and schedules another attempt in three hours. The dashboard shows the next attempt, and restarting the runner preserves the wait. The same assignment resumes when the worker is online, even if the temporary webhook has already been removed. API fallback stays disabled.
+
+When a worker needs clarification, it pauses the assignment and records the question in its task thread. The Orchestrator can answer from the approved plan or ask for an owner decision. The owner can also answer directly from the task card if the manager is unavailable. The worker resumes with the same approved files and acceptance criteria. Use a new approval for changes to scope.
+
+If the tunnel or relay was down before GitHub could deliver the event, restart the listener and redeliver from the repository webhook’s **Recent deliveries** page. If a Quick Tunnel restarted with a new URL, update the webhook first. After Vizor accepts an event, the saved assignment can resume without the tunnel.

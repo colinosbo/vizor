@@ -377,6 +377,7 @@ function allowed(current, next, role, actor, githubDispatch) {
       "task_create",
       "task_accept",
       "task_retry",
+      "reply",
       "publish_approve",
     ].includes(next.kind)
   )
@@ -507,7 +508,7 @@ function allowed(current, next, role, actor, githubDispatch) {
       const thread = current.tasks.find((item) => item.turn.id === next.turnId);
       return (
         thread &&
-        thread.replies < 12 &&
+        (!actor || thread.replies < 12) &&
         thread.turn.kind === "report" &&
         thread.turn.needsReply
       );
@@ -1297,6 +1298,7 @@ const server = createServer(
             "task_create",
             "task_accept",
             "task_retry",
+            "reply",
             "publish_approve",
             "project_message",
           ].includes(input.data.action.kind)

@@ -78,6 +78,45 @@ function model(
   });
 }
 
+it("preserves a worker question and applies no edit even if the model claims completion", async () => {
+  const { folder, git } = fixture();
+  const question = {
+    id: "q1",
+    question: "What exact value is approved?",
+    options: [],
+  };
+  vi.mocked(runClaude).mockImplementation(async (args) =>
+    JSON.stringify(
+      args[0] === "auth"
+        ? { loggedIn: true, authMethod: "claude.ai" }
+        : {
+            structured_output: {
+              outcome: "completed",
+              summary: "I need the approved value.",
+              questions: [question],
+              checks: [],
+              artifacts: [],
+              edits: [{ file: "a.txt", find: "zero", replace: "guess" }],
+            },
+          },
+    ),
+  );
+  vi.mocked(commandRunner).mockImplementation(actual.commandRunner);
+  const report = await runHeadlessWorker(
+    folder,
+    "sonnet",
+    "Apply only the approved value.",
+    ["a.txt"],
+  );
+  expect(report).toMatchObject({
+    outcome: "blocked",
+    questions: [question],
+    artifacts: [],
+  });
+  expect(git("status", "--porcelain")).toBe("");
+  expect(readFileSync(join(folder, "a.txt"), "utf8")).toBe("zero\r\n");
+});
+
 it("edits multiple files, runs a real check, commits only scope and reconciles a lost PR response", async () => {
   const { folder, git } = fixture();
   model([

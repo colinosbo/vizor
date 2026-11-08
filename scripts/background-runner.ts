@@ -559,6 +559,7 @@ if (process.argv.includes("--login")) {
               continue;
             }
             await claimTerminalDispatch(user.id, task.proposalId);
+            let workStarted = false;
             try {
               const started = await fetchRelay("/v1/project", {
                 method: "POST",
@@ -577,6 +578,7 @@ if (process.argv.includes("--login")) {
                 }),
               });
               if (!started.ok) throw Error("The shared task could not start.");
+              workStarted = true;
               const files: string[] = JSON.parse(task.writePaths);
               let report: Awaited<ReturnType<typeof runHeadlessWorker>>;
               if (current.turn.kind === "publish_approve") {
@@ -639,6 +641,21 @@ if (process.argv.includes("--login")) {
               await completeTerminalDispatch(user.id, task.proposalId);
               await collectTerminalReports(user.id);
             } catch (error) {
+              if (!workStarted) {
+                await db.terminalDispatch.update({
+                  where: { id: task.id },
+                  data: {
+                    status: "ready",
+                    claimedAt: null,
+                    error:
+                      "Waiting for the relay to confirm the assignment start.",
+                  },
+                });
+                await delay(5000, undefined, { signal: shutdown.signal }).catch(
+                  () => {},
+                );
+                continue;
+              }
               if (
                 error instanceof Error &&
                 "code" in error &&
