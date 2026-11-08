@@ -104,7 +104,7 @@ export function taskQueue(events) {
       if (event.kind === "usage_wait") {
         task.status = "assigned";
         task.retryAt = event.retryAt;
-        task.summary = "Waiting for Claude Code subscription usage.";
+        task.summary = "Waiting for worker subscription usage.";
       }
       if (event.kind === "publish_wait") {
         task.status = "blocked";

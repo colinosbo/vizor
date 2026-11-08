@@ -116,6 +116,9 @@ if (process.argv.includes("--login")) {
       key: process.env.VIZOR_RUNNER_PAIRING_KEY ?? "",
       folder: process.env.VIZOR_RUNNER_REPO ?? "",
       model: process.env.VIZOR_RUNNER_MODEL ?? "sonnet",
+      engine: z
+        .enum(["claude", "codex"])
+        .parse(process.env.VIZOR_RUNNER_ENGINE ?? "claude"),
     };
     if (
       !config.folder ||
@@ -263,7 +266,12 @@ if (process.argv.includes("--login")) {
     } = await import("../src/lib/server/terminal-dispatches");
     const { collectTerminalReports, reportPath, reportSchema } =
       await import("../src/lib/server/terminal-reports");
-    if (!(role === "worker" && pairing.turn?.kind === "publish_approve"))
+    if (role === "owner" && config.engine === "codex")
+      throw Error("Use the Codex engine on a Developer or Reviewer runner.");
+    if (
+      config.engine === "claude" &&
+      !(role === "worker" && pairing.turn?.kind === "publish_approve")
+    )
       await assertRunnerSubscription();
     if (role === "owner") {
       // Check the manager connection before taking project planning work.
@@ -617,6 +625,8 @@ if (process.argv.includes("--login")) {
                     id: task.sharedTaskId!,
                     repository: current.project?.repository ?? repository,
                     title: queued?.title ?? "Vizor task",
+                    engine: config.engine,
+
                     checks: z
                       .array(checkNames)
                       .parse(queued?.checks ?? ["diff"]),
@@ -659,7 +669,9 @@ if (process.argv.includes("--login")) {
               if (
                 error instanceof Error &&
                 "code" in error &&
-                error.code === "claude_usage_limit"
+                ["claude_usage_limit", "codex_usage_limit"].includes(
+                  String(error.code),
+                )
               ) {
                 await db.terminalDispatch.update({
                   where: { id: task.id },
@@ -667,7 +679,7 @@ if (process.argv.includes("--login")) {
                     status: "ready",
                     claimedAt: null,
                     retryAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
-                    error: "Waiting for Claude Code subscription usage.",
+                    error: "Waiting for worker subscription usage.",
                   },
                 });
                 continue;

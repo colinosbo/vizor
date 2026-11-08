@@ -41,3 +41,5 @@ If Claude Code reports that the subscription usage limit is exhausted, the worke
 When a worker needs clarification, it pauses the assignment and records the question in its task thread. The Orchestrator can answer from the approved plan or ask for an owner decision. The owner can also answer directly from the task card if the manager is unavailable. The worker resumes with the same approved files and acceptance criteria. Use a new approval for changes to scope.
 
 If the tunnel or relay was down before GitHub could deliver the event, restart the listener and redeliver from the repository webhook’s **Recent deliveries** page. If a Quick Tunnel restarted with a new URL, update the webhook first. After Vizor accepts an event, the saved assignment can resume without the tunnel.
+
+A Developer or Reviewer runner can use Codex with ChatGPT sign-in. Start it with VIZOR_RUNNER_ENGINE=codex. It receives the same saved assignment, role instructions, approved file snapshots and clarification history. Vizor applies the validated edits, runs checks and waits for approval before publishing the PR.

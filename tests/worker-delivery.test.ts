@@ -12,8 +12,10 @@ import { expect, it, vi } from "vitest";
 import { runHeadlessWorker } from "../src/lib/server/headless-worker";
 import { publishWorkerPr } from "../src/lib/server/worker-delivery";
 import { runClaude } from "../src/lib/server/subscription";
+import { runCodexWorker } from "../src/lib/server/codex-worker";
 import { commandRunner } from "../src/lib/server/github-merge-check";
 
+vi.mock("../src/lib/server/codex-worker", () => ({ runCodexWorker: vi.fn() }));
 vi.mock("../src/lib/server/subscription", () => ({ runClaude: vi.fn() }));
 vi.mock("../src/lib/server/github-merge-check", async (original) => {
   const module =
@@ -77,6 +79,49 @@ function model(
     });
   });
 }
+
+it("uses the saved role and approved scope with Codex and records that engine in the PR handoff", async () => {
+  const { folder, git } = fixture();
+  const before = vi.mocked(runClaude).mock.calls.length;
+  vi.mocked(commandRunner).mockImplementation(actual.commandRunner);
+  vi.mocked(runCodexWorker).mockResolvedValue({
+    outcome: "completed",
+    summary: "Applied the approved label.",
+    checks: [],
+    artifacts: [],
+    questions: [],
+    edits: [{ file: "a.txt", find: "zero", replace: "one" }],
+  });
+  const report = await runHeadlessWorker(
+    folder,
+    "haiku",
+    "The owner answered: use the approved label.",
+    ["a.txt"],
+    { preset: "developer", instructions: "Keep the existing line ending." },
+    {
+      id: randomUUID(),
+      repository: "example/repository",
+      title: "Apply the label",
+      checks: ["diff"],
+      preparePr: true,
+      engine: "codex",
+    },
+  );
+  expect(vi.mocked(runClaude).mock.calls).toHaveLength(before);
+  const [prompt] = vi.mocked(runCodexWorker).mock.lastCall!;
+  expect(prompt).toContain("Keep the existing line ending.");
+  expect(prompt).toContain("The owner answered: use the approved label.");
+  expect(report).toMatchObject({
+    outcome: "completed",
+    handoff: {
+      files: ["a.txt"],
+      checks: expect.arrayContaining([
+        "Prepared with Codex using ChatGPT sign-in.",
+      ]),
+    },
+  });
+  expect(git("status", "--porcelain")).toBe("");
+});
 
 it("preserves a worker question and applies no edit even if the model claims completion", async () => {
   const { folder, git } = fixture();

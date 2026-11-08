@@ -436,7 +436,7 @@ const eventNames = {
   task_accept: "Task accepted",
   task_retry: "Task returned to queue",
   work_start: "Worker started task",
-  usage_wait: "Waiting for Claude usage",
+  usage_wait: "Waiting for subscription usage",
   publish_approve: "PR publication approved",
   publish_wait: "PR publication waiting to retry",
   review: "PR review",
@@ -639,7 +639,7 @@ function renderQueue(state) {
           node("h3", task.title),
           badge(
             task.retryAt
-              ? "Waiting for Claude usage"
+              ? "Waiting for subscription usage"
               : question
                 ? "Needs answer"
                 : task.handoff &&
