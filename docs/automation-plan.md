@@ -27,3 +27,5 @@ For the first test, run `cloudflared` on the Vizor PC and expose only the GitHub
 - [ ] Duplicate check: resending the same delivery ID started no additional run.
 
 **Open decisions:** Finalize the dispatch label and how Vizor handles missed deliveries after downtime. Choose a stable tunnel hostname if the temporary Quick Tunnel URL becomes a daily setup burden.
+
+Vizor can use a Codex worker with ChatGPT sign-in.
