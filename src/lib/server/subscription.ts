@@ -14,6 +14,7 @@ import {
   PR_REVIEW_POLICY,
 } from "./orchestrator-context";
 import { toolResult } from "./orchestrator-tools";
+import { claudeUsage, type UsageWindow } from "./runner-usage";
 import type { SendInput, StreamEvent } from "../providers/types";
 
 export function subscriptionAvailable() {
@@ -54,6 +55,7 @@ export async function runClaude(
   args: string[],
   input: string,
   signal?: AbortSignal,
+  onUsage?: (windows: UsageWindow[]) => void,
 ) {
   const native = nativeRuntime();
   await mkdir(native.cwd, { recursive: true });
@@ -123,6 +125,24 @@ export async function runClaude(
         try {
           noLogin = JSON.parse(text).loggedIn === false;
         } catch {}
+      }
+      if (onUsage) {
+        const readings = new Map<number, UsageWindow>();
+        let result = "";
+        for (const line of text.split("\n")) {
+          try {
+            const event = JSON.parse(line);
+            if (event.type === "rate_limit_event")
+              for (const reading of claudeUsage(event.rate_limit_info))
+                readings.set(reading.minutes, {
+                  ...readings.get(reading.minutes),
+                  ...reading,
+                });
+            if (event.type === "result") result = line;
+          } catch {}
+        }
+        onUsage([...readings.values()]);
+        if (result) text = result;
       }
       if (args.includes("--print")) {
         const messages = code !== 0 ? [stderr] : [];

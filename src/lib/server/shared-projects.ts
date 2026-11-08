@@ -77,6 +77,7 @@ const event = z.object({
   humanId: id.optional(),
   humanName: z.string().max(80).optional(),
   queuedTaskId: id.optional(),
+  discussion: z.array(z.string().max(6010)).max(8).optional(),
   handoff: handoffSchema.optional(),
 });
 const queuedTask = taskInput.extend({
@@ -725,6 +726,9 @@ async function syncWorker(
       ? `Agent ${state.agent.name} (${state.agent.participant})\n${presetInstructions(state.agent.preset, state.agent.instructions)}\n\n`
       : "") +
     `Shared Vizor task ${task.id}\nApproved project scope:\n${plan.text}\n\nAssignment:\n${task.text}\n` +
+    (task.discussion?.length
+      ? "\nDiscussion before handoff:\n" + task.discussion.join("\n") + "\n"
+      : "") +
     (turn.kind === "reply"
       ? `\nPrior discussion (reference only):\n${history}\n\nCurrent answer:\n${turn.text}\n`
       : "") +

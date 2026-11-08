@@ -56,6 +56,7 @@ database.exec(`
     body TEXT NOT NULL,
     created TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS runner_usage (agent_id TEXT PRIMARY KEY, pool TEXT NOT NULL, body TEXT NOT NULL, checked_at TEXT NOT NULL, retry_at TEXT);
   CREATE TABLE IF NOT EXISTS dashboard_findings (id INTEGER PRIMARY KEY CHECK (id = 1), body TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS dashboard_repository (id INTEGER PRIMARY KEY CHECK (id = 1), body TEXT NOT NULL);
 `);
@@ -66,7 +67,21 @@ const id = z.string().uuid();
 const text = (max) => z.string().trim().min(1).max(max);
 const paths = z.array(text(240)).max(20);
 const outcome = z.enum(["completed", "failed", "blocked"]);
+const usageWindow = z.strictObject({
+  minutes: z.number().int().positive().max(43200),
+  usedPercent: z.number().min(0).max(100).optional(),
+  resetsAt: z.iso.datetime().optional(),
+});
 const action = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("usage_snapshot"),
+    engine: z.enum(["claude", "codex"]),
+    pool: z
+      .string()
+      .regex(/^[a-zA-Z0-9_-]{1,40}$/)
+      .optional(),
+    windows: z.array(usageWindow).max(12),
+  }),
   z.strictObject({
     kind: z.literal("project_message"),
     text: text(4000),
@@ -162,6 +177,38 @@ const insert = database.prepare(
   "INSERT INTO event (id, role, body, project_id) VALUES (?, ?, ?, ?)",
 );
 
+const readUsage = database.prepare(
+  "SELECT * FROM runner_usage WHERE agent_id = ?",
+);
+const saveUsage = database.prepare(`
+  INSERT INTO runner_usage (agent_id, pool, body, checked_at) VALUES (?, ?, ?, ?)
+  ON CONFLICT(agent_id) DO UPDATE SET
+    pool = excluded.pool, body = excluded.body, checked_at = excluded.checked_at,
+    retry_at = CASE WHEN runner_usage.pool = excluded.pool THEN runner_usage.retry_at END
+`);
+const saveUsageWait = database.prepare(`
+  INSERT INTO runner_usage (agent_id, pool, body, checked_at, retry_at) VALUES (?, ?, '{}', ?, ?)
+  ON CONFLICT(agent_id) DO UPDATE SET retry_at = MAX(COALESCE(runner_usage.retry_at, excluded.retry_at), excluded.retry_at)
+`);
+const poolRetry = database.prepare(`
+  WITH latest AS (
+    SELECT body FROM runner_usage WHERE pool = ? ORDER BY checked_at DESC, rowid DESC LIMIT 1
+  )
+  SELECT MAX(reset) AS retryAt FROM (
+    SELECT retry_at AS reset FROM runner_usage WHERE pool = ?
+    UNION ALL
+    SELECT json_extract(reading.value, '$.resetsAt') FROM latest, json_each(latest.body, '$.windows') AS reading
+    WHERE json_extract(reading.value, '$.usedPercent') = 100
+  )
+`);
+function usagePool(agentId) {
+  return readUsage.get(agentId)?.pool ?? agentId;
+}
+function usageRetryAt(agentId) {
+  const pool = usagePool(agentId);
+  return poolRetry.get(pool, pool).retryAt;
+}
+
 function state() {
   const events = readEvents
     .all(currentProjectId())
@@ -206,6 +253,8 @@ function state() {
           claim: null,
           runnerId: null,
           replies: 0,
+          usageWait: null,
+          discussion: event.discussion ?? [],
           active: true,
         };
         threads.set(event.id, focused);
@@ -215,6 +264,11 @@ function state() {
       case "reply":
       case "publish_approve":
         thread.turn = event;
+        if (event.kind === "reply")
+          thread.discussion = [
+            ...thread.discussion,
+            "Answer: " + event.text.slice(0, 6000),
+          ].slice(-8);
         if (event.kind === "publish_approve")
           event.handoff = thread.task.handoff;
         thread.claim = null;
@@ -226,7 +280,19 @@ function state() {
         thread.claim = event;
         thread.runnerId = event.runnerId;
         break;
+      case "usage_wait":
+        thread.usageWait = event;
+        break;
+      case "work_start":
+        thread.usageWait = null;
+        break;
       case "report":
+        thread.usageWait = null;
+        if (event.needsReply)
+          thread.discussion = [
+            ...thread.discussion,
+            "Question: " + event.text.slice(0, 1500),
+          ].slice(-8);
         thread.active =
           event.needsReply || Boolean(event.handoff && !event.handoff.prUrl);
         if (event.handoff) thread.task.handoff = event.handoff;
@@ -283,6 +349,7 @@ function state() {
 
 function allowed(current, next, role, actor, githubDispatch) {
   if (actor?.revoked) return false;
+  if (next.kind === "usage_snapshot") return Boolean(actor);
   if (role === "worker") {
     const thread = current.tasks.find((item) => item.turn.id === next.turnId);
     if (!thread) return false;
@@ -336,7 +403,9 @@ function allowed(current, next, role, actor, githubDispatch) {
       );
       return (
         current.claim?.runnerId === next.runnerId &&
-        (!queued?.retryAt || Date.parse(queued.retryAt) <= Date.now())
+        (!queued?.retryAt || Date.parse(queued.retryAt) <= Date.now()) &&
+        (!current.usageWait ||
+          !(Date.parse(usageRetryAt(current.task.agentId)) > Date.now()))
       );
     }
     if (next.kind === "usage_wait") {
@@ -345,7 +414,7 @@ function allowed(current, next, role, actor, githubDispatch) {
         current.turn.kind !== "publish_approve" &&
         current.claim?.runnerId === next.runnerId &&
         retryAt > Date.now() &&
-        retryAt <= Date.now() + (3 * 60 + 1) * 60 * 1000
+        retryAt <= Date.now() + 8 * 24 * 60 * 60 * 1000
       );
     }
     if (next.kind === "publish_wait")
@@ -355,6 +424,7 @@ function allowed(current, next, role, actor, githubDispatch) {
       );
     return (
       next.kind === "report" &&
+      !current.usageWait &&
       current.claim?.runnerId === next.runnerId &&
       (!next.needsReply || next.outcome === "blocked")
     );
@@ -535,20 +605,30 @@ function record(input, role, actor, human, webhook) {
     registry.agents().find((agent) => agent.id === actor.id)?.revoked
   )
     return false;
-  const body = JSON.stringify({
-    ...input.action,
+  const { action } = input;
+  const publishesPr = action.kind === "report" && action.handoff?.prUrl;
+  const event = {
+    ...action,
     ...(webhook ?? {}),
     ...(actor ? { actorId: actor.id } : {}),
     ...(human ? { humanId: human.id, humanName: human.name } : {}),
-  });
+  };
+  const body = JSON.stringify(event);
   database.exec("BEGIN IMMEDIATE");
   try {
     const previous = findEvent.get(input.id);
     if (previous) {
+      const saved = JSON.parse(previous.body);
+      if (publishesPr) delete saved.usage;
       if (
         previous.role !== role ||
-        previous.body !== body ||
+        JSON.stringify(saved) !== body ||
         previous.project_id !== currentProjectId()
+      )
+        return false;
+      if (
+        input.action.kind === "work_start" &&
+        !allowed(state(), input.action, role, actor)
       )
         return false;
     } else {
@@ -559,12 +639,8 @@ function record(input, role, actor, human, webhook) {
         );
         if (
           !original ||
-          original.claim ||
-          original.turn.kind !== "assign" ||
-          original.task.backupAgentId !== input.action.agentId ||
           original.task.queuedTaskId !== input.action.queuedTaskId ||
-          !original.task.ackDeadline ||
-          Date.parse(original.task.ackDeadline) > Date.now()
+          !canTransfer(original, input.action.agentId, webhook.reason)
         )
           return false;
         current = {
@@ -582,7 +658,30 @@ function record(input, role, actor, human, webhook) {
       }
       if (!allowed(current, input.action, role, actor, Boolean(webhook)))
         return false;
-      insert.run(input.id, role, body, currentProjectId());
+      const now = new Date().toISOString();
+      if (action.kind === "usage_snapshot") {
+        const pool = action.pool ? action.engine + ":" + action.pool : actor.id;
+        const previousUsage = readUsage.get(actor.id);
+        if (
+          action.windows.length ||
+          previousUsage?.pool !== pool ||
+          JSON.parse(previousUsage.body).engine !== action.engine
+        )
+          saveUsage.run(
+            actor.id,
+            pool,
+            JSON.stringify({ engine: action.engine, windows: action.windows }),
+            now,
+          );
+      } else {
+        const eventBody =
+          publishesPr && actor
+            ? JSON.stringify({ ...event, usage: agentUsage(actor.id) })
+            : body;
+        insert.run(input.id, role, eventBody, currentProjectId());
+        if (action.kind === "usage_wait" && actor)
+          saveUsageWait.run(actor.id, usagePool(actor.id), now, action.retryAt);
+      }
       if (input.action.kind === "approve")
         projects.updateScope(input.action.text, input.action.paths);
     }
@@ -729,19 +828,37 @@ function respond(response, code, data) {
 const projectsWithDeadlines = database.prepare(
   "SELECT DISTINCT project_id FROM event WHERE json_extract(body, '$.ackDeadline') IS NOT NULL",
 );
-function checkAcknowledgements() {
+function canTransfer(original, target, reason) {
+  if (
+    original.task.backupAgentId !== target ||
+    Date.parse(usageRetryAt(target)) > Date.now()
+  )
+    return false;
+  if (reason === "usage") {
+    return Boolean(
+      original.usageWait &&
+      (Date.parse(original.usageWait.retryAt) > Date.now() ||
+        Date.parse(usageRetryAt(original.task.agentId)) > Date.now()) &&
+      usagePool(original.task.agentId) !== usagePool(target),
+    );
+  }
+  return (
+    !original.claim &&
+    original.turn.kind === "assign" &&
+    Boolean(original.task.ackDeadline) &&
+    Date.parse(original.task.ackDeadline) <= Date.now()
+  );
+}
+
+function checkAssignments() {
   try {
     for (const { project_id } of projectsWithDeadlines.all())
       projectContext.run(project_id, () => {
         let current = state();
         for (const original of current.tasks) {
-          const { ackDeadline, backupAgentId, queuedTaskId } = original.task;
-          if (
-            original.claim ||
-            !backupAgentId ||
-            !ackDeadline ||
-            Date.parse(ackDeadline) > Date.now()
-          )
+          const { backupAgentId, queuedTaskId } = original.task;
+          const reason = original.usageWait ? "usage" : "acknowledgement";
+          if (!backupAgentId || !canTransfer(original, backupAgentId, reason))
             continue;
           const task = current.queue.find(
             (item) =>
@@ -766,13 +883,20 @@ function checkAcknowledgements() {
             {
               source: "backup",
               replaces: original.task.id,
+              reason,
+              ...(reason === "usage"
+                ? {
+                    backupAgentId: original.task.agentId,
+                    discussion: original.discussion,
+                  }
+                : {}),
             },
           );
           if (transferred) current = state();
         }
       });
   } catch {
-    console.error("Could not check assignment acknowledgements. Will retry.");
+    console.error("Could not check assignment deadlines. Will retry.");
   }
 }
 
@@ -912,10 +1036,21 @@ function startGitHubWebhook() {
     },
   );
 }
+function agentUsage(agentId) {
+  const saved = readUsage.get(agentId);
+  if (!saved) return null;
+  return {
+    ...JSON.parse(saved.body),
+    checkedAt: saved.checked_at,
+    retryAt: usageRetryAt(agentId),
+  };
+}
+
 function agentView() {
   return {
     agents: registry.agents().map((agent) => ({
       ...agent,
+      usage: agentUsage(agent.id),
       online: [...subscribers.values()].some(
         (item) =>
           item.identity === agent.id && item.projectId === currentProjectId(),
@@ -1452,5 +1587,5 @@ server.listen(
   },
 );
 startGitHubWebhook();
-checkAcknowledgements();
-setInterval(checkAcknowledgements, 5000).unref();
+checkAssignments();
+setInterval(checkAssignments, 5000).unref();

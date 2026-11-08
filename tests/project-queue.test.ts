@@ -269,6 +269,94 @@ it("dispatches only the configured signed GitHub issue and preserves one assignm
   await start();
 });
 
+async function webhookWorkers(backupEnabled: boolean) {
+  async function register(name: string, preset: string) {
+    const response = await post("/dashboard/agents", admin, {
+      name,
+      participant: "Pilot",
+      preset,
+    });
+    expect(response.status).toBe(201);
+    return response.json();
+  }
+  const manager = await register("Deadline manager", "orchestrator");
+  const primary = await register("Primary worker", "developer");
+  const backup = await register("Backup worker", "developer");
+  const created = await post("/dashboard/projects", admin, {
+    name: "Acknowledgement deadline pilot",
+    goal: "Approve one documentation change.",
+    repository: "example/repository",
+    paths: ["README.md"],
+    managerId: manager.agent.id,
+    agentIds: [manager.agent.id, primary.agent.id, backup.agent.id],
+  });
+  expect(created.status).toBe(201);
+  const project = (await created.json()).project.id;
+  const taskId = randomUUID();
+  const issue = "https://github.com/example/repository/issues/15";
+  expect(
+    (
+      await send(
+        manager.key,
+        project,
+        {
+          kind: "task_create",
+          basis: (await state(manager.key, project)).latest.id,
+          title: "Document acknowledgement",
+          description: "Clarify the handoff.",
+          acceptance: "The approved documentation is updated.",
+          paths: ["README.md"],
+          references: [issue],
+        },
+        taskId,
+      )
+    ).status,
+  ).toBe(200);
+  const secret = key();
+  const settings = {
+    VIZOR_GITHUB_WEBHOOK_PORT: "0",
+    VIZOR_GITHUB_WEBHOOK_SECRET: secret,
+    VIZOR_GITHUB_PROJECT_ID: project,
+    VIZOR_GITHUB_TASK_ID: taskId,
+    VIZOR_GITHUB_AGENT_ID: primary.agent.id,
+    ...(backupEnabled ? { VIZOR_GITHUB_BACKUP_AGENT_ID: backup.agent.id } : {}),
+  };
+  await stop();
+  await start(0, settings);
+  const body = JSON.stringify({
+    action: "labeled",
+    label: { name: "vizor:dispatch" },
+    repository: { full_name: "example/repository" },
+    issue: { number: 15, state: "open" },
+  });
+  const deliver = () =>
+    fetch(webhookUrl + "/webhooks/github", {
+      method: "POST",
+      body,
+      headers: {
+        "X-GitHub-Event": "issues",
+        "X-Hub-Signature-256":
+          "sha256=" + createHmac("sha256", secret).update(body).digest("hex"),
+      },
+    });
+  const accepted = await deliver();
+  expect(accepted.status).toBe(202);
+  const { dispatchId } = await accepted.json();
+  const assignment = (await state(primary.key, project)).task;
+  expect(assignment.id).toBe(dispatchId);
+  return {
+    manager,
+    primary,
+    backup,
+    project,
+    taskId,
+    settings,
+    deliver,
+    dispatchId,
+    assignment,
+  };
+}
+
 it.each([
   { acknowledged: true, backupEnabled: true },
   { acknowledged: false, backupEnabled: true },
@@ -276,82 +364,17 @@ it.each([
 ])(
   "only transfers an unacknowledged assignment to a configured backup ($acknowledged, $backupEnabled)",
   async ({ acknowledged, backupEnabled }) => {
-    async function register(name: string, preset: string) {
-      const response = await post("/dashboard/agents", admin, {
-        name,
-        participant: "Pilot",
-        preset,
-      });
-      expect(response.status).toBe(201);
-      return response.json();
-    }
-    const manager = await register("Deadline manager", "orchestrator");
-    const primary = await register("Primary worker", "developer");
-    const backup = await register("Backup worker", "developer");
-    const created = await post("/dashboard/projects", admin, {
-      name: "Acknowledgement deadline pilot",
-      goal: "Approve one documentation change.",
-      repository: "example/repository",
-      paths: ["README.md"],
-      managerId: manager.agent.id,
-      agentIds: [manager.agent.id, primary.agent.id, backup.agent.id],
-    });
-    expect(created.status).toBe(201);
-    const project = (await created.json()).project.id;
-    const taskId = randomUUID();
-    const issue = "https://github.com/example/repository/issues/15";
-    expect(
-      (
-        await send(
-          manager.key,
-          project,
-          {
-            kind: "task_create",
-            basis: (await state(manager.key, project)).latest.id,
-            title: "Document acknowledgement",
-            description: "Clarify the handoff.",
-            acceptance: "The approved documentation is updated.",
-            paths: ["README.md"],
-            references: [issue],
-          },
-          taskId,
-        )
-      ).status,
-    ).toBe(200);
-    const secret = key();
-    const settings = {
-      VIZOR_GITHUB_WEBHOOK_PORT: "0",
-      VIZOR_GITHUB_WEBHOOK_SECRET: secret,
-      VIZOR_GITHUB_PROJECT_ID: project,
-      VIZOR_GITHUB_TASK_ID: taskId,
-      VIZOR_GITHUB_AGENT_ID: primary.agent.id,
-      ...(backupEnabled
-        ? { VIZOR_GITHUB_BACKUP_AGENT_ID: backup.agent.id }
-        : {}),
-    };
-    await stop();
-    await start(0, settings);
-    const body = JSON.stringify({
-      action: "labeled",
-      label: { name: "vizor:dispatch" },
-      repository: { full_name: "example/repository" },
-      issue: { number: 15, state: "open" },
-    });
-    const deliver = () =>
-      fetch(webhookUrl + "/webhooks/github", {
-        method: "POST",
-        body,
-        headers: {
-          "X-GitHub-Event": "issues",
-          "X-Hub-Signature-256":
-            "sha256=" + createHmac("sha256", secret).update(body).digest("hex"),
-        },
-      });
-    const accepted = await deliver();
-    expect(accepted.status).toBe(202);
-    const { dispatchId } = await accepted.json();
-    const assignment = (await state(primary.key, project)).task;
-    expect(assignment.id).toBe(dispatchId);
+    const {
+      manager,
+      primary,
+      backup,
+      project,
+      taskId,
+      settings,
+      deliver,
+      dispatchId,
+      assignment,
+    } = await webhookWorkers(backupEnabled);
     if (backupEnabled) {
       const remaining = Date.parse(assignment.ackDeadline) - Date.now();
       expect(remaining).toBeGreaterThan(14 * 60 * 1000);
@@ -454,6 +477,191 @@ it.each([
       dispatchId,
     });
     expect((await state(manager.key, project)).tasks).toHaveLength(1);
+    await stop();
+    await start();
+  },
+);
+
+it.each(["primary", "backup", "shared"])(
+  "waits for capacity and retries one worker after subscription exhaustion (%s resets first)",
+  async (first) => {
+    const { manager, primary, backup, project, taskId, dispatchId } =
+      await webhookWorkers(true);
+    const now = Date.now();
+    const primaryDelay = first === "backup" ? 120 * 60_000 : 60 * 60_000;
+    const backupDelay = first === "backup" ? 60 * 60_000 : 120 * 60_000;
+    const primaryReset = new Date(now + primaryDelay).toISOString();
+    const backupReset = new Date(now + backupDelay).toISOString();
+    const pool = first === "shared" ? "shared-subscription" : undefined;
+    const snapshot = (
+      engine: string,
+      usedPercent: number,
+      resetsAt: string,
+    ) => ({
+      kind: "usage_snapshot",
+      engine,
+      pool,
+      windows: [{ minutes: 300, usedPercent, resetsAt }],
+    });
+    expect(
+      (await send(worker, project, snapshot("claude", 10, primaryReset))).ok,
+    ).toBe(false);
+    expect(
+      (await send(primary.key, project, snapshot("claude", 100, primaryReset)))
+        .ok,
+    ).toBe(true);
+    expect(
+      (
+        await send(
+          backup.key,
+          project,
+          snapshot(pool ? "claude" : "codex", 40, backupReset),
+        )
+      ).ok,
+    ).toBe(true);
+    const primaryTurn = { turnId: dispatchId, runnerId: randomUUID() };
+    const primaryStartId = randomUUID();
+    const primaryStart = { kind: "work_start", ...primaryTurn };
+    expect(
+      (await send(primary.key, project, { kind: "claim", ...primaryTurn })).ok,
+    ).toBe(true);
+    expect(
+      (await send(primary.key, project, primaryStart, primaryStartId)).ok,
+    ).toBe(true);
+    expect(
+      (
+        await send(primary.key, project, {
+          kind: "usage_wait",
+          ...primaryTurn,
+          retryAt: primaryReset,
+        })
+      ).ok,
+    ).toBe(true);
+    expect(
+      (await send(primary.key, project, primaryStart, primaryStartId)).status,
+    ).toBe(409);
+    await stop();
+    await start();
+    const view = await fetch(url + "/dashboard/project", {
+      headers: headers(admin, project),
+    }).then((response) => response.json());
+    expect(
+      view.agents.find((agent: { id: string }) => agent.id === primary.agent.id)
+        .usage,
+    ).toMatchObject({
+      engine: "claude",
+      windows: [{ usedPercent: 100, resetsAt: primaryReset }],
+      retryAt: primaryReset,
+    });
+    expect(view.tasks).toHaveLength(1);
+
+    if (pool) {
+      expect((await state(backup.key, project)).task).toBeNull();
+      expect(
+        view.agents.find(
+          (agent: { id: string }) => agent.id === backup.agent.id,
+        ).usage.retryAt,
+      ).toBe(primaryReset);
+      await stop();
+      await start(0, undefined, primaryDelay + 1000);
+      expect((await send(primary.key, project, primaryStart)).ok).toBe(true);
+      expect((await state(backup.key, project)).task).toBeNull();
+    } else {
+      expect((await state(primary.key, project)).task).toBeNull();
+      expect(
+        (await send(primary.key, project, primaryStart, primaryStartId)).status,
+      ).toBe(409);
+      const replacement = (await state(backup.key, project)).task;
+      expect(replacement).toMatchObject({
+        queuedTaskId: taskId,
+        reason: "usage",
+        replaces: dispatchId,
+      });
+      const backupTurn = { turnId: replacement.id, runnerId: randomUUID() };
+      expect(
+        (await send(backup.key, project, { kind: "claim", ...backupTurn })).ok,
+      ).toBe(true);
+      expect(
+        (await send(backup.key, project, { kind: "work_start", ...backupTurn }))
+          .ok,
+      ).toBe(true);
+      expect(
+        (await send(backup.key, project, snapshot("codex", 100, backupReset)))
+          .ok,
+      ).toBe(true);
+      expect(
+        (
+          await send(backup.key, project, {
+            kind: "usage_wait",
+            ...backupTurn,
+            retryAt: backupReset,
+          })
+        ).ok,
+      ).toBe(true);
+      await stop();
+      await start();
+      const waiting = await state(manager.key, project);
+      expect(waiting.tasks).toHaveLength(1);
+      expect(waiting.queue[0]).toMatchObject({
+        assignee: backup.agent.id,
+        retryAt: backupReset,
+      });
+      expect((await state(primary.key, project)).task).toBeNull();
+      expect(
+        (await send(backup.key, project, { kind: "work_start", ...backupTurn }))
+          .status,
+      ).toBe(409);
+
+      await stop();
+      await start(0, undefined, Math.min(primaryDelay, backupDelay) + 1000);
+      if (first === "primary") {
+        const retry = (await state(primary.key, project)).task;
+        expect(retry).toMatchObject({
+          queuedTaskId: taskId,
+          reason: "usage",
+          replaces: replacement.id,
+        });
+        const retryTurn = { turnId: retry.id, runnerId: primaryTurn.runnerId };
+        expect(
+          (await send(primary.key, project, { kind: "claim", ...retryTurn }))
+            .ok,
+        ).toBe(true);
+        expect(
+          (
+            await send(primary.key, project, {
+              kind: "work_start",
+              ...retryTurn,
+            })
+          ).ok,
+        ).toBe(true);
+        expect(
+          (
+            await send(backup.key, project, {
+              kind: "work_start",
+              ...backupTurn,
+            })
+          ).status,
+        ).toBe(409);
+      } else {
+        expect(
+          (
+            await send(backup.key, project, {
+              kind: "work_start",
+              ...backupTurn,
+            })
+          ).ok,
+        ).toBe(true);
+        expect((await state(primary.key, project)).task).toBeNull();
+      }
+    }
+    const result = await state(manager.key, project);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.queue[0]).toMatchObject({
+      id: taskId,
+      status: "working",
+      assignee: first === "backup" ? backup.agent.id : primary.agent.id,
+    });
+    expect(result.queue[0].retryAt).toBeUndefined();
     await stop();
     await start();
   },
@@ -1145,10 +1353,34 @@ it("pins publication to a human-approved handoff and returns the PR to manager r
       })
     ).status,
   ).toBe(409);
-  expect((await send(coder.key, project, published)).status).toBe(200);
+  const usage = {
+    kind: "usage_snapshot",
+    engine: "codex",
+    windows: [{ minutes: 300, usedPercent: 22 }],
+  };
+  expect((await send(coder.key, project, usage)).status).toBe(200);
+  const publicationId = randomUUID();
+  expect(
+    (await send(coder.key, project, published, publicationId)).status,
+  ).toBe(200);
+  expect(
+    (
+      await send(coder.key, project, {
+        ...usage,
+        windows: [{ minutes: 300, usedPercent: 35 }],
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (await send(coder.key, project, published, publicationId)).status,
+  ).toBe(200);
   const final = await state(manager.key, project);
   expect(final.tasks).toHaveLength(0);
   expect(final.queue[0].handoff.prUrl).toContain("/pull/42");
+  expect(final.latest.usage).toMatchObject({
+    engine: "codex",
+    windows: [{ usedPercent: 22 }],
+  });
   expect(
     (
       await send(manager.key, project, {

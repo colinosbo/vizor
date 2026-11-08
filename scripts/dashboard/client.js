@@ -436,7 +436,7 @@ const eventNames = {
   task_accept: "Task accepted",
   task_retry: "Task returned to queue",
   work_start: "Worker started task",
-  usage_wait: "Waiting for subscription usage",
+  usage_wait: "Waiting for subscription reset",
   publish_approve: "PR publication approved",
   publish_wait: "PR publication waiting to retry",
   review: "PR review",
@@ -448,7 +448,9 @@ const eventNames = {
 };
 function eventName(event) {
   if (event.kind === "assign" && event.source === "backup")
-    return "Assigned to backup after acknowledgement timeout";
+    return event.reason === "usage"
+      ? "Reassigned after subscription limit"
+      : "Assigned to backup after acknowledgement timeout";
   if (event.kind === "assign" && event.source === "github")
     return "GitHub dispatched work";
   return event.kind === "report"
@@ -641,7 +643,7 @@ function renderQueue(state) {
           node("h3", task.title),
           badge(
             task.retryAt
-              ? "Waiting for subscription usage"
+              ? "Waiting for subscription reset"
               : question
                 ? "Needs answer"
                 : task.handoff &&
@@ -682,7 +684,8 @@ function renderQueue(state) {
           row.append(
             node(
               "p",
-              "Next attempt: " + new Date(task.retryAt).toLocaleString(),
+              "Assigned worker retry: " +
+                new Date(task.retryAt).toLocaleString(),
               "meta",
             ),
           );
@@ -758,6 +761,53 @@ function renderQueue(state) {
       : "No tasks with this status.",
   );
 }
+function renderUsage(usage) {
+  const details = node("div", "", "meta");
+  const provider =
+    usage?.engine === "codex"
+      ? "Codex"
+      : usage?.engine === "claude"
+        ? "Claude Code"
+        : "";
+  const readings = usage?.windows ?? [];
+  details.append(
+    node(
+      "p",
+      [provider, readings.length ? "Subscription usage" : "Usage unknown"]
+        .filter(Boolean)
+        .join(" · "),
+    ),
+  );
+  for (const reading of readings) {
+    const label =
+      reading.minutes === 300
+        ? "5-hour"
+        : reading.minutes === 10080
+          ? "Weekly"
+          : reading.minutes + "-minute";
+    const remaining =
+      reading.usedPercent == null
+        ? "usage unknown"
+        : Math.round(100 - reading.usedPercent) + "% left";
+    const resets = reading.resetsAt
+      ? " · resets " + new Date(reading.resetsAt).toLocaleString()
+      : "";
+    details.append(node("p", label + " · " + remaining + resets));
+  }
+  if (readings.length && usage.checkedAt)
+    details.append(
+      node("p", "Last read " + new Date(usage.checkedAt).toLocaleString()),
+    );
+  if (Date.parse(usage?.retryAt) > Date.now())
+    details.append(
+      node(
+        "p",
+        "Usage cooldown until " + new Date(usage.retryAt).toLocaleString(),
+      ),
+    );
+  return details;
+}
+
 function renderDashboard(state) {
   presetProfiles = state.presets ?? {};
   showPresetSkills();
@@ -946,6 +996,7 @@ function renderDashboard(state) {
             "meta",
           ),
           node("p", agent.skills.join(" · "), "meta"),
+          renderUsage(agent.usage),
         );
         const assigned = tasks.find(
           (thread) => thread.task.agentId === agent.id,
@@ -1021,6 +1072,11 @@ function renderDashboard(state) {
         node("p", event.text),
         time(event.created),
       );
+      if (event.handoff?.prUrl)
+        item.append(
+          link(event.handoff.prUrl, "Open pull request"),
+          renderUsage(event.usage),
+        );
       return item;
     }),
     "Agent updates will appear here.",

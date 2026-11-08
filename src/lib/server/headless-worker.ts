@@ -13,6 +13,7 @@ import { commandRunner } from "./github-merge-check";
 import { reportSchema } from "./terminal-reports";
 import { runClaude } from "./subscription";
 import { runCodexWorker } from "./codex-worker";
+import type { UsageWindow } from "./runner-usage";
 import {
   agentPresets,
   presetInstructions,
@@ -160,6 +161,7 @@ export async function runHeadlessWorker(
     checks: CheckName[];
     preparePr: boolean;
     engine?: "claude" | "codex";
+    onUsage?: (windows: UsageWindow[]) => void;
   },
 ): Promise<WorkerReport> {
   if (files.length > 20 || new Set(files).size !== files.length)
@@ -203,7 +205,8 @@ export async function runHeadlessWorker(
       [
         "--print",
         "--output-format",
-        "json",
+        execution?.onUsage ? "stream-json" : "json",
+        ...(execution?.onUsage ? ["--verbose"] : []),
         "--model",
         model,
         "--max-turns",
@@ -228,6 +231,8 @@ export async function runHeadlessWorker(
         ),
       ],
       input,
+      undefined,
+      execution?.onUsage,
     );
     const result = JSON.parse(raw);
     if (result.is_error)

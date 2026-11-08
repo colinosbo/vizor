@@ -1,9 +1,11 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdtemp, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { createInterface } from "node:readline";
+import { codexUsage, type UsageWindow } from "./runner-usage";
 import { AppError } from "./errors";
 
 const execute = promisify(execFile);
@@ -20,8 +22,61 @@ function codexEnvironment() {
   return env;
 }
 
+const binary = process.platform === "win32" ? "codex.exe" : "codex";
+
+export async function readCodexUsage(): Promise<UsageWindow[]> {
+  return new Promise((resolve) => {
+    const child = spawn(binary, ["app-server", "--listen", "stdio://"], {
+      env: codexEnvironment(),
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    const lines = createInterface({ input: child.stdout });
+    let settled = false;
+    const finish = (windows: UsageWindow[] = []) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      lines.close();
+      child.stdin.destroy();
+      child.stdout.destroy();
+      child.kill();
+      resolve(windows);
+    };
+    const timer = setTimeout(finish, 5000);
+    child.once("error", () => finish());
+    child.once("close", () => finish());
+    child.stdin.on("error", () => finish());
+    const send = (request: object) =>
+      child.stdin.write(JSON.stringify(request) + "\n");
+    lines.on("line", (line) => {
+      try {
+        const message = JSON.parse(line);
+        if (message.id === 1) {
+          if (!message.result) return finish();
+          send({ method: "initialized" });
+          send({
+            id: 2,
+            method: "account/read",
+            params: { refreshToken: false },
+          });
+        }
+        if (message.id === 2) {
+          if (message.result?.account?.type !== "chatgpt") return finish();
+          send({ id: 3, method: "account/rateLimits/read" });
+        }
+        if (message.id === 3) finish(codexUsage(message.result));
+      } catch {}
+    });
+    send({
+      id: 1,
+      method: "initialize",
+      params: { clientInfo: { name: "vizor", version: "0.1.0" } },
+    });
+  });
+}
+
 export async function runCodexWorker(prompt: string, schema: string) {
-  const binary = process.platform === "win32" ? "codex.exe" : "codex";
   const env = codexEnvironment();
   const auth = await execute(binary, ["login", "status"], {
     env,
@@ -79,7 +134,7 @@ export async function runCodexWorker(prompt: string, schema: string) {
     } catch (error) {
       const failure = error as { stdout?: string; stderr?: string };
       if (
-        /\busage_limit_reached\b|\busage limit\b|\brate limit(?:ed| exceeded)?\b/i.test(
+        /\busage_limit_reached\b|\bsubscription_sharing_usage_limit_exceeded\b|\busage limit\b/i.test(
           (failure.stdout ?? "") + " " + (failure.stderr ?? ""),
         )
       )

@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { lstat, readFile, realpath, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
@@ -112,6 +112,11 @@ if (process.argv.includes("--login")) {
       Database,
     });
     const config = {
+      usagePool: z
+        .string()
+        .regex(/^[a-zA-Z0-9_-]{1,40}$/)
+        .optional()
+        .parse(process.env.VIZOR_RUNNER_USAGE_POOL),
       url: process.env.VIZOR_RUNNER_RELAY ?? "",
       key: process.env.VIZOR_RUNNER_PAIRING_KEY ?? "",
       folder: process.env.VIZOR_RUNNER_REPO ?? "",
@@ -232,6 +237,25 @@ if (process.argv.includes("--login")) {
       sendSharedDeliveryFailures,
       sharedId,
     } = await import("../src/lib/server/shared-projects");
+    const { readCodexUsage } = await import("../src/lib/server/codex-worker");
+    const { usageRetry } = await import("../src/lib/server/runner-usage");
+    type UsageWindow = import("../src/lib/server/runner-usage").UsageWindow;
+    const reportUsage = async (windows: UsageWindow[]) => {
+      if (!identity) return;
+      await fetchRelay("/v1/project", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: randomUUID(),
+          action: {
+            kind: "usage_snapshot",
+            engine: config.engine,
+            pool: config.usagePool,
+            windows,
+          },
+        }),
+      }).catch(() => {});
+    };
     const { scanProjectReviews, reviewQueue } =
       await import("../src/lib/server/pr-reviews");
     const { repositoryOverview } =
@@ -273,14 +297,17 @@ if (process.argv.includes("--login")) {
       !(role === "worker" && pairing.turn?.kind === "publish_approve")
     )
       await assertRunnerSubscription();
+    await reportUsage(config.engine === "codex" ? await readCodexUsage() : []);
     if (role === "owner") {
       // Check the manager connection before taking project planning work.
+      let managerUsage: UsageWindow[] = [];
       const probe = JSON.parse(
         await runClaude(
           [
             "--print",
             "--output-format",
-            "json",
+            "stream-json",
+            "--verbose",
             "--model",
             config.model,
             "--max-turns",
@@ -297,8 +324,13 @@ if (process.argv.includes("--login")) {
             "--no-session-persistence",
           ],
           "Reply with the single word ready.",
+          undefined,
+          (windows) => {
+            managerUsage = windows;
+          },
         ),
       );
+      await reportUsage(managerUsage);
       if (probe.is_error)
         throw Error(
           "Claude subscription inference failed. Run the runner's sign-in again.",
@@ -568,6 +600,7 @@ if (process.argv.includes("--login")) {
             }
             await claimTerminalDispatch(user.id, task.proposalId);
             let workStarted = false;
+            let readings: UsageWindow[] = [];
             try {
               const started = await fetchRelay("/v1/project", {
                 method: "POST",
@@ -626,6 +659,9 @@ if (process.argv.includes("--login")) {
                     repository: current.project?.repository ?? repository,
                     title: queued?.title ?? "Vizor task",
                     engine: config.engine,
+                    onUsage: (windows) => {
+                      readings = windows;
+                    },
 
                     checks: z
                       .array(checkNames)
@@ -638,6 +674,8 @@ if (process.argv.includes("--login")) {
                   },
                 );
               }
+              if (config.engine === "codex") readings = await readCodexUsage();
+              if (readings.length) await reportUsage(readings);
               const path = await reportPath(folder, task.id, true);
               const serialized = JSON.stringify(
                 reportSchema.parse({ dispatchId: task.id, ...report }),
@@ -673,15 +711,18 @@ if (process.argv.includes("--login")) {
                   String(error.code),
                 )
               ) {
+                if (config.engine === "codex")
+                  readings = await readCodexUsage();
                 await db.terminalDispatch.update({
                   where: { id: task.id },
                   data: {
                     status: "ready",
                     claimedAt: null,
-                    retryAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+                    retryAt: usageRetry(readings),
                     error: "Waiting for worker subscription usage.",
                   },
                 });
+                if (readings.length) await reportUsage(readings);
                 continue;
               }
               if (current.turn.kind === "publish_approve") {
