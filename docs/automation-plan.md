@@ -1,6 +1,6 @@
 # Vizor development automation plan
 
-**Status:** Proposed workflow. GitHub webhook dispatch through Cloudflare still needs implementation and a live test.
+**Status:** The one-issue webhook pilot is implemented. Issue #3 reached the worker through Cloudflare Quick Tunnel and produced PR #4 after a retry. The full workflow below describes the intended project automation.
 
 Vizor is the standalone app for planning and coordinating development work. GitHub is the source of truth for issues, code, pull requests, and checks. Vizor records assignments, runner activity, blockers, and handoffs.
 
@@ -27,3 +27,11 @@ For the first test, run `cloudflared` on the Vizor PC and expose only the GitHub
 - [ ] Duplicate check: resending the same delivery ID started no additional run.
 
 **Open decisions:** Finalize the dispatch label and how Vizor handles missed deliveries after downtime. Choose a stable tunnel hostname if the temporary Quick Tunnel URL becomes a daily setup burden.
+
+## Run the first webhook pilot
+
+1. In Vizor, approve the project and create a queued task with the exact GitHub issue URL in its references. Choose the named worker and start its runner with a dedicated checkout.
+2. Start the local relay with `VIZOR_GITHUB_WEBHOOK_PORT`, `VIZOR_GITHUB_PROJECT_ID`, `VIZOR_GITHUB_TASK_ID`, and `VIZOR_GITHUB_AGENT_ID` set for the pilot. Set a private `VIZOR_GITHUB_WEBHOOK_SECRET` of at least 32 characters. The webhook listener has its own loopback port and serves only `POST /webhooks/github`.
+3. Run `cloudflared tunnel --url http://127.0.0.1:<webhook-port>`. Create a GitHub repository webhook for **Issues**, with JSON content type and the same signing secret. Append `/webhooks/github` to the Quick Tunnel URL.
+4. Apply `vizor:dispatch` to the bound issue. Set `VIZOR_GITHUB_DISPATCH_LABEL` if using a different label. Watch the named assignment and activity in Vizor. The task can only be dispatched once through this pilot binding.
+5. Review the worker's checks and approve publication of its exact candidate commit in Vizor. Verify the PR link in the task, then remove the temporary repository webhook and stop the tunnel.

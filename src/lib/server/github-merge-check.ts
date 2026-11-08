@@ -157,7 +157,7 @@ function parseJson<T>(value: string): T | null {
     return null;
   }
 }
-function repoName(remote: string) {
+export function repoName(remote: string) {
   const match =
     /^(?:https:\/\/github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/i.exec(
       remote.trim(),

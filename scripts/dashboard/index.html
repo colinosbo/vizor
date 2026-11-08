@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>BlackForge · Vizor</title>
+    <link rel="stylesheet" href="./style.css" />
+    <script defer src="./boot.js"></script>
+  </head>
+  <body>
+    <header class="header">
+      <div class="masthead wrap">
+        <svg class="mark" viewBox="0 0 48 52" aria-hidden="true">
+          <path
+            d="M24 2 45 14v24L24 50 3 38V14Z"
+            fill="#251813"
+            stroke="#ff8d34"
+            stroke-width="2"
+          />
+          <path
+            d="M8 19h8l6 3h15l4-3-2 6-8 4-2 5 6 3v2H16v-2l5-3-2-5-7-3Z"
+            fill="#a1a3ad"
+          />
+          <path
+            d="m29 14 4 2-2 4-4-2Zm6-4 2 2-2 2-2-2Zm4 5 2 2-2 2-2-2Z"
+            fill="#ff9f4e"
+          />
+        </svg>
+        <div>
+          <h1>BLACK<span>FORGE</span></h1>
+          <p class="subtitle">
+            Issue Manager
+            <a href="https://github.com/crayosog-star/BlackforgeMC"
+              >crayosog-star/BlackforgeMC</a
+            >
+          </p>
+        </div>
+        <span class="status" id="connection" role="status">Connecting</span>
+      </div>
+    </header>
+    <main class="wrap">
+      <p id="notice" role="alert" hidden></p>
+      <section class="project-bar" aria-label="Project selection">
+        <label
+          >Project
+          <select id="project-picker" aria-label="Project"></select
+        ></label>
+        <details class="surface project-create">
+          <summary>New project</summary>
+          <form id="project-form">
+            <label
+              >Project name <input name="name" maxlength="100" required
+            /></label>
+            <label
+              >Goal
+              <textarea
+                name="goal"
+                maxlength="8000"
+                rows="3"
+                required
+              ></textarea>
+            </label>
+            <label
+              >GitHub repository
+              <input
+                name="repository"
+                value="crayosog-star/BlackforgeMC"
+                maxlength="160"
+                required
+            /></label>
+            <label
+              >Project document (optional)
+              <input
+                type="file"
+                id="new-document-file"
+                accept=".md,.txt,text/plain,text/markdown"
+              />
+            </label>
+            <input name="documentName" type="hidden" value="Project brief" />
+            <label
+              >Document text
+              <textarea
+                name="documentContent"
+                maxlength="20000"
+                rows="5"
+                placeholder="Paste your project brief, or choose a Markdown or text file."
+              ></textarea>
+            </label>
+            <label
+              >Approved files, one per line
+              <textarea name="paths" rows="3"></textarea>
+            </label>
+            <label
+              >Project Orchestrator
+              <select
+                name="managerId"
+                aria-label="Project Orchestrator"
+                required
+              ></select
+            ></label>
+            <label
+              >Project agents
+              <select
+                name="agentIds"
+                aria-label="Project agents"
+                multiple
+                size="4"
+              ></select
+            ></label>
+            <p class="meta">
+              Create agents in the Agents tab first. Creating the project
+              approves its goal, document and file scope. The selected manager
+              breaks down the document and assigns tasks when its runner is
+              connected.
+            </p>
+            <button type="submit">Create and approve project</button>
+          </form>
+        </details>
+      </section>
+      <section class="surface live" aria-label="Latest activity">
+        <h2 id="live-title" class="eyebrow">Latest activity</h2>
+        <div id="live-rows"><p class="empty">Loading project activity…</p></div>
+      </section>
+      <section id="decision" aria-label="Project decision" hidden></section>
+      <details class="surface">
+        <summary>Project document</summary>
+        <p id="document-status" class="meta">
+          Add a brief for the manager to plan from.
+        </p>
+        <form id="document-form">
+          <label
+            >Upload project document
+            <input
+              type="file"
+              id="project-document-file"
+              accept=".md,.txt,text/plain,text/markdown"
+            />
+          </label>
+          <label
+            >Document name
+            <input name="name" maxlength="160" value="Project brief" required
+          /></label>
+          <label
+            >Project document text
+            <textarea
+              name="content"
+              maxlength="20000"
+              rows="8"
+              required
+            ></textarea>
+          </label>
+          <p class="meta">
+            Markdown or plain text, up to 20,000 characters. Saving approves
+            these requirements within the existing project scope. The manager
+            creates and assigns tasks automatically; major decisions come back
+            to you.
+          </p>
+          <button type="submit">Save document and plan tasks</button>
+        </form>
+      </details>
+      <nav class="tabs" role="tablist" aria-label="Project views">
+        <button
+          type="button"
+          id="tab-tasks"
+          role="tab"
+          aria-selected="true"
+          aria-controls="tasks"
+          data-view="tasks"
+        >
+          Tasks <span id="tasks-count" class="count" hidden></span>
+        </button>
+        <button
+          type="button"
+          id="tab-issues"
+          role="tab"
+          aria-selected="false"
+          tabindex="-1"
+          aria-controls="issues"
+          data-view="issues"
+        >
+          Issues <span id="issues-count" class="count" hidden></span>
+        </button>
+        <button
+          type="button"
+          id="tab-prs"
+          role="tab"
+          aria-selected="false"
+          aria-controls="prs"
+          data-view="prs"
+          tabindex="-1"
+        >
+          Pull requests <span id="prs-count" class="count" hidden></span>
+        </button>
+        <button
+          type="button"
+          id="tab-agents"
+          role="tab"
+          aria-selected="false"
+          aria-controls="agents"
+          data-view="agents"
+          tabindex="-1"
+        >
+          Agents <span id="agents-count" class="count" hidden></span>
+        </button>
+      </nav>
+      <section
+        id="tasks"
+        role="tabpanel"
+        aria-labelledby="tab-tasks"
+        tabindex="0"
+      >
+        <div id="project-summary" class="surface project-summary"></div>
+        <div class="section-bar">
+          <h2 class="eyebrow">Task queue</h2>
+          <label class="task-filter"
+            >Show
+            <select id="task-filter" aria-label="Filter tasks">
+              <option value="all">All tasks</option>
+              <option value="queued">Queued</option>
+              <option value="assigned">Assigned</option>
+              <option value="acknowledged">Acknowledged</option>
+              <option value="working">Working</option>
+              <option value="blocked">Blocked</option>
+              <option value="review">Ready for review</option>
+              <option value="complete">Complete</option>
+            </select></label
+          >
+        </div>
+        <div id="task-queue" class="surface rows">
+          <p class="empty">Loading tasks…</p>
+        </div>
+        <details class="surface agent-setup">
+          <summary>Add a task</summary>
+          <form id="task-form">
+            <label
+              >Task title <input name="title" maxlength="160" required
+            /></label>
+            <label
+              >Description
+              <textarea
+                name="description"
+                maxlength="3000"
+                rows="3"
+                required
+              ></textarea>
+            </label>
+            <label
+              >Acceptance criteria
+              <textarea
+                name="acceptance"
+                maxlength="1500"
+                rows="2"
+                required
+              ></textarea>
+            </label>
+            <label
+              >Files in approved scope
+              <select
+                name="paths"
+                aria-label="Files in approved scope"
+                multiple
+                size="4"
+              ></select
+            ></label>
+            <label
+              >Dependencies
+              <select
+                name="dependencies"
+                aria-label="Dependencies"
+                multiple
+                size="3"
+              ></select
+            ></label>
+            <label
+              >GitHub references, one per line
+              <textarea name="references" rows="2"></textarea>
+            </label>
+            <label
+              >Checks to run
+              <select
+                name="checks"
+                aria-label="Checks to run"
+                multiple
+                size="4"
+              >
+                <option value="diff" selected>Git diff check</option>
+                <option value="npm:test">npm test script</option>
+                <option value="npm:typecheck">npm typecheck script</option>
+                <option value="npm:build">npm build script</option>
+              </select>
+            </label>
+            <p class="meta">
+              BlackForge builds and tests run in GitHub CI under its repository
+              rules. Choose the diff check for local BlackForge tasks.
+            </p>
+            <button type="submit">Add to queue</button>
+          </form>
+        </details>
+      </section>
+      <section
+        id="issues"
+        role="tabpanel"
+        aria-labelledby="tab-issues"
+        tabindex="0"
+      >
+        <div id="metrics" class="metrics" aria-label="Project status"></div>
+        <div class="section-bar">
+          <h2 class="eyebrow">Issue queue</h2>
+          <div class="filters" role="group" aria-label="Filter issues">
+            <button type="button" data-issues="all" aria-pressed="true">
+              All
+            </button>
+            <button type="button" data-issues="github" aria-pressed="false">
+              GitHub
+            </button>
+            <button type="button" data-issues="findings" aria-pressed="false">
+              Review findings
+            </button>
+          </div>
+        </div>
+        <section id="findings-section">
+          <h2 class="eyebrow">
+            Review findings <span id="findings-count" class="muted"></span>
+          </h2>
+          <div id="findings" class="surface rows">
+            <p class="empty">Loading findings…</p>
+          </div>
+        </section>
+        <section id="github-issues-section">
+          <h2 class="eyebrow">GitHub issues</h2>
+          <div id="github-issues" class="surface rows">
+            <p class="empty">Loading GitHub issues…</p>
+          </div>
+        </section>
+      </section>
+      <section
+        id="prs"
+        role="tabpanel"
+        aria-labelledby="tab-prs"
+        tabindex="0"
+        hidden
+      >
+        <h2 class="eyebrow">Open pull requests</h2>
+        <div id="open-prs" class="surface rows">
+          <p class="empty">Loading pull requests…</p>
+        </div>
+        <h2 class="eyebrow">Recently merged</h2>
+        <div id="merged-prs" class="surface rows">
+          <p class="empty">Loading merged pull requests…</p>
+        </div>
+      </section>
+      <section
+        id="agents"
+        role="tabpanel"
+        aria-labelledby="tab-agents"
+        tabindex="0"
+        hidden
+      >
+        <h2 class="eyebrow">Background runners</h2>
+        <div id="runners" class="metrics"></div>
+        <details class="surface agent-setup">
+          <summary>Runner project settings</summary>
+          <label>Project ID <input id="runner-project-id" readonly /></label>
+          <p class="meta">
+            Set VIZOR_RUNNER_PROJECT_ID to this ID with each member's saved
+            agent settings. Use a separate runner instance and checkout for each
+            project.
+          </p>
+        </details>
+        <details class="surface agent-setup">
+          <summary>Add existing agents to this project</summary>
+          <form id="member-form">
+            <label
+              >Available agents
+              <select
+                name="agentIds"
+                aria-label="Available agents"
+                multiple
+                size="4"
+                required
+              ></select
+            ></label>
+            <button type="submit">Add project members</button>
+          </form>
+        </details>
+        <section class="surface agent-setup">
+          <details>
+            <summary>Add an agent</summary>
+            <form id="agent-form">
+              <label
+                >Agent name
+                <input
+                  name="name"
+                  maxlength="80"
+                  required
+                  placeholder="Stephen · Builder 1"
+              /></label>
+              <label
+                >Participant
+                <input
+                  name="participant"
+                  maxlength="80"
+                  required
+                  placeholder="Stephen"
+              /></label>
+              <label
+                >Role preset
+                <select name="preset" aria-label="Role preset">
+                  <option value="developer">Developer</option>
+                  <option value="reviewer">Reviewer</option>
+                  <option value="orchestrator">Orchestrator</option>
+                </select>
+              </label>
+              <p id="preset-skills" class="meta"></p>
+              <label
+                >Additional instructions
+                <textarea
+                  name="instructions"
+                  maxlength="4000"
+                  rows="3"
+                ></textarea>
+              </label>
+              <button type="submit">Create agent</button>
+            </form>
+          </details>
+          <div id="agent-connection" hidden>
+            <h3>Runner connection</h3>
+            <p>Save this pairing key for the agent. It is shown once.</p>
+            <label
+              >Runner settings
+              <textarea id="agent-settings" rows="6" readonly></textarea>
+            </label>
+            <button type="button" id="dismiss-agent-key">
+              I saved the settings
+            </button>
+          </div>
+        </section>
+        <h2 class="eyebrow">Agent activity</h2>
+        <div id="activity" class="surface rows">
+          <p class="empty">Loading activity…</p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

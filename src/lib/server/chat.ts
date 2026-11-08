@@ -105,6 +105,7 @@ export async function startChat(
     orchestrator?: boolean;
     scope?: string[];
     proposalId?: string;
+    sharedHandoff?: boolean;
   } = {},
 ) {
   await recoverRuns();
@@ -244,7 +245,11 @@ export async function startChat(
             role: "user",
             text: input.text,
             position: position++,
-            origin: options.proposalId ? "orchestrator" : "user",
+            origin: options.sharedHandoff
+              ? "shared_project"
+              : options.proposalId
+                ? "orchestrator"
+                : "user",
             proposalId: options.proposalId,
           },
         });
@@ -257,6 +262,7 @@ export async function startChat(
           text: "",
           position,
           status: "streaming",
+          ...(options.sharedHandoff ? { origin: "shared_project" } : {}),
         },
       });
       await tx.run.create({

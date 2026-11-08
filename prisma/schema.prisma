@@ -37,7 +37,35 @@ model Project {
   createdAt DateTime @default(now())
   agents Agent[]
   mergeJobs MergeJob[]
+  sharedConnection SharedConnection?
+  reviewEnabled Boolean @default(false)
+  reviews PullRequestReview[]
   @@index([userId, createdAt])
+}
+model PullRequestReview {
+  id String @id @default(uuid())
+  projectId String
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  repository String
+  number Int
+  head String
+  status String @default("running")
+  findings String @default("[]")
+  handedOff Boolean @default(false)
+  updatedAt DateTime @updatedAt
+  @@unique([projectId, repository, number, head])
+  @@index([projectId, status, updatedAt])
+}
+model SharedConnection {
+  projectId String @id
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  url String
+  remoteProjectId String @default("default")
+  key String
+  role String
+  workerId String?
+  runnerId String
+  enabled Boolean @default(true)
 }
 model MergeJob {
   id String @id @default(cuid())
@@ -210,12 +238,15 @@ model TerminalDispatch {
   autoDeliver Boolean @default(false)
   replyToId String? @unique
   replyDepth Int @default(0)
+  sharedTaskId String?
+  sharedTurnId String?
   claimedAt DateTime?
   deliveredAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([userId, status, createdAt])
   @@index([agentId, status])
+  @@unique([userId, sharedTurnId])
 }
 model AuditEntry {
   id String @id @default(cuid())

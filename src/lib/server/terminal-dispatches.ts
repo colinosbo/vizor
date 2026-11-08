@@ -14,6 +14,7 @@ async function ownedDispatch(userId: string, proposalId: string) {
       text: true,
       status: true,
       writePaths: true,
+      sharedTurnId: true,
     },
   });
   if (!dispatch)
@@ -25,7 +26,11 @@ export async function recoverTerminalDispatches() {
   const cutoff = new Date(Date.now() - 2 * 60_000);
   await db.$transaction(async (tx) => {
     const stale = await tx.terminalDispatch.findMany({
-      where: { status: "claimed", claimedAt: { lt: cutoff } },
+      where: {
+        status: "claimed",
+        claimedAt: { lt: cutoff },
+        sharedTurnId: null,
+      },
       select: { userId: true },
     });
     await tx.terminalDispatch.updateMany({
@@ -65,6 +70,22 @@ export async function claimTerminalDispatch(
       throw new AppError(
         "worker_unavailable",
         "This worker is paused or unavailable.",
+        409,
+      );
+    if (
+      dispatch.sharedTurnId &&
+      !(await tx.sharedConnection.findFirst({
+        where: {
+          projectId: agent.projectId ?? "",
+          role: "worker",
+          enabled: true,
+          workerId: dispatch.agentId,
+        },
+      }))
+    )
+      throw new AppError(
+        "shared_paused",
+        "Shared task delivery is paused.",
         409,
       );
     const merges = await tx.mergeJob.findMany({
@@ -150,6 +171,7 @@ export async function claimTerminalDispatch(
     });
     return {
       agentId: dispatch.agentId,
+      shared: !!dispatch.sharedTurnId,
       sharedApproved:
         !!agent.projectId && parseWritePaths(dispatch.writePaths).length > 0,
       text:
@@ -204,7 +226,11 @@ export async function releaseTerminalDispatch(
   const dispatch = await ownedDispatch(userId, proposalId);
   await db.terminalDispatch.updateMany({
     where: { id: dispatch.id, userId, status: "claimed" },
-    data: { status: "ready", claimedAt: null, error: reason.slice(0, 500) },
+    data: {
+      status: dispatch.sharedTurnId ? "failed" : "ready",
+      claimedAt: null,
+      error: reason.slice(0, 500),
+    },
   });
   await audit(
     userId,
