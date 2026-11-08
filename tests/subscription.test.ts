@@ -31,6 +31,7 @@ const native = require("../desktop/terminal-host/claude-runtime.cjs");
 let userId: string, workerId: string, home: string;
 let reply: unknown;
 let auth: unknown;
+let nativeFailure: { result: string; exitCode: number } | undefined;
 const invocations: { args: string[]; prompt: string; options: any }[] = [];
 beforeAll(async () => {
   const sqlite = new Database(process.env.DATABASE_URL!.slice(5));
@@ -84,6 +85,7 @@ beforeEach(async () => {
     ],
   };
   invocations.length = 0;
+  nativeFailure = undefined;
   vi.mocked(childProcess.spawn).mockImplementation(
     (_file, args: any, options: any) => {
       const child: any = new EventEmitter();
@@ -103,10 +105,17 @@ beforeEach(async () => {
         queueMicrotask(() => {
           child.stdout.end(
             JSON.stringify(
-              args[0] === "auth" ? auth : { structured_output: reply },
+              args[0] === "auth"
+                ? auth
+                : nativeFailure
+                  ? { is_error: true, result: nativeFailure.result }
+                  : { structured_output: reply },
             ),
           );
-          child.emit("close", 0);
+          child.emit(
+            "close",
+            args[0] === "auth" ? 0 : (nativeFailure?.exitCode ?? 0),
+          );
         });
       });
       return child;
@@ -119,6 +128,24 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 afterAll(() => db.$disconnect());
+
+it("distinguishes an exhausted Claude Code allowance from a billing or sign-in error", async () => {
+  nativeFailure = {
+    result: "You\x27ve hit your limit · resets 10pm",
+    exitCode: 1,
+  };
+  await expect(runClaude(["--print"], "approved task")).rejects.toMatchObject({
+    code: "claude_usage_limit",
+  });
+  nativeFailure = { result: "5-hour limit reached - resets 10pm", exitCode: 0 };
+  await expect(runClaude(["--print"], "approved task")).rejects.toMatchObject({
+    code: "claude_usage_limit",
+  });
+  nativeFailure = { result: "Credit balance is too low", exitCode: 1 };
+  await expect(runClaude(["--print"], "approved task")).rejects.toMatchObject({
+    code: "claude_failed",
+  });
+});
 
 it("uses native subscription sign-in without credentials, API spending, or shell access", async () => {
   const agent = await configureOrchestrator(userId, {

@@ -59,6 +59,7 @@ const event = z.object({
     "work_start",
     "publish_approve",
     "publish_wait",
+    "usage_wait",
     "project_document",
     "project_message",
   ]),
@@ -82,6 +83,7 @@ const queuedTask = taskInput.extend({
   description: z.string().max(8000),
   paths,
   managerNote: z.string().max(4000).optional(),
+  retryAt: z.iso.datetime().optional(),
   handoff: handoffSchema.optional(),
   publicationApproved: z
     .string()

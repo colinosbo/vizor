@@ -436,6 +436,7 @@ const eventNames = {
   task_accept: "Task accepted",
   task_retry: "Task returned to queue",
   work_start: "Worker started task",
+  usage_wait: "Waiting for Claude usage",
   publish_approve: "PR publication approved",
   publish_wait: "PR publication waiting to retry",
   review: "PR review",
@@ -597,11 +598,13 @@ function renderQueue(state) {
         heading.append(
           node("h3", task.title),
           badge(
-            task.handoff && !task.handoff.prUrl && !task.publicationApproved
-              ? "Publication approval needed"
-              : task.status === "review"
-                ? "Ready for review"
-                : task.status,
+            task.retryAt
+              ? "Waiting for Claude usage"
+              : task.handoff && !task.handoff.prUrl && !task.publicationApproved
+                ? "Publication approval needed"
+                : task.status === "review"
+                  ? "Ready for review"
+                  : task.status,
             task.status === "complete" ? "open" : "agent",
           ),
         );
@@ -620,6 +623,14 @@ function renderQueue(state) {
           ),
           node("p", task.description),
         );
+        if (task.retryAt)
+          row.append(
+            node(
+              "p",
+              "Next attempt: " + new Date(task.retryAt).toLocaleString(),
+              "meta",
+            ),
+          );
         if (dependencies.length)
           row.append(
             node(

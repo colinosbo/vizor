@@ -122,6 +122,12 @@ const action = z.discriminatedUnion("kind", [
     head: z.string().regex(/^[a-f0-9]{40}$/),
   }),
   z.strictObject({
+    kind: z.literal("usage_wait"),
+    turnId: id,
+    runnerId: id,
+    retryAt: z.iso.datetime(),
+  }),
+  z.strictObject({
     kind: z.literal("publish_wait"),
     turnId: id,
     runnerId: id,
@@ -266,7 +272,9 @@ function state() {
     latest:
       events.findLast(
         (event) =>
-          !["claim", "work_start", "publish_wait"].includes(event.kind),
+          !["claim", "work_start", "publish_wait", "usage_wait"].includes(
+            event.kind,
+          ),
       ) ?? null,
     events: events.slice(-100),
   };
@@ -319,8 +327,24 @@ function allowed(current, next, role, actor, githubDispatch) {
         !current.claim &&
         (!current.runnerId || next.runnerId === current.runnerId)
       );
-    if (next.kind === "work_start")
-      return current.claim?.runnerId === next.runnerId;
+    if (next.kind === "work_start") {
+      const queued = current.queue.find(
+        (task) => task.executionId === current.task.id,
+      );
+      return (
+        current.claim?.runnerId === next.runnerId &&
+        (!queued?.retryAt || Date.parse(queued.retryAt) <= Date.now())
+      );
+    }
+    if (next.kind === "usage_wait") {
+      const retryAt = Date.parse(next.retryAt);
+      return (
+        current.turn.kind !== "publish_approve" &&
+        current.claim?.runnerId === next.runnerId &&
+        retryAt > Date.now() &&
+        retryAt <= Date.now() + (3 * 60 + 1) * 60 * 1000
+      );
+    }
     if (next.kind === "publish_wait")
       return (
         current.turn.kind === "publish_approve" &&

@@ -35,3 +35,5 @@ For the first test, run `cloudflared` on the Vizor PC and expose only the GitHub
 3. Run `cloudflared tunnel --url http://127.0.0.1:<webhook-port>`. Create a GitHub repository webhook for **Issues**, with JSON content type and the same signing secret. Append `/webhooks/github` to the Quick Tunnel URL.
 4. Apply `vizor:dispatch` to the bound issue. Set `VIZOR_GITHUB_DISPATCH_LABEL` if using a different label. Watch the named assignment and activity in Vizor. The task can only be dispatched once through this pilot binding.
 5. Review the worker's checks and approve publication of its exact candidate commit in Vizor. Verify the PR link in the task, then remove the temporary repository webhook and stop the tunnel.
+
+If Claude Code reports that the subscription usage limit is exhausted, the worker saves the assignment and schedules another attempt in three hours. The dashboard shows the next attempt, and restarting the runner preserves the wait. The same assignment resumes when the worker is online, even if the temporary webhook has already been removed. API fallback stays disabled.

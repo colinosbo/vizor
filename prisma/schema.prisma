@@ -240,6 +240,7 @@ model TerminalDispatch {
   replyDepth Int @default(0)
   sharedTaskId String?
   sharedTurnId String?
+  retryAt DateTime?
   claimedAt DateTime?
   deliveredAt DateTime?
   createdAt DateTime @default(now())

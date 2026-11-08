@@ -263,9 +263,10 @@ if (process.argv.includes("--login")) {
     } = await import("../src/lib/server/terminal-dispatches");
     const { collectTerminalReports, reportPath, reportSchema } =
       await import("../src/lib/server/terminal-reports");
-    if (!(role === "worker" && pairing.turn?.kind === "publish_approve")) {
+    if (!(role === "worker" && pairing.turn?.kind === "publish_approve"))
       await assertRunnerSubscription();
-      // Verify real inference before announcing availability or claiming work.
+    if (role === "owner") {
+      // Check the manager connection before taking project planning work.
       const probe = JSON.parse(
         await runClaude(
           [
@@ -370,6 +371,7 @@ if (process.argv.includes("--login")) {
     );
     let lastFindings = "";
     let nextRepositoryRefresh = 0;
+    let announcedUsageWait: string | undefined;
     if (role === "worker") {
       const interrupted = await db.terminalDispatch.findMany({
         where: {
@@ -526,13 +528,47 @@ if (process.argv.includes("--login")) {
               });
               continue;
             }
+            if (task.retryAt && task.retryAt.getTime() > Date.now()) {
+              const retryAt = task.retryAt.toISOString();
+              const eventId = sharedId("usage-wait:" + task.id + ":" + retryAt);
+              if (announcedUsageWait !== eventId) {
+                const result = await fetchRelay("/v1/project", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    id: eventId,
+                    action: {
+                      kind: "usage_wait",
+                      turnId: task.sharedTurnId,
+                      runnerId: connections[0].runnerId,
+                      retryAt,
+                    },
+                  }),
+                });
+                if (result.ok || result.status === 409)
+                  announcedUsageWait = eventId;
+              }
+              await delay(
+                Math.max(
+                  0,
+                  Math.min(30000, task.retryAt.getTime() - Date.now()),
+                ),
+                undefined,
+                { signal: shutdown.signal },
+              ).catch(() => {});
+              continue;
+            }
             await claimTerminalDispatch(user.id, task.proposalId);
             try {
               const started = await fetchRelay("/v1/project", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                  id: sharedId(`work-start:${task.id}`),
+                  id: sharedId(
+                    "work-start:" +
+                      task.id +
+                      (task.retryAt ? ":" + task.retryAt.toISOString() : ""),
+                  ),
                   action: {
                     kind: "work_start",
                     turnId: task.sharedTurnId,
@@ -603,6 +639,22 @@ if (process.argv.includes("--login")) {
               await completeTerminalDispatch(user.id, task.proposalId);
               await collectTerminalReports(user.id);
             } catch (error) {
+              if (
+                error instanceof Error &&
+                "code" in error &&
+                error.code === "claude_usage_limit"
+              ) {
+                await db.terminalDispatch.update({
+                  where: { id: task.id },
+                  data: {
+                    status: "ready",
+                    claimedAt: null,
+                    retryAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+                    error: "Waiting for Claude Code subscription usage.",
+                  },
+                });
+                continue;
+              }
               if (current.turn.kind === "publish_approve") {
                 await db.terminalDispatch.update({
                   where: { id: task.id },

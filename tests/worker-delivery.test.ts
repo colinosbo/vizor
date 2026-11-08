@@ -1,5 +1,10 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -19,7 +24,7 @@ const actual = await vi.importActual<
   typeof import("../src/lib/server/github-merge-check")
 >("../src/lib/server/github-merge-check");
 function fixture() {
-  const folder = mkdtempSync(join(tmpdir(), "vizor-delivery-"));
+  const folder = realpathSync(mkdtempSync(join(tmpdir(), "vizor-delivery-")));
   const git = (...args: string[]) =>
     execFileSync("git", ["-C", folder, ...args], { encoding: "utf8" }).trim();
   git("init", "-q", "-b", "main");

@@ -67,6 +67,7 @@ export async function runClaude(
       shell: false,
     });
     let text = "",
+      stderr = "",
       settled = false;
     const fail = (error: Error) => {
       if (settled) return;
@@ -103,7 +104,9 @@ export async function runClaude(
           ),
         );
     });
-    child.stderr.resume(); // Never log native diagnostics that could contain account data.
+    child.stderr.on("data", (chunk) => {
+      stderr = (stderr + chunk.toString()).slice(-4096);
+    }); // Keep native diagnostics private.
     child.once("error", () =>
       fail(
         new AppError(
@@ -120,6 +123,37 @@ export async function runClaude(
         try {
           noLogin = JSON.parse(text).loggedIn === false;
         } catch {}
+      }
+      if (args.includes("--print")) {
+        const messages = code !== 0 ? [stderr] : [];
+        try {
+          const result = JSON.parse(text);
+          if (code !== 0 || result.is_error === true) {
+            if (typeof result.result === "string") messages.push(result.result);
+            if (Array.isArray(result.errors))
+              messages.push(
+                ...result.errors.filter(
+                  (item: unknown) => typeof item === "string",
+                ),
+              );
+          }
+        } catch {
+          if (code !== 0) messages.push(text);
+        }
+        if (
+          messages.some((message) =>
+            /\b(?:(?:usage|weekly|daily|session|5-hour) limit (?:reached|exceeded)|(?:you[’\x27]ve|you have) (?:hit|reached) your (?:(?:usage|weekly|daily|session|5-hour) )?limit)\b/i.test(
+              message,
+            ),
+          )
+        )
+          return fail(
+            new AppError(
+              "claude_usage_limit",
+              "Claude Code subscription usage limit reached.",
+              429,
+            ),
+          );
       }
       if (code !== 0 && !noLogin)
         return fail(

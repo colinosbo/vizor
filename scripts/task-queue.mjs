@@ -85,6 +85,7 @@ export function taskQueue(events) {
       task.executionId = event.id;
       task.attempts++;
       task.outcome = null;
+      delete task.retryAt;
       delete task.handoff;
       delete task.publicationApproved;
       task.updatedAt = event.created;
@@ -93,7 +94,18 @@ export function taskQueue(events) {
     const task = queue.get(turns.get(event.turnId));
     if (task) {
       if (event.kind === "claim") task.status = "acknowledged";
-      if (event.kind === "work_start") task.status = "working";
+      if (event.kind === "work_start") {
+        task.status = "working";
+        if (task.retryAt) {
+          delete task.retryAt;
+          task.summary = "";
+        }
+      }
+      if (event.kind === "usage_wait") {
+        task.status = "assigned";
+        task.retryAt = event.retryAt;
+        task.summary = "Waiting for Claude Code subscription usage.";
+      }
       if (event.kind === "publish_wait") {
         task.status = "blocked";
         task.summary = event.text;
@@ -108,6 +120,7 @@ export function taskQueue(events) {
         turns.set(event.id, task.id);
       }
       if (event.kind === "report") {
+        delete task.retryAt;
         task.status =
           event.outcome === "completed" && !event.needsReply
             ? "review"
@@ -128,6 +141,7 @@ export function taskQueue(events) {
     if (event.kind === "task_retry") {
       const retry = queue.get(event.taskId);
       retry.status = "queued";
+      delete retry.retryAt;
       retry.assignee = null;
       retry.executionId = null;
       retry.managerNote = event.text;
@@ -142,6 +156,7 @@ export function taskQueue(events) {
       for (const item of queue.values()) {
         if (item.status !== "complete") {
           item.status = "blocked";
+          delete item.retryAt;
           item.summary = "Project stopped by the owner.";
           item.updatedAt = event.created;
         }

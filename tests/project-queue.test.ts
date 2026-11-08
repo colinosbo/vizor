@@ -189,8 +189,41 @@ it("dispatches only the configured signed GitHub issue and preserves one assignm
   expect(dispatched.status).toBe(202);
   const { dispatchId } = await dispatched.json();
   expect((await state(developer.key, project.id)).turn.id).toBe(dispatchId);
+  const runnerId = randomUUID();
+  const turn = { turnId: dispatchId, runnerId };
+  const retryAt = new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString();
+  expect(
+    (await send(developer.key, project.id, { kind: "claim", ...turn })).status,
+  ).toBe(200);
+  expect(
+    (await send(developer.key, project.id, { kind: "work_start", ...turn }))
+      .status,
+  ).toBe(200);
+  expect(
+    (
+      await send(developer.key, project.id, {
+        kind: "usage_wait",
+        ...turn,
+        runnerId: randomUUID(),
+        retryAt,
+      })
+    ).status,
+  ).toBe(409);
+  expect(
+    (
+      await send(developer.key, project.id, {
+        kind: "usage_wait",
+        ...turn,
+        retryAt,
+      })
+    ).status,
+  ).toBe(200);
   await stop();
   await start(0, settings);
+  expect(
+    (await send(developer.key, project.id, { kind: "work_start", ...turn }))
+      .status,
+  ).toBe(409);
   expect(await (await deliver(7)).json()).toEqual({
     duplicate: true,
     dispatchId,
@@ -204,6 +237,7 @@ it("dispatches only the configured signed GitHub issue and preserves one assignm
   expect(view.queue[0]).toMatchObject({
     status: "assigned",
     assignee: developer.agent.id,
+    retryAt,
   });
   await stop();
   await start();
