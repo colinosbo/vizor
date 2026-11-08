@@ -68,6 +68,7 @@ export type Workspace = {
     name: string;
     folder: string;
     createdAt: string;
+    sharedConnection?: { role: string } | null;
     agents: {
       id: string;
       name: string;
@@ -95,8 +96,12 @@ export type Workspace = {
   terminalDispatches: TerminalDispatchView[];
   allReadyDispatches?: Pick<
     TerminalDispatchView,
-    "id" | "proposalId" | "agentId" | "status" | "autoDeliver"
+    "id" | "proposalId" | "agentId" | "status" | "autoDeliver" | "sharedTurnId"
   >[];
+  sharedPolling?: boolean;
+  sharedRevision?: string;
+  sharedDecisionProjectIds?: string[];
+  sharedProject?: { role: string; needsDecision: boolean };
   pendingProposalCount: number;
   budgets: BudgetView[];
   autopilot: boolean;
@@ -213,6 +218,7 @@ export type ProposalView = {
 };
 export type TerminalDispatchView = {
   autoDeliver?: boolean;
+  sharedTurnId?: string | null;
   questions?: string;
   id: string;
   proposalId: string;

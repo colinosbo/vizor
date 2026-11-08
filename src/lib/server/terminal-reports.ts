@@ -7,8 +7,10 @@ import { selfHost } from "./security";
 import { audit } from "./audit";
 import { publish } from "./events";
 import { workerQuestion } from "./worker-questions";
+import { shareTerminalReport } from "./shared-projects";
+import { handoffSchema } from "../../../scripts/worker-handoff.mjs";
 
-const reportSchema = z
+export const reportSchema = z
   .object({
     dispatchId: z.string().min(1).max(100),
     outcome: z.enum(["completed", "blocked", "failed"]),
@@ -16,6 +18,7 @@ const reportSchema = z
     checks: z.array(z.string().max(500)).max(20),
     artifacts: z.array(z.string().max(500)).max(20),
     questions: z.array(workerQuestion).max(5).default([]),
+    handoff: handoffSchema.optional(),
   })
   .strict();
 const enabled = () => selfHost() && process.env.VIZOR_TERMINALS === "1";
@@ -95,7 +98,10 @@ async function collect(userId: string) {
       where: { userId, kind: "orchestrator", projectId: task.agent.projectId },
       include: { conversation: true },
     });
-    if (!coordinator?.conversation || coordinator.conversation.activeRunId)
+    if (
+      !task.sharedTurnId &&
+      (!coordinator?.conversation || coordinator.conversation.activeRunId)
+    )
       continue;
     const messageId = `terminal-report-${task.id}`;
     if (await db.message.findUnique({ where: { id: messageId } })) {
@@ -137,6 +143,35 @@ async function collect(userId: string) {
       const questionText = questions.length
         ? `\n\nWorker questions for Orchestrator (dispatch ${task.id}):\n${questions.map((question) => `- ${question.id}: ${question.question}${question.options.length ? ` Options: ${question.options.join("; ")}` : ""}`).join("\n")}\nUse answer_worker_question with this dispatch ID only if the approved plan settles the answer. Otherwise ask the user.`
         : "";
+      if (task.sharedTurnId && task.agent.projectId) {
+        const sharedText = [
+          ...questions.map(
+            (question) =>
+              `Question: ${question.question}${question.options.length ? ` Options: ${question.options.join("; ")}` : ""}`,
+          ),
+          report.summary,
+          ...report.checks.map((check) => `Check: ${check}`),
+          ...report.artifacts.map((artifact) => `Reference: ${artifact}`),
+        ].join("\n");
+        await shareTerminalReport(
+          userId,
+          task.agent.projectId,
+          task.sharedTurnId,
+          {
+            outcome: report.outcome,
+            text: scrub(sharedText),
+            needsReply: questions.length > 0,
+            ...(report.handoff ? { handoff: report.handoff } : {}),
+          },
+        );
+        await db.terminalDispatch.updateMany({
+          where: { id: task.id, userId, status: "delivered" },
+          data: { status: "reported", outcome: report.outcome },
+        });
+        publish(userId);
+        continue;
+      }
+      if (!coordinator?.conversation) continue;
       await db.$transaction(async (tx) => {
         const current = await tx.conversation.findFirst({
           where: {

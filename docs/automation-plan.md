@@ -1,6 +1,6 @@
 # Vizor development automation plan
 
-**Status:** Proposed workflow. GitHub webhook dispatch through Cloudflare still needs implementation and a live test.
+**Status:** The one-issue webhook pilot is implemented. Issue #3 reached the worker through Cloudflare Quick Tunnel and produced PR #4 after a retry. The full workflow below describes the intended project automation.
 
 Vizor is the standalone app for planning and coordinating development work. GitHub is the source of truth for issues, code, pull requests, and checks. Vizor records assignments, runner activity, blockers, and handoffs.
 
@@ -27,3 +27,25 @@ For the first test, run `cloudflared` on the Vizor PC and expose only the GitHub
 - [ ] Duplicate check: resending the same delivery ID started no additional run.
 
 **Open decisions:** Finalize the dispatch label and how Vizor handles missed deliveries after downtime. Choose a stable tunnel hostname if the temporary Quick Tunnel URL becomes a daily setup burden.
+
+## Run the first webhook pilot
+
+1. In Vizor, approve the project and create a queued task with the exact GitHub issue URL in its references. Choose the named worker and start its runner with a dedicated checkout.
+2. Start the local relay with `VIZOR_GITHUB_WEBHOOK_PORT`, `VIZOR_GITHUB_PROJECT_ID`, `VIZOR_GITHUB_TASK_ID`, and `VIZOR_GITHUB_AGENT_ID` set for the pilot. Set a private `VIZOR_GITHUB_WEBHOOK_SECRET` of at least 32 characters. The webhook listener has its own loopback port and serves only `POST /webhooks/github`.
+3. Run `cloudflared tunnel --url http://127.0.0.1:<webhook-port>`. Create a GitHub repository webhook for **Issues**, with JSON content type and the same signing secret. Append `/webhooks/github` to the Quick Tunnel URL.
+4. Apply `vizor:dispatch` to the bound issue. Set `VIZOR_GITHUB_DISPATCH_LABEL` if using a different label. Watch the named assignment and activity in Vizor. The task can only be dispatched once through this pilot binding.
+5. Review the worker's checks and approve publication of its exact candidate commit in Vizor. Verify the PR link in the task, then remove the temporary repository webhook and stop the tunnel.
+
+If Claude Code reports that the subscription usage limit is exhausted, the worker saves the assignment and schedules another attempt in three hours. The dashboard shows the next attempt, and restarting the runner preserves the wait. The same assignment resumes when the worker is online, even if the temporary webhook has already been removed. API fallback stays disabled.
+
+When a worker needs clarification, it pauses the assignment and records the question in its task thread. The Orchestrator can answer from the approved plan or ask for an owner decision. The owner can also answer directly from the task card if the manager is unavailable. The worker resumes with the same approved files and acceptance criteria. Use a new approval for changes to scope.
+
+If the tunnel or relay was down before GitHub could deliver the event, restart the listener and redeliver from the repository webhook’s **Recent deliveries** page. If a Quick Tunnel restarted with a new URL, update the webhook first. After Vizor accepts an event, the saved assignment can resume without the tunnel.
+
+A Developer or Reviewer runner can use Codex with ChatGPT sign-in. Start it with VIZOR_RUNNER_ENGINE=codex. It receives the same saved assignment, role instructions, approved file snapshots and clarification history. Vizor applies the validated edits, runs checks and waits for approval before publishing the PR.
+
+To enable backup routing, set `VIZOR_GITHUB_BACKUP_AGENT_ID` to a separate registered worker with the same role. The backup signs in with its own runner credentials and can use any supported engine. Vizor gives the primary 15 minutes after accepting the webhook to acknowledge the assignment. A timely acknowledgement keeps it with the primary. After the deadline, only the backup can take over. Without a backup configured, the primary can still pick up the assignment after 15 minutes.
+
+Vizor shows each worker's last subscription reading and reset times in the dashboard, with a snapshot on published PR activity. Missing provider readings show as unknown. Set the same optional `VIZOR_RUNNER_USAGE_POOL` label on runners signed into the same subscription so Vizor treats their cooldown as shared. Labels stay private to the relay and are scoped by provider.
+
+After a confirmed usage limit on a started webhook task, Vizor can transfer the saved task and clarification history to the configured backup. The old assignment cannot start again. If both subscriptions are capped, the relay waits and gives the task to one worker when its blocking windows reset. If the provider omits the reset, the runner waits three hours. Without a backup the original worker retries. All worker inference stays on the signed-in native subscription path.

@@ -11,6 +11,13 @@ import { processTaskQueue } from "./task-queue";
 import { subscriptionAvailable } from "./subscription";
 import { ownedProject } from "./projects";
 import { processProjectMerges } from "./project-merge";
+import { scanProjectReviews } from "./pr-reviews";
+import {
+  sendSharedDeliveryFailures,
+  sharedDecisionId,
+  sharedRevision,
+  watchSharedProjects,
+} from "./shared-projects";
 export const defaultAgent = {
   name: "My assistant",
   provider: "anthropic",
@@ -52,9 +59,33 @@ export async function workspace(
     ? await ownedProject(user.id, projectId)
     : null;
   await collectTerminalReports(user.id);
+  const sharedConnections = await db.sharedConnection.findMany({
+    where: { project: { userId: user.id } },
+  });
+  const sharedPolling = sharedConnections.some(
+    (connection) => connection.enabled && connection.role === "worker",
+  );
+  const selectedShared = sharedConnections.find(
+    (connection) => connection.projectId === projectId,
+  );
+  const sharedDecisions = sharedConnections.flatMap((connection) => {
+    const id =
+      connection.enabled &&
+      connection.role === "owner" &&
+      sharedDecisionId(connection.projectId);
+    return id ? [{ id, projectId: connection.projectId }] : [];
+  });
+  watchSharedProjects(user.id, sharedConnections);
+  if (sharedPolling) void sendSharedDeliveryFailures(user.id).catch(() => {});
   await collectApiAgentReports(user.id);
   await processTaskQueue(user.id);
   void processProjectMerges(user.id).catch(() => {});
+  const reviewProjects = await db.project.findMany({
+    where: { userId: user.id, reviewEnabled: true },
+    select: { id: true },
+  });
+  for (const project of reviewProjects)
+    void scanProjectReviews(user.id, project.id).catch(() => {});
   const keys = await db.credential.findMany({
     where: { userId: user.id },
     select: { provider: true, last4: true },
@@ -142,6 +173,7 @@ export async function workspace(
       messages: await db.message.findMany({
         where: {
           conversation: { agent: { userId: user.id } },
+          origin: { not: "shared_project" },
           OR: [
             { role: "assistant" },
             { origin: { in: ["terminal_report", "agent_report"] } },
@@ -151,14 +183,17 @@ export async function workspace(
         take: 300,
         select: { id: true, status: true },
       }),
-      pendingProposals: (
-        await db.proposal.findMany({
-          where: { userId: user.id, status: "pending" },
-          orderBy: { createdAt: "desc" },
-          take: 1000,
-          select: { id: true },
-        })
-      ).map((item) => item.id),
+      pendingProposals: [
+        ...sharedDecisions.map((item) => item.id),
+        ...(
+          await db.proposal.findMany({
+            where: { userId: user.id, status: "pending" },
+            orderBy: { createdAt: "desc" },
+            take: 1000,
+            select: { id: true },
+          })
+        ).map((item) => item.id),
+      ],
     },
     projects: await db.project.findMany({
       where: { userId: user.id },
@@ -168,6 +203,7 @@ export async function workspace(
         name: true,
         folder: true,
         createdAt: true,
+        sharedConnection: { select: { role: true } },
         agents: {
           where: { userId: user.id, kind: "agent", archived: false },
           orderBy: { createdAt: "asc" },
@@ -315,16 +351,37 @@ export async function workspace(
       },
     }),
     allReadyDispatches: await db.terminalDispatch.findMany({
-      where: { userId: user.id, status: "ready" },
+      where: {
+        userId: user.id,
+        status: "ready",
+        OR: [
+          { sharedTurnId: null },
+          { agent: { project: { sharedConnection: { enabled: true } } } },
+        ],
+      },
       select: {
         id: true,
         proposalId: true,
         agentId: true,
         status: true,
         autoDeliver: true,
+        sharedTurnId: true,
       },
       orderBy: { createdAt: "asc" },
     }),
+    sharedPolling,
+    sharedRevision: selectedShared
+      ? sharedRevision(selectedShared.projectId)
+      : undefined,
+    sharedDecisionProjectIds: sharedDecisions.map((item) => item.projectId),
+    sharedProject: selectedShared && {
+      role: selectedShared.role,
+      needsDecision:
+        selectedShared.role === "owner" &&
+        sharedDecisions.some(
+          (item) => item.projectId === selectedShared.projectId,
+        ),
+    },
     budgets: await budgetViews(user.id),
     autopilot: preferences.autoApprove,
     queueEnabled: preferences.queueEnabled,

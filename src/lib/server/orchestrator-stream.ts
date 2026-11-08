@@ -9,7 +9,9 @@ import { meteredStream } from "./budgets";
 import {
   orchestratorContext,
   ORCHESTRATOR_PROMPT,
-  orchestratorTools,
+  toolsForProject,
+  SHARED_PROJECT_PROMPT,
+  PR_REVIEW_POLICY,
 } from "./orchestrator-context";
 import { toolResult } from "./orchestrator-tools";
 import { db } from "./db";
@@ -86,6 +88,8 @@ export async function* streamOrchestrator(
         maxTokens: round === 0 ? requestTokens : input.maxTokens,
         system:
           ORCHESTRATOR_PROMPT +
+          (context.sharedProject ? SHARED_PROJECT_PROMPT : "") +
+          (context.project?.reviewEnabled ? PR_REVIEW_POLICY : "") +
           (context.autopilot
             ? "\n\nCURRENT OWNER AUTOMATION SETTING (overrides the default approval workflow above): Full auto approval is ON. Vizor automatically approves new proposals and executes the task queue while open. Continue preparing scoped proposals through the structured tools; no per-task user click is needed. Honor the user's project constraints and dependencies. Never claim work is finished until its report arrives."
             : "") +
@@ -97,7 +101,7 @@ export async function* streamOrchestrator(
                 .join("\n\nProject instructions:\n")
             : ""),
         messages,
-        tools: orchestratorTools,
+        tools: toolsForProject(context.sharedProject),
       },
       { source: "orchestrator", referenceId: runId },
     )) {

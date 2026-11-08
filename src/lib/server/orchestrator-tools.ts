@@ -88,6 +88,7 @@ export async function toolResult(
       },
       select: {
         id: true,
+        clientId: true,
         conversation: { select: { agent: { select: { projectId: true } } } },
       },
     });
@@ -98,12 +99,35 @@ export async function toolResult(
         404,
       );
     const projectId = sourceRun.conversation.agent.projectId;
+    const shared =
+      projectId &&
+      (await db.sharedConnection.findUnique({
+        where: { projectId },
+        select: { role: true },
+      }));
+    if (projectId && shared && call.name !== "summarize") {
+      const { sharedTool } = await import("./shared-projects");
+      return await sharedTool(userId, projectId, sourceRun, call);
+    }
     if (call.name === "finish_project") {
       if (!projectId)
         throw new AppError(
           "project_required",
           "Choose a project before requesting a merge.",
           400,
+        );
+      if (
+        (
+          await db.project.findFirst({
+            where: { id: projectId, userId },
+            select: { reviewEnabled: true },
+          })
+        )?.reviewEnabled
+      )
+        throw new AppError(
+          "review_publication",
+          "PR review projects require a separate publication decision.",
+          409,
         );
       const { requestProjectMerge } = await import("./project-merge");
       return await requestProjectMerge(userId, projectId, runId, call);
