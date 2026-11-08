@@ -269,6 +269,196 @@ it("dispatches only the configured signed GitHub issue and preserves one assignm
   await start();
 });
 
+it.each([
+  { acknowledged: true, backupEnabled: true },
+  { acknowledged: false, backupEnabled: true },
+  { acknowledged: false, backupEnabled: false },
+])(
+  "only transfers an unacknowledged assignment to a configured backup ($acknowledged, $backupEnabled)",
+  async ({ acknowledged, backupEnabled }) => {
+    async function register(name: string, preset: string) {
+      const response = await post("/dashboard/agents", admin, {
+        name,
+        participant: "Pilot",
+        preset,
+      });
+      expect(response.status).toBe(201);
+      return response.json();
+    }
+    const manager = await register("Deadline manager", "orchestrator");
+    const primary = await register("Primary worker", "developer");
+    const backup = await register("Backup worker", "developer");
+    const created = await post("/dashboard/projects", admin, {
+      name: "Acknowledgement deadline pilot",
+      goal: "Approve one documentation change.",
+      repository: "example/repository",
+      paths: ["README.md"],
+      managerId: manager.agent.id,
+      agentIds: [manager.agent.id, primary.agent.id, backup.agent.id],
+    });
+    expect(created.status).toBe(201);
+    const project = (await created.json()).project.id;
+    const taskId = randomUUID();
+    const issue = "https://github.com/example/repository/issues/15";
+    expect(
+      (
+        await send(
+          manager.key,
+          project,
+          {
+            kind: "task_create",
+            basis: (await state(manager.key, project)).latest.id,
+            title: "Document acknowledgement",
+            description: "Clarify the handoff.",
+            acceptance: "The approved documentation is updated.",
+            paths: ["README.md"],
+            references: [issue],
+          },
+          taskId,
+        )
+      ).status,
+    ).toBe(200);
+    const secret = key();
+    const settings = {
+      VIZOR_GITHUB_WEBHOOK_PORT: "0",
+      VIZOR_GITHUB_WEBHOOK_SECRET: secret,
+      VIZOR_GITHUB_PROJECT_ID: project,
+      VIZOR_GITHUB_TASK_ID: taskId,
+      VIZOR_GITHUB_AGENT_ID: primary.agent.id,
+      ...(backupEnabled
+        ? { VIZOR_GITHUB_BACKUP_AGENT_ID: backup.agent.id }
+        : {}),
+    };
+    await stop();
+    await start(0, settings);
+    const body = JSON.stringify({
+      action: "labeled",
+      label: { name: "vizor:dispatch" },
+      repository: { full_name: "example/repository" },
+      issue: { number: 15, state: "open" },
+    });
+    const deliver = () =>
+      fetch(webhookUrl + "/webhooks/github", {
+        method: "POST",
+        body,
+        headers: {
+          "X-GitHub-Event": "issues",
+          "X-Hub-Signature-256":
+            "sha256=" + createHmac("sha256", secret).update(body).digest("hex"),
+        },
+      });
+    const accepted = await deliver();
+    expect(accepted.status).toBe(202);
+    const { dispatchId } = await accepted.json();
+    const assignment = (await state(primary.key, project)).task;
+    expect(assignment.id).toBe(dispatchId);
+    if (backupEnabled) {
+      const remaining = Date.parse(assignment.ackDeadline) - Date.now();
+      expect(remaining).toBeGreaterThan(14 * 60 * 1000);
+      expect(remaining).toBeLessThanOrEqual(15 * 60 * 1000);
+    } else {
+      expect(assignment.ackDeadline).toBeUndefined();
+    }
+    expect((await state(backup.key, project)).task).toBeNull();
+    const runnerId = randomUUID();
+    if (acknowledged)
+      expect(
+        (
+          await send(primary.key, project, {
+            kind: "claim",
+            turnId: dispatchId,
+            runnerId,
+          })
+        ).status,
+      ).toBe(200);
+    await stop();
+    await start(0, undefined, 15 * 60 * 1000 + 1000);
+    if (acknowledged || !backupEnabled) {
+      expect((await state(primary.key, project)).task.id).toBe(dispatchId);
+      if (!acknowledged)
+        expect(
+          (
+            await send(primary.key, project, {
+              kind: "claim",
+              turnId: dispatchId,
+              runnerId,
+            })
+          ).status,
+        ).toBe(200);
+      expect((await state(backup.key, project)).task).toBeNull();
+      expect(
+        (
+          await send(primary.key, project, {
+            kind: "work_start",
+            turnId: dispatchId,
+            runnerId,
+          })
+        ).status,
+      ).toBe(200);
+    } else {
+      expect((await state(primary.key, project)).task).toBeNull();
+      expect(
+        (
+          await send(primary.key, project, {
+            kind: "claim",
+            turnId: dispatchId,
+            runnerId,
+          })
+        ).status,
+      ).toBe(409);
+      expect(
+        (
+          await send(primary.key, project, {
+            kind: "work_start",
+            turnId: dispatchId,
+            runnerId,
+          })
+        ).status,
+      ).toBe(409);
+      const replacement = (await state(backup.key, project)).task;
+      expect(replacement).toMatchObject({
+        queuedTaskId: taskId,
+        replaces: dispatchId,
+        source: "backup",
+      });
+      const backupTurn = { turnId: replacement.id, runnerId: randomUUID() };
+      expect(
+        (await send(primary.key, project, { kind: "claim", ...backupTurn }))
+          .status,
+      ).toBe(409);
+      expect(
+        (await send(backup.key, project, { kind: "claim", ...backupTurn }))
+          .status,
+      ).toBe(200);
+      expect(
+        (await send(backup.key, project, { kind: "work_start", ...backupTurn }))
+          .status,
+      ).toBe(200);
+    }
+    const result = await state(manager.key, project);
+    expect(result.tasks).toHaveLength(1);
+    expect(result.queue[0]).toMatchObject({
+      id: taskId,
+      status: "working",
+      assignee: (acknowledged || !backupEnabled ? primary : backup).agent.id,
+    });
+    expect(
+      result.events.filter(
+        (event: { kind: string }) => event.kind === "work_start",
+      ),
+    ).toHaveLength(1);
+    await stop();
+    await start(0, settings, 15 * 60 * 1000 + 1000);
+    expect(await (await deliver()).json()).toEqual({
+      duplicate: true,
+      dispatchId,
+    });
+    expect((await state(manager.key, project)).tasks).toHaveLength(1);
+    await stop();
+    await start();
+  },
+);
+
 it("migrates existing state and runs an isolated project queue through dependencies, review and retry", async () => {
   const original = await state(oldManagerKey);
   expect(original.plan.text).toBe("Existing approved scope.");

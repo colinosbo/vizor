@@ -198,6 +198,7 @@ function state() {
         }
         break;
       case "assign":
+        if (event.replaces) threads.delete(event.replaces);
         event.taskId = event.id;
         focused = {
           task: event,
@@ -209,7 +210,7 @@ function state() {
         };
         threads.set(event.id, focused);
         lastTurn = event;
-        assigned++;
+        if (!event.replaces) assigned++;
         break;
       case "reply":
       case "publish_approve":
@@ -325,6 +326,8 @@ function allowed(current, next, role, actor, githubDispatch) {
     if (next.kind === "claim")
       return (
         !current.claim &&
+        (!current.task.ackDeadline ||
+          Date.parse(current.task.ackDeadline) > Date.now()) &&
         (!current.runnerId || next.runnerId === current.runnerId)
       );
     if (next.kind === "work_start") {
@@ -526,7 +529,7 @@ function allowed(current, next, role, actor, githubDispatch) {
   }
 }
 
-function record(input, role, actor, human, githubDispatch = false) {
+function record(input, role, actor, human, webhook) {
   if (
     actor &&
     registry.agents().find((agent) => agent.id === actor.id)?.revoked
@@ -534,7 +537,7 @@ function record(input, role, actor, human, githubDispatch = false) {
     return false;
   const body = JSON.stringify({
     ...input.action,
-    ...(githubDispatch ? { source: "github" } : {}),
+    ...(webhook ?? {}),
     ...(actor ? { actorId: actor.id } : {}),
     ...(human ? { humanId: human.id, humanName: human.name } : {}),
   });
@@ -549,7 +552,35 @@ function record(input, role, actor, human, githubDispatch = false) {
       )
         return false;
     } else {
-      if (!allowed(state(), input.action, role, actor, githubDispatch))
+      let current = state();
+      if (webhook?.replaces) {
+        const original = current.tasks.find(
+          (item) => item.task.id === webhook.replaces,
+        );
+        if (
+          !original ||
+          original.claim ||
+          original.turn.kind !== "assign" ||
+          original.task.backupAgentId !== input.action.agentId ||
+          original.task.queuedTaskId !== input.action.queuedTaskId ||
+          !original.task.ackDeadline ||
+          Date.parse(original.task.ackDeadline) > Date.now()
+        )
+          return false;
+        current = {
+          ...current,
+          tasks: current.tasks.filter(
+            (item) => item.task.id !== original.task.id,
+          ),
+          queue: current.queue.map((task) =>
+            task.id === original.task.queuedTaskId
+              ? { ...task, status: "queued" }
+              : task,
+          ),
+          assigned: current.assigned - 1,
+        };
+      }
+      if (!allowed(current, input.action, role, actor, Boolean(webhook)))
         return false;
       insert.run(input.id, role, body, currentProjectId());
       if (input.action.kind === "approve")
@@ -693,6 +724,58 @@ function respond(response, code, data) {
   response.end(JSON.stringify(data));
 }
 
+// The watchdog reads saved assignments, so it also works after restarting
+// the relay without the webhook listener or tunnel.
+const projectsWithDeadlines = database.prepare(
+  "SELECT DISTINCT project_id FROM event WHERE json_extract(body, '$.ackDeadline') IS NOT NULL",
+);
+function checkAcknowledgements() {
+  try {
+    for (const { project_id } of projectsWithDeadlines.all())
+      projectContext.run(project_id, () => {
+        let current = state();
+        for (const original of current.tasks) {
+          const { ackDeadline, backupAgentId, queuedTaskId } = original.task;
+          if (
+            original.claim ||
+            !backupAgentId ||
+            !ackDeadline ||
+            Date.parse(ackDeadline) > Date.now()
+          )
+            continue;
+          const task = current.queue.find(
+            (item) =>
+              item.id === queuedTaskId && item.executionId === original.task.id,
+          );
+          if (!task) continue;
+          const transferred = record(
+            {
+              id: randomUUID(),
+              action: {
+                kind: "assign",
+                basis: current.latest?.id,
+                queuedTaskId,
+                agentId: backupAgentId,
+                text: taskBrief(task),
+                paths: task.paths,
+              },
+            },
+            "owner",
+            null,
+            undefined,
+            {
+              source: "backup",
+              replaces: original.task.id,
+            },
+          );
+          if (transferred) current = state();
+        }
+      });
+  } catch {
+    console.error("Could not check assignment acknowledgements. Will retry.");
+  }
+}
+
 function startGitHubWebhook() {
   const port = process.env.VIZOR_GITHUB_WEBHOOK_PORT;
   if (!port) return;
@@ -703,6 +786,12 @@ function startGitHubWebhook() {
   const projectId = projectIdSchema.parse(process.env.VIZOR_GITHUB_PROJECT_ID);
   const taskId = id.parse(process.env.VIZOR_GITHUB_TASK_ID);
   const agentId = id.parse(process.env.VIZOR_GITHUB_AGENT_ID);
+  const backupAgentId = id
+    .optional()
+    .parse(process.env.VIZOR_GITHUB_BACKUP_AGENT_ID);
+  if (backupAgentId === agentId)
+    throw Error("The GitHub backup must be a different registered worker.");
+  const ackTimeoutMs = 15 * 60 * 1000;
   const label = process.env.VIZOR_GITHUB_DISPATCH_LABEL ?? "vizor:dispatch";
   const hash = createHash("sha256")
     .update(`github-dispatch:${projectId}:${taskId}`)
@@ -763,6 +852,20 @@ function startGitHubWebhook() {
           return respond(response, 200, { ignored: true });
         if (findEvent.get(dispatchId))
           return respond(response, 200, { duplicate: true, dispatchId });
+        if (backupAgentId) {
+          const members = registry.agents().filter((agent) => !agent.revoked);
+          const primary = members.find((agent) => agent.id === agentId);
+          const backup = members.find((agent) => agent.id === backupAgentId);
+          if (
+            !primary ||
+            !backup ||
+            primary.preset === "orchestrator" ||
+            backup.preset !== primary.preset
+          )
+            return respond(response, 409, {
+              error: "Choose a separate backup with the same worker role.",
+            });
+        }
         const saved = record(
           {
             id: dispatchId,
@@ -778,7 +881,17 @@ function startGitHubWebhook() {
           "owner",
           null,
           undefined,
-          true,
+          {
+            source: "github",
+            ...(backupAgentId
+              ? {
+                  backupAgentId,
+                  ackDeadline: new Date(
+                    Date.now() + ackTimeoutMs,
+                  ).toISOString(),
+                }
+              : {}),
+          },
         );
         return saved
           ? respond(response, 202, { dispatchId })
@@ -1339,3 +1452,5 @@ server.listen(
   },
 );
 startGitHubWebhook();
+checkAcknowledgements();
+setInterval(checkAcknowledgements, 5000).unref();

@@ -84,6 +84,7 @@ const queuedTask = taskInput.extend({
   paths,
   managerNote: z.string().max(4000).optional(),
   retryAt: z.iso.datetime().optional(),
+  ackDeadline: z.iso.datetime().optional(),
   handoff: handoffSchema.optional(),
   publicationApproved: z
     .string()

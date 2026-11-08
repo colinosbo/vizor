@@ -85,6 +85,8 @@ export function taskQueue(events) {
       task.executionId = event.id;
       task.attempts++;
       task.outcome = null;
+      if (event.ackDeadline) task.ackDeadline = event.ackDeadline;
+      else delete task.ackDeadline;
       delete task.retryAt;
       delete task.handoff;
       delete task.publicationApproved;
@@ -93,7 +95,10 @@ export function taskQueue(events) {
     }
     const task = queue.get(turns.get(event.turnId));
     if (task) {
-      if (event.kind === "claim") task.status = "acknowledged";
+      if (event.kind === "claim") {
+        task.status = "acknowledged";
+        delete task.ackDeadline;
+      }
       if (event.kind === "work_start") {
         task.status = "working";
         if (task.retryAt) {
@@ -157,6 +162,7 @@ export function taskQueue(events) {
         if (item.status !== "complete") {
           item.status = "blocked";
           delete item.retryAt;
+          delete item.ackDeadline;
           item.summary = "Project stopped by the owner.";
           item.updatedAt = event.created;
         }

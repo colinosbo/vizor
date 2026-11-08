@@ -447,6 +447,8 @@ const eventNames = {
   stop: "Project stopped",
 };
 function eventName(event) {
+  if (event.kind === "assign" && event.source === "backup")
+    return "Assigned to backup after acknowledgement timeout";
   if (event.kind === "assign" && event.source === "github")
     return "GitHub dispatched work";
   return event.kind === "report"
@@ -667,6 +669,15 @@ function renderQueue(state) {
           ),
           node("p", task.description),
         );
+        if (task.ackDeadline)
+          row.append(
+            node(
+              "p",
+              "Primary acknowledgement due: " +
+                new Date(task.ackDeadline).toLocaleString(),
+              "meta",
+            ),
+          );
         if (task.retryAt)
           row.append(
             node(
