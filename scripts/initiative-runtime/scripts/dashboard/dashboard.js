@@ -139,6 +139,31 @@ function renderBlockers() {
         card.append(
           issueLink(run.successor, "Linked follow-up #" + run.successor),
         );
+      const observation = snapshot.blockers?.providerObservations?.find(
+        (item) => item.issue === run.issue,
+      );
+      if (observation)
+        card.append(
+          node(
+            "p",
+            "Provider observation: " +
+              observation.state +
+              " · " +
+              observation.detail,
+            "detail",
+          ),
+        );
+      const returned = snapshot.blockers?.cloudReturns?.find(
+        (item) => item.run === run.id,
+      );
+      if (returned)
+        card.append(
+          node(
+            "p",
+            "Same cloud chat: " + returned.state + " · " + returned.detail,
+            "detail",
+          ),
+        );
       return card;
     }),
   );

@@ -26,6 +26,7 @@ import {
   validateDecision,
 } from "../scripts/orchestrator.mjs";
 import { atomicJson, supervise } from "../scripts/codex-investigation.mjs";
+import { createDispatcher } from "../scripts/relay.mjs";
 
 function fixture(t, options = {}) {
   const root = mkdtempSync(join(tmpdir(), "vizor-orchestrator-"));
@@ -569,4 +570,305 @@ ${
     if (mode !== "timeout")
       assert.equal(status.session, "22222222-2222-2222-2222-222222222222");
   }
+});
+
+function cloudFixture(t, options = {}) {
+  const f = fixture(t, options);
+  f.host.cloudReturn = {
+    type: "claude-cloud-cli",
+    executable: process.execPath,
+    triggers: { research: "trig_research" },
+  };
+  f.host.endedSessions = [];
+  let sends = 0;
+  const sendCloud = (request) => {
+    sends++;
+    assert.equal(request.session, "session_original");
+    return {
+      state: "queued",
+      detail: "Exact provider session confirmed queued.",
+    };
+  };
+  const observeLifecycle = () => ({
+    state: "completed",
+    detail: "Provider terminal metadata.",
+  });
+  return {
+    ...f,
+    get db() {
+      return f.db;
+    },
+    get sends() {
+      return sends;
+    },
+    get launches() {
+      return f.launches;
+    },
+    tick(extra = {}) {
+      f.tick({ sendCloud, observeLifecycle, ...extra });
+    },
+  };
+}
+
+test("same-chat return retains original receipt, uses a new result generation, deduplicates restart and accepts only its result token", async (t) => {
+  const f = cloudFixture(t);
+  f.queue.autoAcceptReviews = true;
+  f.record();
+  f.tick();
+  f.complete();
+  f.tick();
+  f.reopen();
+  f.tick();
+  assert.equal(f.sends, 1);
+  assert.equal(f.issues.length, 1);
+  assert.equal(f.runs()[0].state, "cloud_queued");
+  const record = f.db.prepare("SELECT * FROM cloud_returns").get();
+  assert.equal(record.original_assignment, "10");
+  assert.equal(record.session, "session_original");
+  assert.equal(
+    f.db.prepare("SELECT session FROM deliveries WHERE issue=25").get().session,
+    "https://claude.ai/code/session_original",
+  );
+  const list = f.commentMap.get(25);
+  list.push({
+    id: 201,
+    user: { login: "lead" },
+    body: "Old finishing turn\nVizor result: done",
+  });
+  const schedule = () =>
+    scheduleTick({
+      db: f.db,
+      config: f.config,
+      queue: f.queue,
+      github: f.github,
+      reachable: async () => true,
+      log() {},
+    });
+  await schedule();
+  assert.equal(
+    f.db.prepare("SELECT active FROM scheduled_issues").get().active,
+    1,
+  );
+  list.push({
+    id: 202,
+    user: { login: "lead" },
+    body: "Vizor return: different-session\nVizor result: blocked",
+  });
+  await schedule();
+  assert.equal(
+    f.db.prepare("SELECT active FROM scheduled_issues").get().active,
+    1,
+  );
+  list.push({
+    id: 203,
+    user: { login: "lead" },
+    body: "Vizor return: " + record.run + "\nVizor result: done",
+  });
+  await schedule();
+  await schedule();
+  assert.equal(
+    f.db.prepare("SELECT result FROM scheduled_issues").get().result,
+    "done",
+  );
+  assert.equal(
+    f.db.prepare("SELECT state FROM cloud_returns").get().state,
+    "completed",
+  );
+  assert.equal(f.runs()[0].state, "return_completed");
+  assert.equal(f.sends, 1);
+});
+
+test("same-chat preparation completes while the original manual live gate remains blocked and unaccepted", async (t) => {
+  const f = cloudFixture(t, {
+    manual: true,
+    external: true,
+    preparation: true,
+  });
+  f.record();
+  f.tick();
+  f.complete("external");
+  f.tick();
+  const record = f.db.prepare("SELECT * FROM cloud_returns").get();
+  f.commentMap
+    .get(25)
+    .push({
+      id: 201,
+      user: { login: "lead" },
+      body: "Vizor return: " + record.run + "\nVizor result: done",
+    });
+  await scheduleTick({
+    db: f.db,
+    config: f.config,
+    queue: f.queue,
+    github: f.github,
+    reachable: async () => true,
+    log() {},
+  });
+  const row = f.db.prepare("SELECT * FROM scheduled_issues").get();
+  assert.equal(row.active, 0);
+  assert.equal(row.result, "blocked");
+  assert.equal(row.accepted, 0);
+  assert.equal(f.runs()[0].state, "preparation_complete");
+  assert.equal(f.issues.length, 1);
+});
+
+test("same-chat unknown/finishing observation is never called completed; supported queue handles it without a new Fire", (t) => {
+  for (const state of ["unknown", "running"]) {
+    const f = cloudFixture(t);
+    f.record();
+    f.tick();
+    f.complete();
+    f.tick({ observeLifecycle: () => ({ state, detail: "No end asserted." }) });
+    assert.equal(f.sends, 1);
+    assert.equal(f.runs()[0].state, "cloud_queued");
+    assert.equal(f.issues.length, 1);
+  }
+  const f = cloudFixture(t);
+  f.record();
+  f.tick();
+  f.complete();
+  f.tick({
+    observeLifecycle: () => ({
+      state: "usage_paused",
+      detail: "Provider usage pause.",
+    }),
+  });
+  assert.equal(f.sends, 0);
+  assert.equal(f.runs()[0].state, "worker_usage_paused");
+});
+
+test("worker capacity wait retries after its independent task completes; usage-paused and uncertain sends never duplicate", (t) => {
+  const f = cloudFixture(t);
+  f.record();
+  f.tick();
+  f.complete();
+  f.db
+    .prepare(
+      "INSERT INTO scheduled_issues(issue,agent,assignment,active) VALUES (99,'research','99',1)",
+    )
+    .run();
+  f.tick();
+  assert.equal(f.runs()[0].state, "awaiting_worker_capacity");
+  assert.equal(f.sends, 0);
+  f.db
+    .prepare(
+      "UPDATE scheduled_issues SET active=0,result='done' WHERE issue=99",
+    )
+    .run();
+  f.tick();
+  assert.equal(f.sends, 1);
+  const g = cloudFixture(t);
+  g.record();
+  g.tick();
+  g.complete();
+  let attempts = 0;
+  g.tick({
+    sendCloud() {
+      attempts++;
+      throw Error("Response lost after send");
+    },
+  });
+  g.reopen();
+  g.tick();
+  assert.equal(attempts, 1);
+  assert.equal(g.runs()[0].state, "cloud_uncertain");
+  assert.equal(
+    g.db.prepare("SELECT active FROM scheduled_issues").get().active,
+    1,
+  );
+});
+
+test("repair keeps merge/check dependencies then queues verification in the original saved chat, with no verifier Fire", async (t) => {
+  const f = cloudFixture(t);
+  f.queue.autoAcceptReviews = true;
+  f.queue.autoRepair = { agent: "research", checks: ["test"] };
+  writeFileSync(f.file, JSON.stringify(f.queue));
+  f.record();
+  f.tick();
+  f.complete("repair");
+  f.tick();
+  assert.equal(f.runs()[0].state, "repair");
+  assert.equal(f.issues.length, 3);
+  const [repair, recheck] = f.issues.slice(1);
+  const mapping = f.db
+    .prepare("SELECT * FROM cloud_rechecks WHERE issue=?")
+    .get(recheck.number);
+  assert.equal(mapping.original, 25);
+  let verifierFires = 0;
+  let queues = 0;
+  const dispatch = createDispatcher({
+    config: f.config,
+    credentials: { agents: {} },
+    database: f.db,
+    fire() {
+      verifierFires++;
+      throw Error("Must not Fire verifier");
+    },
+    cloudServices: {
+      host: f.host,
+      observe: () => ({ state: "completed" }),
+      send: () => {
+        queues++;
+        return { state: "queued", detail: "Same verifier queued." };
+      },
+    },
+  });
+  const schedule = () =>
+    scheduleTick({
+      db: f.db,
+      config: f.config,
+      queue: f.queue,
+      github,
+      reachable: async () => true,
+      dispatch: (i) => (i === repair.number ? true : dispatch(i, randomUUID())),
+      log() {},
+    });
+  function github(method, path, body) {
+    if (path === "repos/owner/repo/pulls/77")
+      return {
+        merged: true,
+        merge_commit_sha: "a".repeat(40),
+        body: "Vizor issue: #" + repair.number,
+        base: { ref: "main", repo: { full_name: "owner/repo" } },
+      };
+    if (path.includes("/check-runs"))
+      return {
+        total_count: 1,
+        check_runs: [{ name: "test", conclusion: "success" }],
+      };
+    return f.github(method, path, body);
+  }
+  await schedule();
+  assert.equal(queues, 0);
+  f.db
+    .prepare(
+      "UPDATE scheduled_issues SET active=0,result='done',pull=77 WHERE issue=?",
+    )
+    .run(repair.number);
+  f.db
+    .prepare(
+      "INSERT INTO deliveries VALUES (?,'repair-delivery','started','https://claude.ai/code/session_repair')",
+    )
+    .run(repair.number);
+  await schedule();
+  assert.equal(queues, 1);
+  assert.equal(verifierFires, 0);
+  assert.equal(
+    f.db
+      .prepare("SELECT session FROM deliveries WHERE issue=?")
+      .get(recheck.number).session,
+    "https://claude.ai/code/session_original",
+  );
+  f.commentMap
+    .get(recheck.number)
+    .push({ id: 900, user: { login: "lead" }, body: "Vizor result: done" });
+  await schedule();
+  assert.equal(
+    f.db
+      .prepare("SELECT accepted FROM scheduled_issues WHERE issue=?")
+      .get(recheck.number).accepted,
+    1,
+  );
+  await dispatch(recheck.number, randomUUID());
+  assert.equal(queues, 1);
 });

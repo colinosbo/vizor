@@ -74,3 +74,35 @@ Resume is on demand and uses `codex exec resume` with the same session. Worker c
 Windows logon actions use the non-console `wscript.exe` host and `windows/hidden-run.vbs` so PowerShell is created hidden rather than briefly showing a console. The wrapper waits and propagates the exit code, retaining Task Scheduler's restart policy. Reinstallation updates actions without interrupting running instances. A controlled runtime upgrade must separately verify and close its old Node processes; stopping only their PowerShell parent can leave a port occupied. Never terminate workers or unrelated PowerShell processes. The Windows regression test launches the wrapper with a path containing spaces and independently checks console visibility, arguments and exit propagation.
 
 For pre-schema-tightening saved Codex runs, exact `comment ID` citations are normalized against that run's saved packet. Unknown references are rejected. This reconciliation uses the existing saved session/output and launches no second investigation.
+
+## Supported same-cloud-chat returns (supersedes the earlier start-only return limitation)
+
+Current official documentation supports [sending follow-ups from the CLI](https://code.claude.com/docs/en/claude-code-on-the-web#send-follow-ups-from-the-cli) and [routine run history](https://code.claude.com/docs/en/routines#manage-scheduled-tasks-from-the-cli). The installed CLI was verified as 2.1.318. Sign in normally to the same Claude account (`claude auth login --claudeai`); Vizor does not extract/copy OAuth credentials or use an API key.
+
+Add this private setting to `.vizor/orchestrator-host.json`, preserving the existing Codex executable, timeout and approved preparation issue list:
+
+```json
+{
+  "cloudReturn": {
+    "type": "claude-cloud-cli",
+    "executable": "C:/Users/YOU/.local/bin/claude.exe",
+    "triggers": {
+      "research": "trig_EXISTING_RONALD_TRIGGER",
+      "morgan": "trig_EXISTING_MORGAN_TRIGGER",
+      "riley": "trig_EXISTING_RILEY_TRIGGER"
+    }
+  }
+}
+```
+
+Use the existing trigger IDs from the configured Fire URLs. Remove `endedSessions` when this adapter is enabled: it is not consulted for ordinary continuation, preparation, or a repair's original-verifier return. No credentials belong in this file. `doctor` checks subscription sign-in and trigger bindings. `orchestrator-status` and the queue dashboard expose the same persisted provider observations, message receipts and result generations.
+
+A blocked event starts at most one bounded, read-only CLI lifecycle observation per saved binding. Only actual RemoteTrigger tool results can establish a successful finish for the exact firing, agent and repository. Natural-language answers are ignored. Idle rows and another firing's last_run stay unknown. The latest-firing limitation is displayed, not hidden. Observation request/result files are private under `.vizor/provider-observations`. Deterministic reconciliation reads saved files without invoking AI on each tick.
+
+Return uses `claude -p --cloud <exact-saved-id> --output-format json`. It queues in the existing chat, including when its prior turn is finishing, and does not start a new session or claim the prior turn ended. Only an `ok: true` response with the exact target session ID confirms delivery. The provider may display the equivalent session_/cse_ URL spelling; the returned session_id itself must match exactly. Auth failure, rejection, timeout, malformed output or mismatched identity stay held/reserved with a next step. The adapter never resends an ambiguous message or falls back to Fire.
+
+A trusted manager comment defines the returned scope, and the worker must include the saved `Vizor return: UUID` line in its result. The new assignment threshold and return token prevent the prior turn's late comments from releasing the new claim. Explicit capacity pauses retain their session and occupied claim. Independent workers continue. A separate preparation result leaves the original live-pilot gate blocked/unaccepted.
+
+For software findings, the original completed review remains blocked while the repair issue goes through normal worker capacity, PR merge and named checks. The dependent recheck is locally bound to the original verifier session. Its signed dispatch queues that checked assignment into the same cloud chat; no verifier Fire/new chat occurs. Recheck acceptance satisfies the existing replacement dependency gate. Repeated blocked recovery children do not spawn recursive repairs.
+
+These are separate facts: provider firing observed completed, message provider-confirmed queued, and worker task result completed. A historical status can be unknown while a same-chat message is safely queued; provider serialization preserves one chat. This is not a generic termination detector for arbitrary cloud sessions. Failed/usage-paused runs and uncertain deliveries are never silently reclassified as completed.

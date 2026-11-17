@@ -3,6 +3,12 @@ import { setTimeout as delay } from "node:timers/promises";
 import { openRecoveryStore, recoverBlockedTasks } from "./recovery.mjs";
 import { openBlockerStore, recordBlocker } from "./blockers.mjs";
 import { orchestratorTick } from "./orchestrator.mjs";
+import {
+  pendingCloudReturn,
+  matchesCloudReturn,
+  finishCloudReturn,
+} from "./cloud-return.mjs";
+import { advanceCloudRechecks } from "./cloud-recheck.mjs";
 
 const number = (value) => Number.isSafeInteger(value) && value > 0;
 const fail = (message) => {
@@ -247,6 +253,10 @@ export async function scheduleTick({
         readComments(row.issue),
         (c) =>
           Number.isSafeInteger(c.id) &&
+          matchesCloudReturn(
+            pendingCloudReturn(db, row.issue, row.assignment),
+            c,
+          ) &&
           BigInt(c.id) > BigInt(row.assignment) &&
           config.agents[row.agent]?.trustedManagers.some(
             (login) => login.toLowerCase() === c.user?.login?.toLowerCase(),
@@ -266,6 +276,10 @@ export async function scheduleTick({
       readComments(row.issue),
       (comment) =>
         Number.isSafeInteger(comment.id) &&
+        matchesCloudReturn(
+          pendingCloudReturn(db, row.issue, row.assignment),
+          comment,
+        ) &&
         BigInt(comment.id) > BigInt(row.assignment) &&
         config.agents[row.agent]?.trustedManagers.some(
           (login) => login.toLowerCase() === comment.user?.login?.toLowerCase(),
@@ -273,14 +287,17 @@ export async function scheduleTick({
         lines(comment.body).some((line) => marker.test(line)),
     );
     if (!result) continue;
+    const cloudReturn = pendingCloudReturn(db, row.issue, row.assignment);
     const [, state, pull] = lines(result.body)
       .find((line) => marker.test(line))
       .match(marker);
     if (
       state === "blocked" &&
       lines(result.body).includes("Vizor blocker: capacity")
-    )
+    ) {
+      finishCloudReturn(db, cloudReturn, result, state);
       continue;
+    }
     if (
       state === "done" &&
       ((tasks.get(row.issue).gate === "merge") !== Boolean(pull) ||
@@ -289,9 +306,14 @@ export async function scheduleTick({
       log("Hold #" + row.issue + ": result must match its completion gate.");
       continue;
     }
+    finishCloudReturn(db, cloudReturn, result, state);
     db.prepare(
       "UPDATE scheduled_issues SET active = 0, result = ?, pull = ? WHERE issue = ? AND active = 1",
-    ).run(state, pull ? Number(pull) : null, row.issue);
+    ).run(
+      cloudReturn?.preparation && state === "done" ? "blocked" : state,
+      pull ? Number(pull) : null,
+      row.issue,
+    );
     log("#" + row.issue + " reported " + state + ".");
   }
 
@@ -649,6 +671,7 @@ export async function runScheduler({ file, once, ...services }) {
       await scheduleTick({ ...services, queue });
       if (!services.preview && queue.blockerOrchestrator === true) {
         try {
+          advanceCloudRechecks({ ...services, queue });
           orchestratorTick({ ...services, queue, file, parseTask: readTask });
         } catch {
           console.error(
