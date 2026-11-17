@@ -146,7 +146,11 @@ function renderBlockers() {
         card.append(
           node(
             "p",
-            "Provider observation: " +
+            "Provider snapshot " +
+              (observation.observed_at
+                ? "at " + new Date(observation.observed_at).toLocaleString()
+                : "pending") +
+              ": " +
               observation.state +
               " · " +
               observation.detail,
