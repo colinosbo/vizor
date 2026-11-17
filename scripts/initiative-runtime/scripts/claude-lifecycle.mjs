@@ -129,7 +129,7 @@ export function parseLifecycleStream(stdout, request, observedAt = Date.now()) {
   )
     return {
       ...unknown(
-        "Provider reports this exact run still working; no return or replacement is released.",
+        "Provider reported this exact session working at observation time; this is not completion proof. Same-chat queued messages remain serialized by the provider.",
       ),
       state: "running",
     };
