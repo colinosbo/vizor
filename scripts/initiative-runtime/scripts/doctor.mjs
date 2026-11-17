@@ -1,0 +1,150 @@
+import { createHmac } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { DatabaseSync } from "node:sqlite";
+
+export const validWebhookSecret = (value) => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+export const validWorkerCredentials = (entry) => typeof entry?.fireUrl === "string" &&
+  /^https:\/\/api\.anthropic\.com\/v1\/claude_code\/routines\/trig_[A-Za-z0-9_-]+\/fire$/.test(entry.fireUrl) &&
+  typeof entry.token === "string" && /^\S+$/.test(entry.token);
+export const validTunnelEndpoint = (value) => typeof value === "string" &&
+  /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/webhooks\/github$/.test(value);
+
+function localCommand(program, ...args) {
+  return spawnSync(program, args, { timeout: 5000, windowsHide: true, stdio: "ignore" }).status;
+}
+
+function loadJson(path) {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function probe(endpoint, secret, request) {
+  const body = "{}";
+  try {
+    const response = await request(endpoint, {
+      method: "POST",
+      body,
+      headers: {
+        "Content-Type": "application/json",
+        "X-GitHub-Event": "ping",
+        "X-Hub-Signature-256": "sha256=" + createHmac("sha256", secret).update(body).digest("hex"),
+      },
+      redirect: "error",
+      signal: AbortSignal.timeout(5000),
+    });
+    if (response.status === 200 && (await response.json()).ignored === true) return "ok";
+    return response.status === 401 ? "rejected" : "unexpected";
+  } catch {
+    return "unreachable";
+  }
+}
+
+export async function runDoctor({
+  config, secretFile, hookFile, databaseFile, github, request = fetch, command = localCommand,
+  report = console.log,
+}) {
+  let failures = 0;
+  function status(ok, label, detail) {
+    if (!ok) failures++;
+    report((ok ? "PASS " : "FAIL ") + label + " — " + detail);
+    return ok;
+  }
+  const attempt = (apiPath) => {
+    try { return github("GET", apiPath, undefined, true); }
+    catch { return null; }
+  };
+
+  const nodeVersion = process.versions.node;
+  const supportedNode = Number(nodeVersion.split(".")[0]) >= 24;
+  status(supportedNode, "Node.js", supportedNode ? nodeVersion : "Install Node.js 24 or newer.");
+  status(true, "Configuration", config.repository + " with " + Object.keys(config.agents).length + " workers.");
+  const ignored = command("git", "check-ignore", "--", secretFile) === 0;
+  status(ignored, "Credential file excluded from Git", ignored ?
+    "Git ignores the credential file." : "Check .gitignore and make sure the credential file is untracked.");
+  const credentials = loadJson(secretFile);
+  const validSecret = validWebhookSecret(credentials?.webhookSecret);
+  const secretOK = status(validSecret, "Local webhook secret",
+    validSecret ? "Present and well formed." :
+      "Run vizor init if the file is absent. Restore the generated secret if the file is damaged.");
+  for (const id of Object.keys(config.agents)) {
+    const ready = validWorkerCredentials(credentials?.agents?.[id]);
+    status(ready, "Worker " + id, ready ? "Fire URL and token are present. Token validity was not tested." :
+      "Set this worker's Fire URL and token in .vizor/secrets.json.");
+  }
+  try {
+    accessSync(dirname(databaseFile), constants.W_OK);
+    accessSync(databaseFile, constants.W_OK);
+    const database = new DatabaseSync(databaseFile, { readOnly: true });
+    try {
+      database.prepare("SELECT issue FROM assignments LIMIT 1").get();
+      database.prepare("SELECT issue FROM deliveries LIMIT 1").get();
+    } finally {
+      database.close();
+    }
+    status(true, "Local dispatch state", "Database is readable and its path passes the write-access check.");
+  } catch {
+    status(false, "Local dispatch state", existsSync(databaseFile) ?
+      "Check database permissions and integrity on the relay host." :
+      "Start the relay from this repository to initialize dispatch state.");
+  }
+
+  const ready = command("gh", "--version") === 0;
+  status(ready, "GitHub CLI", ready ? "Available on PATH." : "Install GitHub CLI or add it to PATH.");
+  const identity = ready ? attempt("user") : null;
+  const login = typeof identity?.login === "string" && /^[a-z0-9-]{1,39}$/i.test(identity.login)
+    ? identity.login : null;
+  if (ready) status(Boolean(login), "GitHub authentication", login ?
+    "Signed in as " + login + "." : "Run gh auth login or provide the GitHub credentials used by the relay.");
+  const repo = "repos/" + config.repository;
+  const remote = login ? attempt(repo) : null;
+  if (login) status(Boolean(remote), "Repository access", remote ?
+    "The repository is readable." : "Grant this identity access to the configured repository.");
+  if (remote) {
+    const unmatched = Object.entries(config.agents).filter(([, agent]) =>
+      !agent.trustedManagers.some((manager) => manager.toLowerCase() === login.toLowerCase()));
+    status(unmatched.length === 0, "Trusted manager",
+      unmatched.length ? "This login cannot dispatch " + unmatched.map(([id]) => id).join(", ") + "." :
+        "This login is configured for every worker. GitHub write permissions were not tested.");
+    for (const label of [config.dispatchLabel, ...Object.values(config.agents).map((agent) => agent.label)]) {
+      const found = attempt(repo + "/labels/" + encodeURIComponent(label));
+      status(found?.name === label, "GitHub label " + label, found?.name === label ? "Present." :
+        "Check label access or run vizor setup to create the configured label with this casing.");
+    }
+  }
+
+  const saved = loadJson(hookFile);
+  const registered = Number.isSafeInteger(saved?.id) && saved.id > 0 && validTunnelEndpoint(saved.endpoint);
+  status(registered, "Saved webhook", registered ? "A Quick Tunnel webhook is registered locally." :
+    "Start a Quick Tunnel and run vizor setup with its HTTPS URL.");
+  if (registered && remote) {
+    const hook = attempt(repo + "/hooks/" + saved.id);
+    const matches = hook?.config?.url === saved.endpoint;
+    const configured = matches && hook.active === true && hook.events?.includes("issues") &&
+      hook.config.content_type === "json" && String(hook.config.insecure_ssl) === "0";
+    status(Boolean(configured), "GitHub webhook", configured ? "Active Issues webhook matches the saved tunnel." :
+      !hook ? "The saved webhook is unavailable. Check repository webhook permissions and GitHub settings." :
+      !matches ? "GitHub's URL differs from the saved tunnel. Review webhook settings before updating it." :
+      "Check that the webhook is active, sends JSON Issues events, and verifies TLS.");
+  }
+  if (secretOK) {
+    const local = "http://127.0.0.1:" + config.port + "/webhooks/github";
+    const [relay, tunnel] = await Promise.all([
+      probe(local, credentials.webhookSecret, request),
+      registered ? probe(saved.endpoint, credentials.webhookSecret, request) : null,
+    ]);
+    status(relay === "ok", "Local relay", relay === "ok" ? "Accepted a signed ping." :
+      relay === "rejected" ? "The relay rejected the local secret. Restart it with the current credentials." :
+      "Start vizor serve from this repository and check the configured port.");
+    if (registered) status(tunnel === "ok", "Cloudflare tunnel", tunnel === "ok" ? "Forwarded a signed ping to the relay." :
+      relay !== "ok" ? "Fix the local relay first, then rerun doctor." :
+      "The saved tunnel did not reach this relay. Check cloudflared and run setup if its URL changed.");
+  }
+  report(failures ? failures + " check(s) need attention. No workers were triggered." :
+    "All diagnostics passed. No workers were triggered.");
+  return failures === 0;
+}
