@@ -111,6 +111,7 @@ test("blocked verification creates one durable repair and recheck, and unlocks o
     }
     throw Error("Unexpected call " + method + " " + path);
   }
+  let bindingFailure = true;
   const recover = () =>
     recoverBlockedTasks({
       db,
@@ -120,6 +121,17 @@ test("blocked verification creates one durable repair and recheck, and unlocks o
       github,
       parseTask: readTask,
       log() {},
+      onPreparedRecovery({ recheck }) {
+        if (bindingFailure) {
+          assert.equal(
+            JSON.parse(readFileSync(file)).issues.includes(recheck),
+            false,
+            "Provider binding must precede dispatchable queue publication",
+          );
+          bindingFailure = false;
+          throw Error("Simulated provider binding interruption");
+        }
+      },
     });
   recover();
   assert.equal(
@@ -128,6 +140,8 @@ test("blocked verification creates one durable repair and recheck, and unlocks o
     "capacity pauses keep the existing assignment",
   );
   marker = "";
+  assert.throws(recover, /provider binding interruption/);
+  assert.deepEqual(JSON.parse(readFileSync(file)).issues, [1, 2]);
   recover();
   assert.equal(issues.length, 4);
   recover();

@@ -689,13 +689,11 @@ test("same-chat preparation completes while the original manual live gate remain
   f.complete("external");
   f.tick();
   const record = f.db.prepare("SELECT * FROM cloud_returns").get();
-  f.commentMap
-    .get(25)
-    .push({
-      id: 201,
-      user: { login: "lead" },
-      body: "Vizor return: " + record.run + "\nVizor result: done",
-    });
+  f.commentMap.get(25).push({
+    id: 201,
+    user: { login: "lead" },
+    body: "Vizor return: " + record.run + "\nVizor result: done",
+  });
   await scheduleTick({
     db: f.db,
     config: f.config,

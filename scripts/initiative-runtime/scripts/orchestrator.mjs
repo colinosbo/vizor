@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { activity } from "./blockers.mjs";
 import { atomicJson } from "./codex-investigation.mjs";
 import { recoverBlockedTasks } from "./recovery.mjs";
-import { queueCloudReturn } from "./cloud-return.mjs";
+import { queueCloudReturn, cloudSession } from "./cloud-return.mjs";
 import {
   lifecycleObservation,
   reconcileLifecycleObservations,
@@ -341,6 +341,11 @@ export function applyDecision({
     .prepare("SELECT session FROM deliveries WHERE issue=?")
     .get(run.issue);
   if (host.cloudReturn) {
+    if (!cloudSession(receipt?.session) || task.agent !== run.agent)
+      return hold(
+        "cloud_binding_required",
+        "Saved original cloud session or worker binding is missing/changed; no replacement Fire is permitted.",
+      );
     if (
       db
         .prepare(
@@ -402,6 +407,39 @@ export function applyDecision({
         "Repair policy does not authorize this task; original gate stays held.",
       );
     const repairQueue = { ...queue, orchestratorRepairIssue: run.issue };
+    const bindRecheck = ({ repair, recheck }) => {
+      if (!host.cloudReturn) return;
+      const existing = db
+        .prepare("SELECT * FROM cloud_rechecks WHERE issue=?")
+        .get(recheck);
+      if (
+        existing &&
+        (existing.original !== run.issue ||
+          existing.agent !== run.agent ||
+          existing.session !== receipt.session ||
+          existing.blocker_run !== run.id)
+      )
+        throw Error("Conflicting original-verifier recheck binding.");
+      const added = db
+        .prepare(
+          "INSERT OR IGNORE INTO cloud_rechecks(issue,original,agent,session,assignment,blocker_run) VALUES (?,?,?,?,?,?)",
+        )
+        .run(
+          recheck,
+          run.issue,
+          run.agent,
+          receipt.session,
+          run.assignment,
+          run.id,
+        ).changes;
+      if (added)
+        activity(
+          db,
+          run.id,
+          "cloud_recheck_bound",
+          `Repair #${repair} must merge with named checks; recheck #${recheck} will queue in the original cloud session, never Fire a new verifier.`,
+        );
+    };
     recoverBlockedTasks({
       db,
       config,
@@ -409,6 +447,7 @@ export function applyDecision({
       file,
       github,
       parseTask,
+      onPreparedRecovery: bindRecheck,
     });
     queue.issues = repairQueue.issues;
     if (host.cloudReturn) {
@@ -416,22 +455,7 @@ export function applyDecision({
         .prepare("SELECT repair,recheck FROM task_recoveries WHERE issue=?")
         .get(run.issue);
       if (!recovery?.recheck) throw Error("Repair route has no saved recheck.");
-      db.prepare(
-        "INSERT OR IGNORE INTO cloud_rechecks(issue,original,agent,session,assignment,blocker_run) VALUES (?,?,?,?,?,?)",
-      ).run(
-        recovery.recheck,
-        run.issue,
-        run.agent,
-        receipt.session,
-        run.assignment,
-        run.id,
-      );
-      activity(
-        db,
-        run.id,
-        "cloud_recheck_bound",
-        `Repair #${recovery.repair} must merge with named checks; recheck #${recovery.recheck} will queue in the original cloud session, never Fire a new verifier.`,
-      );
+      bindRecheck(recovery);
     }
     return hold(
       "repair",

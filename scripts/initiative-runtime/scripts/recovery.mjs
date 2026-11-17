@@ -44,6 +44,7 @@ export function recoverBlockedTasks({
   github,
   parseTask,
   log = console.log,
+  onPreparedRecovery,
 }) {
   if (queue.paused || !queue.autoRepair) return;
   const policy = queue.autoRepair;
@@ -233,6 +234,8 @@ export function recoverBlockedTasks({
         });
       }
     }
+    // Persist provider bindings before the new recheck is dispatchable.
+    onPreparedRecovery?.({ repair, recheck });
     // Preserve concurrent pause/owner changes and append only our new issue numbers.
     const current = JSON.parse(readFileSync(file, "utf8"));
     current.issues = [...new Set([...current.issues, repair, recheck])];
