@@ -1,3 +1,8 @@
+function Get-VizorTunnelEndpoint([AllowNull()][AllowEmptyString()][string]$Text) {
+    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    return [regex]::Match($Text, 'https://[a-z0-9-]+\.trycloudflare\.com').Value
+}
+
 function Test-VizorRelay([int]$Port) {
     try {
         $request = [Net.HttpWebRequest]::Create("http://127.0.0.1:$Port/webhooks/github")
