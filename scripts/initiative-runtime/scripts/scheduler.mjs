@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { openRecoveryStore, recoverBlockedTasks } from "./recovery.mjs";
+import { openBlockerStore, recordBlocker } from "./blockers.mjs";
+import { orchestratorTick } from "./orchestrator.mjs";
 
 const number = (value) => Number.isSafeInteger(value) && value > 0;
 const fail = (message) => {
@@ -25,7 +27,9 @@ export function readQueue(file) {
           (issue) => number(issue) && queue.issues.includes(issue),
         ))) ||
     (queue.dispatchMode !== undefined &&
-      !["webhook", "local"].includes(queue.dispatchMode))
+      !["webhook", "local"].includes(queue.dispatchMode)) ||
+    (queue.blockerOrchestrator !== undefined &&
+      typeof queue.blockerOrchestrator !== "boolean")
   ) {
     fail(
       "Invalid queue issues, pause setting, automatic review setting or dispatch mode.",
@@ -100,6 +104,7 @@ function assertAcyclic(tasks) {
 
 export function openSchedulerStore(db) {
   openRecoveryStore(db);
+  openBlockerStore(db);
   db.exec(`
     CREATE TABLE IF NOT EXISTS scheduled_issues (
       issue INTEGER PRIMARY KEY,
@@ -234,6 +239,23 @@ export async function scheduleTick({
       comments.set(issue, all);
     }
     return comments.get(issue);
+  }
+  if (!preview && queue.blockerOrchestrator === true) {
+    // Reconcile authenticated GitHub results missed while offline, including manual/external/capacity gates.
+    for (const row of rows.all().filter((r) => allowed.has(r.issue))) {
+      const result = latest(
+        readComments(row.issue),
+        (c) =>
+          Number.isSafeInteger(c.id) &&
+          BigInt(c.id) > BigInt(row.assignment) &&
+          config.agents[row.agent]?.trustedManagers.some(
+            (login) => login.toLowerCase() === c.user?.login?.toLowerCase(),
+          ) &&
+          lines(c.body).some((line) => marker.test(line)),
+      );
+      if (result && lines(result.body).includes("Vizor result: blocked"))
+        recordBlocker({ db, config, issue: row.issue, comment: result });
+    }
   }
   const active = preview
     ? []
@@ -613,17 +635,27 @@ export async function runScheduler({ file, once, ...services }) {
       const queue = readQueue(file);
       if (!services.preview) {
         try {
-          recoverBlockedTasks({
-            ...services,
-            queue,
-            file,
-            parseTask: readTask,
-          });
+          if (queue.blockerOrchestrator !== true)
+            recoverBlockedTasks({
+              ...services,
+              queue,
+              file,
+              parseTask: readTask,
+            });
         } catch (error) {
           console.error("Recovery needs reconciliation: " + error.message);
         }
       }
       await scheduleTick({ ...services, queue });
+      if (!services.preview && queue.blockerOrchestrator === true) {
+        try {
+          orchestratorTick({ ...services, queue, file, parseTask: readTask });
+        } catch {
+          console.error(
+            "Blocker orchestrator configuration needs reconciliation; independent work continues.",
+          );
+        }
+      }
     } catch (error) {
       if (once) throw error;
       console.error(

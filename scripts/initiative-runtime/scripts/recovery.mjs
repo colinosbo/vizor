@@ -56,6 +56,8 @@ export function recoverBlockedTasks({
     .all();
   for (const row of rows) {
     if (
+      (queue.orchestratorRepairIssue !== undefined &&
+        queue.orchestratorRepairIssue !== row.issue) ||
       !queue.issues.includes(row.issue) ||
       queue.manualReviewIssues?.includes(row.issue) ||
       policy.excludeIssues?.includes(row.issue)
@@ -63,6 +65,7 @@ export function recoverBlockedTasks({
       continue;
     const source = github("GET", prefix + "/issues/" + row.issue);
     const task = parseTask(source, config.agents, new Set(queue.issues));
+    if (task.recoveryRoot || task.orchestratorRoot) continue;
     if (task.gate !== "review") continue;
     const agent = config.agents[task.agent];
     const builder = config.agents[policy.agent];
