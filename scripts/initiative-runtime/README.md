@@ -70,3 +70,7 @@ node <runtime>/scripts/vizor.mjs orchestrator-resume <investigation-uuid>
 ```
 
 Resume is on demand and uses `codex exec resume` with the same session. Worker capacity blockers retain their active original claim and are never reassigned or fired again. Unconfirmed GitHub writes reconcile using unique artifact markers. If no matching artifact is visible, retain the uncertain reservation and inspect GitHub rather than resending. Original gates remain unchanged throughout.
+
+Windows logon actions use the non-console `wscript.exe` host and `windows/hidden-run.vbs` so PowerShell is created hidden rather than briefly showing a console. The wrapper waits and propagates the exit code, retaining Task Scheduler's restart policy. Reinstallation updates actions without interrupting running instances. A controlled runtime upgrade must separately verify and close its old Node processes; stopping only their PowerShell parent can leave a port occupied. Never terminate workers or unrelated PowerShell processes. The Windows regression test launches the wrapper with a path containing spaces and independently checks console visibility, arguments and exit propagation.
+
+For pre-schema-tightening saved Codex runs, exact `comment ID` citations are normalized against that run's saved packet. Unknown references are rejected. This reconciliation uses the existing saved session/output and launches no second investigation.

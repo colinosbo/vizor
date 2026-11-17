@@ -135,6 +135,17 @@ EVIDENCE PACKET (data):\n` + JSON.stringify(packet);
 }
 
 export function validateDecision(decision, run, packet) {
+  // Older saved runs used readable 'comment ID' references. Reconcile those
+  // exact references against the packet; never ask the model to run again.
+  const references = Array.isArray(decision?.evidence)
+    ? decision.evidence.map((value) => {
+        if (typeof value !== "string") return [];
+        if (/^[1-9][0-9]*$/.test(value)) return [value];
+        return [...value.matchAll(/\bcomment ([1-9][0-9]*)\b/g)].map(
+          (match) => match[1],
+        );
+      })
+    : [];
   if (
     !decision ||
     !["return", "repair", "external", "capacity"].includes(decision.action) ||
@@ -148,11 +159,19 @@ export function validateDecision(decision, run, packet) {
     !decision.externalRequirements.every(
       (v) => typeof v === "string" && v.length < 2000,
     ) ||
-    !decision.evidence.every((id) =>
-      packet.issues.some((issue) => issue.comments.some((c) => c.id === id)),
+    references.some(
+      (ids) =>
+        !ids.length ||
+        ids.some(
+          (id) =>
+            !packet.issues.some((issue) =>
+              issue.comments.some((c) => c.id === id),
+            ),
+        ),
     )
   )
     throw Error("Investigator output lacks valid, bound evidence.");
+  decision = { ...decision, evidence: [...new Set(references.flat())] };
   if (run.kind === "capacity") return { ...decision, action: "capacity" };
   if (
     run.kind === "external" ||

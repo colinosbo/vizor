@@ -41,21 +41,24 @@ $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -Hidden -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 100 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-$shell = (Get-Command powershell.exe).Source
-$launcher = Join-Path $PSScriptRoot 'run.ps1'
+$shell = Join-Path $env:SystemRoot 'System32\wscript.exe'
+$launcher = Join-Path $PSScriptRoot 'hidden-run.vbs'
 $roles = @('Relay', 'Scheduler', 'Dashboard')
 if ($Mode -eq 'webhook') { $roles += 'Webhooks' }
-# Stop only this installation's tasks before replacing their launchers.
+# Updating launch actions must not interrupt running instances or orphan their
+# child processes. The new hidden launcher applies on the next start/sign-in.
 foreach ($role in @('Relay', 'Scheduler', 'Dashboard', 'Webhooks')) {
     $name = $TaskPrefix + ' ' + $role
     $existing = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
     if ($existing) {
-        Stop-ScheduledTask -TaskName $name
-        if ($role -eq 'Webhooks' -and $Mode -eq 'local') { Disable-ScheduledTask -TaskName $name | Out-Null }
+        if ($role -eq 'Webhooks' -and $Mode -eq 'local') {
+            Stop-ScheduledTask -TaskName $name
+            Disable-ScheduledTask -TaskName $name | Out-Null
+        }
     }
 }
 foreach ($role in $roles) {
-    $action = New-ScheduledTaskAction -Execute $shell -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -File `"$launcher`" -ProjectPath `"$project`" -Role $role" -WorkingDirectory $project
+    $action = New-ScheduledTaskAction -Execute $shell -Argument "//B //Nologo `"$launcher`" `"$project`" `"$role`"" -WorkingDirectory $project
     Register-ScheduledTask -TaskName ($TaskPrefix + ' ' + $role) -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 }
 if ($Mode -eq 'local') {
@@ -63,6 +66,9 @@ if ($Mode -eq 'local') {
     $data | Add-Member -NotePropertyName dispatchMode -NotePropertyValue 'local' -Force
     [IO.File]::WriteAllText($queue, ($data | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding($false)))
 }
-foreach ($role in $roles) { Start-ScheduledTask -TaskName ($TaskPrefix + ' ' + $role) }
+foreach ($role in $roles) {
+    $name = $TaskPrefix + ' ' + $role
+    if ((Get-ScheduledTask -TaskName $name).State -ne 'Running') { Start-ScheduledTask -TaskName $name }
+}
 Write-Output ('Installed ' + $config.repository + ' runtime. Tasks restart after Windows sign-in.')
 Write-Output ('Logs are in ' + $state + '. Webhook mode activates after signed diagnostics succeed.')
