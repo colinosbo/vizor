@@ -40,3 +40,33 @@ This is a source-integrated runtime. The desktop installer does not yet bundle o
 Quick Tunnels are temporary testing endpoints. A provider routine must stay enabled. An ambiguous provider response is retained for reconciliation to avoid duplicate sessions. End-to-end webhook restart recovery must be verified in the user's permitted environment before declaring unattended webhook operation ready.
 
 See docs/vision-pilot-handoff.md for the broader productization work.
+
+## On-demand blocker investigations
+
+Enable `blockerOrchestrator: true` in the project's private queue after the project owner approves the plan. The existing deterministic scheduler ingests missed results and services saved investigations; it does not schedule model reviews. The signed webhook must subscribe to both `issues` and `issue_comment` (rerun `setup` with the saved tunnel URL). External/manual/capacity blocker events are recorded too. With this setting enabled, the old automatic repair loop runs only when an investigation explicitly routes an eligible software repair.
+
+Create private `.vizor/orchestrator-host.json` in the initiative repository:
+
+```json
+{
+  "executable": "C:/absolute/path/to/installed/codex.exe",
+  "timeoutMs": 300000,
+  "preparationIssues": [],
+  "endedSessions": []
+}
+```
+
+Use the existing ChatGPT login (`codex login status`). No API key or extra paid service is required. The CLI's supported `exec --json --output-schema` interface saves a persistent session ID. It receives an evidence packet from the approved repository's default-branch commit, current issue comments, prerequisites and recorded acceptance. It runs read-only with shell, apps, plugins and subagents disabled; it cannot publish or grant access. The deterministic adapter checks the bound output before posting a report or routing work. Model explanations are displayed as data; successor instructions come from fixed runtime templates and the approved original scope.
+
+`preparationIssues` is a trusted local allowlist for separately approved preparation while the original external gate remains held. It never accepts the original issue or invents missing facts. Ordinary returned tasks use the existing replacement dependency gate and normal review/PR checks. Recovery children cannot recursively create new repair chains.
+
+The Fire provider is start-only in this integration. [Its documented endpoint](https://code.claude.com/docs/en/routines#trigger-a-scheduled-task) returns a new session; manual continuation is documented, but a programmatic continuation or run-status endpoint is not configured. `endedSessions` contains exact original receipt URLs independently verified completed in the provider UI. A blocked marker alone does not prove termination. Without that evidence the dashboard shows `awaiting worker end`; other work continues. This is a limitation on fully unattended return for arbitrary future sessions. An operator can verify and record completion without asking the initiative owner. Never add an active or usage-paused session. Any automatic future run-state adapter must use a supported authenticated provider interface. A linked successor is explicitly a new task/chat, not a same-chat resume.
+
+Investigations, session IDs, remote-write reservations, follow-ups and chronological activity are saved in the same project database and dashboard as the worker queue. Request/status/decision files live under ignored `.vizor/orchestrator/<run>/<attempt>`. The detached supervisor survives scheduler restarts and saves a heartbeat. Timeouts or missing acknowledgements are never retried automatically. A late status file reconciles the existing run without another launch. For a usage-paused Codex investigation with a saved session, run:
+
+```text
+node <runtime>/scripts/vizor.mjs orchestrator-status
+node <runtime>/scripts/vizor.mjs orchestrator-resume <investigation-uuid>
+```
+
+Resume is on demand and uses `codex exec resume` with the same session. Worker capacity blockers retain their active original claim and are never reassigned or fired again. Unconfirmed GitHub writes reconcile using unique artifact markers. If no matching artifact is visible, retain the uncertain reservation and inspect GitHub rather than resending. Original gates remain unchanged throughout.

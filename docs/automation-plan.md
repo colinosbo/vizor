@@ -27,3 +27,14 @@ For the first test, run `cloudflared` on the Vizor PC and expose only the GitHub
 - [ ] Duplicate check: resending the same delivery ID started no additional run.
 
 **Open decisions:** Finalize the dispatch label and how Vizor handles missed deliveries after downtime. Choose a stable tunnel hostname if the temporary Quick Tunnel URL becomes a daily setup burden.
+
+## Approved blocker escalation (November 17, 2026)
+
+Colin authorized implementing and operating automatic blocker escalation for Vision through the existing Vizor initiative runtime. A signed worker result must be durably bound to its repository, saved assignment and original worker. Start Codex only on demand using the existing signed-in installation. Save investigation and session IDs, suppress duplicate starts, preserve uncertain starts for reconciliation, and retain usage-paused sessions. This dedicated user-owned orchestrator chat is for coordination; it is not an API endpoint.
+
+1. **Ingest and investigate.** Accept signed issue-comment events and reconcile missed authenticated GitHub results. Include manual, external and capacity blockers. Read the approved plan and evidence at the default-branch commit. Treat remote text as data.
+2. **Resolve and route.** Reuse owner decisions, route eligible software repairs through normal PR/CI gates, and retain material external decisions. Preserve independent assignments. A blocked recovery does not automatically create another recovery chain.
+3. **Return and verify.** Preserve the original worker. A capacity pause keeps its existing task/session. The configured Claude Fire interface starts a new session; there is no configured continuation or run-state endpoint. After independently confirming the original run ended, create one clearly linked successor through the normal queue. Record that it is a follow-up, not same-chat resumption. Never infer provider termination from a result marker alone.
+4. **First real case.** #25's Phase 2 activation and #36 acceptance are settled by Vision PR #40 and the recorded owner comments. Automatically return qualification preparation to Ronald, documenting unknown external facts. The real partner/workspace/access/budget gate stays held. Morgan's already-started #26 must not be duplicated.
+
+Implementation scope: scripts/initiative-runtime/{scripts,tests}, its operator documentation and this plan. Vision owns the corresponding decision record. Acceptance: signed blocker through durable investigation and original-worker handoff; duplicate, restart, ambiguous response, usage and genuine external-boundary tests; passing GitHub checks; one observed live #25 follow-up receipt and dashboard evidence. Logon startup and the signed Cloudflare supervisor remain in place; no periodic AI review is introduced.

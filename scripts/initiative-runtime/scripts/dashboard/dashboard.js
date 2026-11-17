@@ -112,6 +112,52 @@ function renderTasks() {
   );
 }
 
+function renderBlockers() {
+  const data = snapshot.blockers ?? { investigations: [], activity: [] };
+  $("blocker-section").hidden = !data.investigations.length;
+  $("blockers").replaceChildren(
+    ...data.investigations.map((run) => {
+      const card = node("article", undefined, "agent");
+      card.append(
+        issueLink(run.issue, "#" + run.issue),
+        node("p", "Orchestrator: " + run.state.replaceAll("_", " ")),
+      );
+      if (run.decision) {
+        try {
+          const decision = JSON.parse(run.decision);
+          card.append(
+            node("p", decision.summary),
+            node("p", "Next: " + decision.nextStep),
+          );
+        } catch {
+          /* Preserve the rest of the dashboard if an old report cannot be read. */
+        }
+      }
+      if (run.session)
+        card.append(node("p", "Saved Codex session: " + run.session, "detail"));
+      if (run.successor)
+        card.append(
+          issueLink(run.successor, "Linked follow-up #" + run.successor),
+        );
+      return card;
+    }),
+  );
+  $("blocker-activity").replaceChildren(
+    ...data.activity.map((entry) =>
+      node(
+        "li",
+        new Date(entry.at).toLocaleString() +
+          " · #" +
+          entry.issue +
+          " · " +
+          entry.action.replaceAll("_", " ") +
+          ": " +
+          entry.detail,
+      ),
+    ),
+  );
+}
+
 async function update() {
   try {
     const response = await fetch("/api/queue", { cache: "no-store" });
@@ -138,6 +184,7 @@ async function update() {
     $("task-section").hidden = false;
     renderAgents();
     renderTasks();
+    renderBlockers();
   } catch {
     $("notice").textContent = snapshot
       ? "Live refresh failed. Showing the last successful snapshot."

@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { promisify } from "node:util";
 import { readQueue, scheduleTick } from "./scheduler.mjs";
+import { blockerSnapshot } from "./blockers.mjs";
 
 const execute = promisify(execFile);
 const files = {
@@ -21,7 +22,9 @@ export async function dashboardSnapshot({
   const queue = readQueue(file);
   const db = new DatabaseSync(databaseFile, { readOnly: true, timeout: 5000 });
   const tasks = [];
+  let blockers;
   try {
+    blockers = blockerSnapshot(db);
     await scheduleTick({
       db,
       config,
@@ -46,6 +49,7 @@ export async function dashboardSnapshot({
       name,
     })),
     tasks,
+    blockers,
   };
 }
 

@@ -1,7 +1,9 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
+import { openBlockerStore, recordBlocker } from "./blockers.mjs";
 
 export function openDispatchStore(database) {
+  openBlockerStore(database);
   database.exec(
     "PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;" +
       "CREATE TABLE IF NOT EXISTS assignments (issue INTEGER PRIMARY KEY, agent TEXT NOT NULL, comment TEXT NOT NULL);" +
@@ -150,7 +152,8 @@ export function createListener({
         .digest();
       if (!timingSafeEqual(expected, Buffer.from(signature.slice(7), "hex")))
         return reply(response, 401, { error: "Invalid signature." });
-      if (request.headers["x-github-event"] !== "issues")
+      const eventType = request.headers["x-github-event"];
+      if (!["issues", "issue_comment"].includes(eventType))
         return reply(response, 200, { ignored: true });
       let event;
       try {
@@ -159,6 +162,36 @@ export function createListener({
         return reply(response, 400, { error: "Invalid JSON." });
       }
       const issue = event?.issue?.number;
+      if (eventType === "issue_comment") {
+        if (
+          event.action !== "created" ||
+          event.repository?.full_name?.toLowerCase() !==
+            config.repository.toLowerCase() ||
+          !Number.isSafeInteger(issue) ||
+          issue < 1 ||
+          event.issue.pull_request ||
+          event.comment?.issue_url !==
+            `https://api.github.com/repos/${config.repository}/issues/${issue}` ||
+          event.sender?.login?.toLowerCase() !==
+            event.comment?.user?.login?.toLowerCase()
+        )
+          return reply(response, 200, { ignored: true });
+        const delivery = request.headers["x-github-delivery"];
+        if (typeof delivery !== "string" || !/^[a-f0-9-]{36}$/i.test(delivery))
+          return reply(response, 400, {
+            error: "Missing or invalid delivery ID.",
+          });
+        const accepted = recordBlocker({
+          db: database,
+          config,
+          issue,
+          comment: event.comment,
+        });
+        return reply(response, accepted ? 202 : 200, {
+          accepted,
+          duplicateOrIgnored: !accepted,
+        });
+      }
       if (
         event?.action !== "labeled" ||
         event.label?.name !== config.dispatchLabel ||

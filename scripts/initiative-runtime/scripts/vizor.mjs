@@ -21,6 +21,8 @@ import {
   retireClaim,
   runScheduler,
 } from "./scheduler.mjs";
+import { resumeInvestigation } from "./orchestrator.mjs";
+import { blockerSnapshot } from "./blockers.mjs";
 
 const secretFile = ".vizor/secrets.json";
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
@@ -153,6 +155,8 @@ async function main() {
       "doctor",
       "dashboard",
       "dashboard-snapshot",
+      "orchestrator-resume",
+      "orchestrator-status",
     ].includes(command)
   ) {
     console.log(
@@ -276,7 +280,7 @@ async function main() {
       );
     const settings = {
       active: true,
-      events: ["issues"],
+      events: ["issues", "issue_comment"],
       config: {
         url: endpoint,
         content_type: "json",
@@ -293,6 +297,16 @@ async function main() {
   }
 
   const database = openDispatchStore(new DatabaseSync(databaseFile));
+  if (command === "orchestrator-resume" || command === "orchestrator-status") {
+    try {
+      if (command === "orchestrator-resume")
+        resumeInvestigation(database, first);
+      else console.log(JSON.stringify(blockerSnapshot(database), null, 2));
+    } finally {
+      database.close();
+    }
+    return;
+  }
   if (["schedule", "accept", "retire"].includes(command)) {
     openSchedulerStore(database);
     try {
