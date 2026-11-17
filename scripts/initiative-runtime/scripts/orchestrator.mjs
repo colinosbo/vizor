@@ -302,18 +302,16 @@ export function applyDecision({
         "held",
         "Repair policy does not authorize this task; original gate stays held.",
       );
+    const repairQueue = { ...queue, orchestratorRepairIssue: run.issue };
     recoverBlockedTasks({
       db,
       config,
-      queue: {
-        ...queue,
-        issues: queue.issues,
-        orchestratorRepairIssue: run.issue,
-      },
+      queue: repairQueue,
       file,
       github,
       parseTask,
     });
+    queue.issues = repairQueue.issues;
     return hold(
       "repair",
       "Repair and recheck routed through existing worker capacity, merge checks and original verifier.",
