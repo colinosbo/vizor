@@ -46,7 +46,7 @@ while ($true) {
         for ($attempt = 0; $attempt -lt 30; $attempt++) {
             if ($tunnel.HasExited) { throw 'Cloudflare tunnel stopped before registration.' }
             $text = Get-Content -Raw -LiteralPath $errors -ErrorAction SilentlyContinue
-            $endpoint = [regex]::Match([string]$text, 'https://[a-z0-9-]+\.trycloudflare\.com').Value
+            $endpoint = Get-VizorTunnelEndpoint -Text $text
             if ($endpoint) { break }
             Start-Sleep -Seconds 2
         }
@@ -88,6 +88,9 @@ while ($true) {
     } catch {
         # Avoid logging credentials or provider URLs from native-command failures.
         Write-Status ("Webhook restoration failed during " + $stage + " (" + $_.Exception.GetType().Name + ").")
+        if ($stage -eq 'tunnel startup') {
+            Write-Status ("Tunnel diagnostic: " + $_.Exception.Message + " at " + $_.InvocationInfo.ScriptLineNumber)
+        }
     } finally {
         if ($tunnel -and -not $tunnel.HasExited) { Stop-Process -Id $tunnel.Id -ErrorAction SilentlyContinue }
         Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
