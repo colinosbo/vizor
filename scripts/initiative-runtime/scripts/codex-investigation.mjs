@@ -21,7 +21,10 @@ export const decisionSchema = {
     },
     summary: { type: "string" },
     nextStep: { type: "string" },
-    evidence: { type: "array", items: { type: "string" } },
+    evidence: {
+      type: "array",
+      items: { type: "string", pattern: "^[1-9][0-9]*$" },
+    },
     externalRequirements: { type: "array", items: { type: "string" } },
   },
 };

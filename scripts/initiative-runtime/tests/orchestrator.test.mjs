@@ -510,6 +510,30 @@ test("foreign authors, assignment mismatch, invalid evidence and paused queues c
   assert.equal(f.launches, 0);
 });
 
+test("saved readable comment citations reconcile to exact bound IDs without a second model run", (t) => {
+  const f = fixture(t);
+  f.record();
+  f.tick();
+  f.complete("external");
+  const file = join(runDirectory(f.root, f.runs()[0]), "decision.json");
+  const saved = JSON.parse(readFileSync(file));
+  saved.evidence = [
+    "#25 comment 11 contains the blocker; #25 comment 12 records the later decision.",
+  ];
+  atomicJson(file, saved);
+  f.tick();
+  assert.equal(f.runs()[0].state, "external");
+  assert.equal(f.launches, 1);
+  assert.deepEqual(JSON.parse(f.runs()[0].decision).evidence, ["11", "12"]);
+  assert.throws(() =>
+    validateDecision(
+      { ...saved, evidence: ["comment 999 is invented"] },
+      { kind: "ordinary" },
+      { issues: [{ comments: [{ id: "12" }] }] },
+    ),
+  );
+});
+
 test("real supervisor process protocol saves session, classifies usage, and times out without retries", async (t) => {
   for (const mode of ["success", "usage", "timeout"]) {
     const directory = mkdtempSync(join(tmpdir(), "vizor-codex-protocol-"));
