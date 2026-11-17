@@ -70,7 +70,7 @@ while ($true) {
         $queue = Get-Content -Raw -LiteralPath $queueFile | ConvertFrom-Json
         $queue | Add-Member -NotePropertyName dispatchMode -NotePropertyValue 'webhook' -Force
         $temporary = $queueFile + '.webhook.tmp'
-        $queue | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $temporary -Encoding utf8
+        [IO.File]::WriteAllText($temporary, ($queue | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding($false)))
         Move-Item -LiteralPath $temporary -Destination $queueFile -Force
         Start-ScheduledTask -TaskName ($hostConfig.prefix + ' Scheduler')
         Write-Status 'Webhook mode enabled. GitHub assignment events now call the local relay.'

@@ -61,7 +61,7 @@ foreach ($role in $roles) {
 if ($Mode -eq 'local') {
     $data = Get-Content -Raw -LiteralPath $queue | ConvertFrom-Json
     $data | Add-Member -NotePropertyName dispatchMode -NotePropertyValue 'local' -Force
-    $data | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $queue -Encoding utf8
+    [IO.File]::WriteAllText($queue, ($data | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding($false)))
 }
 foreach ($role in $roles) { Start-ScheduledTask -TaskName ($TaskPrefix + ' ' + $role) }
 Write-Output ('Installed ' + $config.repository + ' runtime. Tasks restart after Windows sign-in.')
