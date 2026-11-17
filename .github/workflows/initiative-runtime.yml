@@ -1,0 +1,25 @@
+name: Initiative runtime checks
+on:
+  pull_request:
+    paths:
+      - scripts/initiative-runtime/**
+      - .github/workflows/initiative-runtime.yml
+  push:
+    branches: [main]
+    paths:
+      - scripts/initiative-runtime/**
+      - .github/workflows/initiative-runtime.yml
+permissions:
+  contents: read
+jobs:
+  runtime:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 24
+      - run: node --test scripts/initiative-runtime/tests/*.test.mjs
