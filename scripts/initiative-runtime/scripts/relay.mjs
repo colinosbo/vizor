@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { openBlockerStore, recordBlocker } from "./blockers.mjs";
+import { advanceCloudRecheck } from "./cloud-recheck.mjs";
 
 export function openDispatchStore(database) {
   openBlockerStore(database);
@@ -25,6 +26,7 @@ export function createDispatcher({
   credentials,
   database,
   fire = fetch,
+  cloudServices,
 }) {
   const assignment = database.prepare(
     "SELECT agent, comment FROM assignments WHERE issue = ?",
@@ -44,6 +46,19 @@ export function createDispatcher({
     )
       return false;
     onAccepted();
+    if (
+      database
+        .prepare("SELECT issue FROM cloud_rechecks WHERE issue=?")
+        .get(issue)
+    ) {
+      database
+        .prepare(
+          "UPDATE deliveries SET state='waiting_lifecycle' WHERE issue=?",
+        )
+        .run(issue);
+      advanceCloudRecheck({ db: database, config, issue, ...cloudServices });
+      return true;
+    }
     try {
       const { fireUrl, token } = credentials.agents[saved.agent];
       const run = await fire(fireUrl, {

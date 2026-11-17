@@ -11,6 +11,11 @@ import { fileURLToPath } from "node:url";
 import { activity } from "./blockers.mjs";
 import { atomicJson } from "./codex-investigation.mjs";
 import { recoverBlockedTasks } from "./recovery.mjs";
+import { queueCloudReturn, cloudSession } from "./cloud-return.mjs";
+import {
+  lifecycleObservation,
+  reconcileLifecycleObservations,
+} from "./claude-lifecycle.mjs";
 
 const json = (file) => JSON.parse(readFileSync(file, "utf8"));
 export const runDirectory = (root, run) =>
@@ -233,6 +238,8 @@ export function applyDecision({
   decision,
   host,
   parseTask,
+  sendCloud,
+  observeLifecycle = lifecycleObservation,
 }) {
   const prefix = "repos/" + config.repository;
   const owner = config.agents[run.agent];
@@ -244,8 +251,11 @@ export function applyDecision({
   const row = db
     .prepare("SELECT * FROM scheduled_issues WHERE issue=?")
     .get(run.issue);
+  const cloudReturn = db
+    .prepare("SELECT * FROM cloud_returns WHERE run=?")
+    .get(run.id);
   if (
-    row.assignment !== run.assignment ||
+    (!cloudReturn && row.assignment !== run.assignment) ||
     row.agent !== run.agent ||
     row.result === "done"
   ) {
@@ -280,6 +290,35 @@ export function applyDecision({
     if (run.state !== state) activity(db, run.id, state, detail);
     db.prepare("UPDATE blocker_runs SET state=? WHERE id=?").run(state, run.id);
   };
+  const newestResult = comments(github, prefix, run.issue).findLast(
+    (comment) =>
+      Number.isSafeInteger(comment.id) &&
+      BigInt(comment.id) > BigInt(run.assignment) &&
+      owner.trustedManagers.some(
+        (name) => name.toLowerCase() === comment.user?.login?.toLowerCase(),
+      ) &&
+      comment.body
+        ?.split(/\r?\n/)
+        .some((line) =>
+          /^Vizor result: (done|blocked)(?: \(PR #\d+\))?$/.test(line),
+        ),
+  );
+  if (newestResult?.body.split(/\r?\n/).includes("Vizor blocker: capacity"))
+    return hold(
+      "worker_usage_paused",
+      "The latest bound worker report is a capacity pause; preserve its existing cloud session without sending a return.",
+    );
+  if (
+    newestResult &&
+    BigInt(newestResult.id) > BigInt(run.comment) &&
+    newestResult.body
+      .split(/\r?\n/)
+      .some((line) => /^Vizor result: done/.test(line))
+  )
+    return hold(
+      "superseded",
+      "A later completed worker result supersedes this blocker; no return is queued.",
+    );
   if (decision.action === "capacity" || run.kind === "capacity")
     return hold(
       "worker_usage_paused",
@@ -301,10 +340,56 @@ export function applyDecision({
   const receipt = db
     .prepare("SELECT session FROM deliveries WHERE issue=?")
     .get(run.issue);
+  if (host.cloudReturn) {
+    if (!cloudSession(receipt?.session) || task.agent !== run.agent)
+      return hold(
+        "cloud_binding_required",
+        "Saved original cloud session or worker binding is missing/changed; no replacement Fire is permitted.",
+      );
+    if (
+      db
+        .prepare(
+          "SELECT issue FROM scheduled_issues WHERE agent=? AND active=1 AND issue<>?",
+        )
+        .get(run.agent, run.issue)
+    )
+      return hold(
+        "awaiting_worker_capacity",
+        "Original worker is occupied by another issue; its running or usage-paused chat is preserved.",
+      );
+    if (!cloudReturn) {
+      const observation = observeLifecycle({
+        db,
+        config,
+        host,
+        issue: run.issue,
+        assignment: run.assignment,
+        session: receipt?.session,
+        agent: run.agent,
+        reportedAt: run.reported_at,
+      });
+      if (observation.state === "usage_paused")
+        return hold("worker_usage_paused", observation.detail);
+      // Same-chat queueing serializes a finishing turn, including historical
+      // sessions whose firing is no longer last_run. Observation is not delivery.
+    }
+    if (decision.action !== "repair")
+      return queueCloudReturn({
+        db,
+        config,
+        run,
+        task,
+        host,
+        preparation,
+        post,
+        send: sendCloud,
+      });
+  }
   if (
-    row.active ||
-    !receipt?.session ||
-    !host.endedSessions?.includes(receipt.session)
+    !host.cloudReturn &&
+    (row.active ||
+      !receipt?.session ||
+      !host.endedSessions?.includes(receipt.session))
   )
     return hold(
       "awaiting_worker_end",
@@ -322,6 +407,39 @@ export function applyDecision({
         "Repair policy does not authorize this task; original gate stays held.",
       );
     const repairQueue = { ...queue, orchestratorRepairIssue: run.issue };
+    const bindRecheck = ({ repair, recheck }) => {
+      if (!host.cloudReturn) return;
+      const existing = db
+        .prepare("SELECT * FROM cloud_rechecks WHERE issue=?")
+        .get(recheck);
+      if (
+        existing &&
+        (existing.original !== run.issue ||
+          existing.agent !== run.agent ||
+          existing.session !== receipt.session ||
+          existing.blocker_run !== run.id)
+      )
+        throw Error("Conflicting original-verifier recheck binding.");
+      const added = db
+        .prepare(
+          "INSERT OR IGNORE INTO cloud_rechecks(issue,original,agent,session,assignment,blocker_run) VALUES (?,?,?,?,?,?)",
+        )
+        .run(
+          recheck,
+          run.issue,
+          run.agent,
+          receipt.session,
+          run.assignment,
+          run.id,
+        ).changes;
+      if (added)
+        activity(
+          db,
+          run.id,
+          "cloud_recheck_bound",
+          `Repair #${repair} must merge with named checks; recheck #${recheck} will queue in the original cloud session, never Fire a new verifier.`,
+        );
+    };
     recoverBlockedTasks({
       db,
       config,
@@ -329,8 +447,16 @@ export function applyDecision({
       file,
       github,
       parseTask,
+      onPreparedRecovery: bindRecheck,
     });
     queue.issues = repairQueue.issues;
+    if (host.cloudReturn) {
+      const recovery = db
+        .prepare("SELECT repair,recheck FROM task_recoveries WHERE issue=?")
+        .get(run.issue);
+      if (!recovery?.recheck) throw Error("Repair route has no saved recheck.");
+      bindRecheck(recovery);
+    }
     return hold(
       "repair",
       "Repair and recheck routed through existing worker capacity, merge checks and original verifier.",
@@ -439,8 +565,11 @@ export function orchestratorTick({
   root = resolve(".vizor/orchestrator"),
   launch = startInvestigation,
   now = Date.now(),
+  sendCloud,
+  observeLifecycle,
 }) {
   if (queue.paused || queue.blockerOrchestrator !== true) return;
+  if (host.cloudReturn) reconcileLifecycleObservations({ db, config, host });
   for (const run of db
     .prepare("SELECT * FROM blocker_runs ORDER BY created_at")
     .all()) {
@@ -550,7 +679,14 @@ export function orchestratorTick({
         run.decision = JSON.stringify(decision);
       }
       if (
-        ["completed", "awaiting_worker_end"].includes(run.state) &&
+        [
+          "completed",
+          "awaiting_worker_end",
+          "awaiting_worker_capacity",
+          "cloud_sending",
+          "provider_observing",
+          "provider_running",
+        ].includes(run.state) &&
         run.decision
       ) {
         applyDecision({
@@ -562,6 +698,8 @@ export function orchestratorTick({
           run,
           host,
           parseTask,
+          sendCloud,
+          observeLifecycle,
           decision: JSON.parse(run.decision),
         });
       }

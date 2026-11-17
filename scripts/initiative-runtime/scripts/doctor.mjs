@@ -96,6 +96,46 @@ export async function runDoctor({
       " workers.",
   );
   const ignored = command("git", "check-ignore", "--", secretFile) === 0;
+  const cloudHost = loadJson(".vizor/orchestrator-host.json")?.cloudReturn;
+  if (cloudHost) {
+    let signedIn = false;
+    if (
+      cloudHost.type === "claude-cloud-cli" &&
+      existsSync(cloudHost.executable ?? "")
+    ) {
+      const result = spawnSync(cloudHost.executable, ["auth", "status"], {
+        encoding: "utf8",
+        windowsHide: true,
+        shell: false,
+        timeout: 5000,
+        maxBuffer: 65536,
+      });
+      try {
+        const value = JSON.parse(result.stdout);
+        signedIn =
+          result.status === 0 &&
+          value.loggedIn === true &&
+          value.authMethod === "claude.ai";
+      } catch {}
+    }
+    status(
+      signedIn,
+      "Claude same-chat subscription",
+      signedIn
+        ? "Signed in through the supported CLI. Queued return is distinct from provider completion."
+        : "Run claude auth login --claudeai with the account owning these cloud sessions. No API-key fallback is used.",
+    );
+    const bindings = Object.keys(config.agents).every((id) =>
+      /^trig_[A-Za-z0-9_-]+$/.test(cloudHost.triggers?.[id] ?? ""),
+    );
+    status(
+      bindings,
+      "Provider lifecycle bindings",
+      bindings
+        ? "Worker trigger IDs are configured; only exact raw provider metadata can establish a completed firing."
+        : "Configure cloudReturn.triggers for each saved worker. Idle or stale sessions never prove completion.",
+    );
+  }
   status(
     ignored,
     "Credential file excluded from Git",

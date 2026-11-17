@@ -1,20 +1,36 @@
 import { randomUUID } from "node:crypto";
+import {
+  openCloudReturnStore,
+  pendingCloudReturn,
+  matchesCloudReturn,
+  cloudReturnSnapshot,
+} from "./cloud-return.mjs";
+import { openLifecycleStore } from "./claude-lifecycle.mjs";
 
 const lines = (text) => (text ?? "").split(/\r?\n/);
 export function openBlockerStore(db) {
+  openCloudReturnStore(db);
+  openLifecycleStore(db);
   db.exec(`CREATE TABLE IF NOT EXISTS blocker_runs (
     id TEXT PRIMARY KEY, issue INTEGER NOT NULL, assignment TEXT NOT NULL,
     agent TEXT NOT NULL, comment TEXT NOT NULL, body TEXT NOT NULL,
     kind TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending',
     session TEXT, successor INTEGER, uncertain TEXT, decision TEXT,
     attempt INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    reported_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
     UNIQUE(issue, assignment)
   );
   CREATE TABLE IF NOT EXISTS blocker_activity (
     sequence INTEGER PRIMARY KEY, run TEXT NOT NULL, at TEXT NOT NULL,
     action TEXT NOT NULL, detail TEXT NOT NULL
   );`);
+  if (
+    !db
+      .prepare("PRAGMA table_info(blocker_runs)")
+      .all()
+      .some((column) => column.name === "reported_at")
+  )
+    db.exec("ALTER TABLE blocker_runs ADD COLUMN reported_at TEXT");
 }
 
 export function activity(db, id, action, detail) {
@@ -51,6 +67,11 @@ export function recordBlocker({ db, config, issue, comment }) {
       .get(issue);
   if (replacement?.accepted && replacement.result === "done") return false;
   if (
+    row &&
+    !matchesCloudReturn(pendingCloudReturn(db, issue, row.assignment), comment)
+  )
+    return false;
+  if (
     !agent ||
     row.receipt !== "started" ||
     !Number.isSafeInteger(comment?.id) ||
@@ -73,7 +94,7 @@ export function recordBlocker({ db, config, issue, comment }) {
   const added = db
     .prepare(
       `INSERT OR IGNORE INTO blocker_runs
-    (id,issue,assignment,agent,comment,body,kind,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)`,
+    (id,issue,assignment,agent,comment,body,kind,reported_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)`,
     )
     .run(
       id,
@@ -83,6 +104,9 @@ export function recordBlocker({ db, config, issue, comment }) {
       String(comment.id),
       comment.body,
       kind,
+      Number.isFinite(Date.parse(comment.created_at))
+        ? comment.created_at
+        : null,
       at,
       at,
     ).changes;
@@ -102,8 +126,20 @@ export function blockerSnapshot(db) {
       .prepare("SELECT name FROM sqlite_master WHERE name='blocker_runs'")
       .get()
   )
-    return { investigations: [], activity: [] };
+    return { investigations: [], activity: [], cloudReturns: [] };
   return {
+    providerObservations: db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE name='provider_observations'",
+      )
+      .get()
+      ? db
+          .prepare(
+            "SELECT issue,assignment,session,state,detail,observed_at,finished_at FROM provider_observations ORDER BY updated_at DESC",
+          )
+          .all()
+      : [],
+    cloudReturns: cloudReturnSnapshot(db),
     investigations: db
       .prepare(
         "SELECT id,issue,agent,kind,state,session,successor,decision,updated_at FROM blocker_runs ORDER BY created_at DESC",
