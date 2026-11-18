@@ -107,7 +107,10 @@ function readConfig() {
 }
 
 function getCredentials(config, verify = true) {
-  check(existsSync(secretFile), "Run npm run vizor -- init first.");
+  check(
+    existsSync(secretFile),
+    "Run node <runtime>/scripts/vizor.mjs init first.",
+  );
   const value = readJson(secretFile);
   check(
     validWebhookSecret(value.webhookSecret) &&
@@ -153,7 +156,7 @@ async function main() {
     ].includes(command)
   ) {
     console.log(
-      "Usage: npm run vizor -- init | serve | setup <public HTTPS URL> | assign <issue> <agent ID> <comment ID> | status | disconnect | schedule <queue.json> [--once|--preview] | accept <issue> | retire <queue.json> <issue> | doctor | health [queue.json] | restart | dashboard <queue.json> [port]",
+      "Usage: node <runtime>/scripts/vizor.mjs init | serve | setup <public HTTPS URL> | assign <issue> <agent ID> <comment ID> | status | disconnect | schedule <queue.json> [--once|--preview] | accept <issue> | retire <queue.json> <issue> | doctor | health [queue.json] | restart | dashboard <queue.json> [port]",
     );
     return;
   }

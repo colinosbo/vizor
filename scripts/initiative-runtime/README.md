@@ -47,15 +47,15 @@ The dashboard is served on loopback at the configured webhook port plus one by d
 
 Run node --test scripts/initiative-runtime/tests/*.test.mjs from the Vizor checkout. The tests exercise duplicate suppression, signed webhooks, dependency gates, automatic acceptance and repair/recheck progression. The Windows health regression test exercises PowerShell 5.1's wrapped HTTP exception.
 
-This is a source-integrated runtime. The desktop installer does not yet bundle or invoke these components through a setup screen. Installed paths must remain available. Logon startup requires the PC to be on, connected and signed in. A successful logon-task installation does not establish a tested reboot.
+The runtime runs from a Vizor checkout; there is no separate installer yet (see docs/ROADMAP.md). Installed paths must remain available. Logon startup requires the PC to be on, connected and signed in. A successful logon-task installation does not establish a tested reboot.
 
 A provider routine must stay enabled. An ambiguous provider response is retained for reconciliation to avoid duplicate sessions. End-to-end webhook restart recovery must be verified in the user's permitted environment before declaring unattended webhook operation ready.
 
-See docs/vision-pilot-handoff.md for the broader productization work.
+See docs/ROADMAP.md for the remaining productization work.
 
 ## On-demand blocker investigations
 
-Enable `blockerOrchestrator: true` in the project's private queue after the project owner approves the plan. The existing deterministic scheduler ingests missed results and services saved investigations; it does not schedule model reviews. The signed webhook must subscribe to both `issues` and `issue_comment` (rerun `setup` with the saved tunnel URL). External/manual/capacity blocker events are recorded too. With this setting enabled, the old automatic repair loop runs only when an investigation explicitly routes an eligible software repair.
+Enable `blockerOrchestrator: true` in the project's private queue after the project owner approves the plan. The existing deterministic scheduler ingests missed results and services saved investigations; it does not schedule model reviews. In webhook mode the signed webhook must subscribe to both `issues` and `issue_comment` (rerun `setup` with the public URL); local mode ingests these results by polling. External/manual/capacity blocker events are recorded too. With this setting enabled, the old automatic repair loop runs only when an investigation explicitly routes an eligible software repair.
 
 Create private `.vizor/orchestrator-host.json` in the initiative repository:
 

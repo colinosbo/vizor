@@ -18,11 +18,8 @@ $node = (Get-Command node.exe -ErrorAction Stop).Source
 if ((& $node --version) -notmatch '^v24\.') { throw 'Vizor runtime requires Node.js 24.' }
 $git = (Get-Command git.exe -ErrorAction Stop).Source
 $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
-if (-not $gh) {
-    $bundled = Join-Path $env:LOCALAPPDATA 'Programs/vizor-desktop/resources/vizor/terminal-host/github-cli/gh.exe'
-    if (-not (Test-Path -LiteralPath $bundled)) { throw 'Install GitHub CLI or put gh.exe on PATH.' }
-    $ghPath = $bundled
-} else { $ghPath = $gh.Source }
+if (-not $gh) { throw 'Install GitHub CLI or put gh.exe on PATH.' }
+$ghPath = $gh.Source
 if ($Mode -eq 'webhook') {
     if (-not $WebhookUrl) { throw 'Webhook mode needs -WebhookUrl with the public HTTPS URL that forwards to the relay. Use -Mode local otherwise.' }
     $parsed = $null

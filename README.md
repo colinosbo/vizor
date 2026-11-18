@@ -1,193 +1,22 @@
 # Vizor
 
-A local dashboard for your coding agents. Create projects for features, connect your own Claude Code subscription, and let each project's Orchestrator coordinate its coding team. Everyone runs their own installation with their own accounts and data. **New accounts start in full auto mode: the Orchestrator decides and Vizor approves and dispatches its proposals. Turn off Full auto approval and the approved-task queue to approve everything by hand. Existing accounts keep their saved settings.**
+Vizor is a background runner and a local web dashboard. It dispatches an approved GitHub plan to coding agents, verifies their results, and keeps going after you close the dashboard tab.
 
-## Download and run
+- **Runner:** the scheduler, relay and recovery paths in [`scripts/initiative-runtime/`](scripts/initiative-runtime/). On Windows it is supervised by per-user scheduled tasks.
+- **Dashboard:** served on loopback. It reads the same durable project state as the runner, so you see the same queue, worker status, PR checks and blockers when you reopen it.
+- **CLI:** `node scripts/initiative-runtime/scripts/vizor.mjs` for setup and troubleshooting (`init`, `doctor`, `status`, `schedule --preview`, `dashboard`).
 
-**Want to use your Claude subscription? [Follow the short setup guide](QUICK-START.md).** Download the Windows **EXE installer** from [Releases](https://github.com/colinosbo/vizor/releases/latest), sign in with your own Claude account, and add a coding agent. No API key or commands needed. Subscription support requires the Windows desktop app; browser-only portable packages use API connections.
+Dispatch is local by default and needs no public endpoint. Webhook mode is optional and uses a public HTTPS URL you supply.
 
-**Windows:** download the current installer from the [latest release](https://github.com/colinosbo/vizor/releases/latest), then open **Vizor** from your desktop or Start menu shortcut. Installed copies can update automatically. **Help → Check for updates** checks immediately. Updates wait for running replies and terminal sessions; closing with live terminals asks you to stop them first. See the [Windows guide](WINDOWS.md) and [release workflow guide](UPDATE-RELEASES.md). The installer remains unsigned and Windows may show a publisher warning.
+Setup, commands and current limits are in the [runtime README](scripts/initiative-runtime/README.md). Decisions are in [AGENTS.md](AGENTS.md) and remaining release work in the [roadmap](docs/ROADMAP.md).
 
-Choose **New agent → Claude Code or Codex → Browse** to pick a project. **Set up / sign in** installs a checksum-verified official native tool if needed and opens its own sign-in interface. **Resume** opens that agent's terminal; **Interrupt** sends Ctrl+C; **Stop** closes only that terminal and keeps its native session. You can also rename, archive, arrange, resize and focus panels. Up to eight terminal processes can run at once. Reopening the app restores the board with terminals stopped until you resume them. The Orchestrator recommends a team size, shows each agent's assignment and status, and gathers agent reports into a leadership update. Approving a terminal task starts that agent and delivers the approved task automatically; CLI permission prompts remain under the tool's control. See [Terminal agents](TERMINAL-AGENTS.md) and the [verification report](verification/terminal-agents/REPORT.md).
+## Development
 
-Terminal agents use the account selected inside each CLI and retain native permission prompts. No API key is required for them. API agents and credits remain available under **API keys**; Vizor's dollar caps apply only to API calls. The Windows Orchestrator can also use a Claude Code subscription, with native sign-in and no API fallback. It receives structured worker reports, not private terminal transcripts.
+Requires Node.js 24. The runtime has no npm dependencies; `npm install` only adds Prettier.
 
-**Portable downloads** remain available for Windows, macOS and Linux:
-
-1. [Download the latest release](https://github.com/colinosbo/vizor/releases/latest). Choose **windows-x64**, **macos-arm64** (Apple silicon), **macos-x64** (Intel), or **linux-x64**.
-2. Extract the **whole archive** into a writable local folder.
-3. On **Windows**, double-click **Start Vizor.cmd**. On **macOS**, open **Start Vizor.command**. On **Linux**, run `./start-vizor.sh`.
-4. Vizor opens in your browser. Enter your own provider key in the app and set your spending limits.
-
-**Node.js is included.** No Node, npm, Git, Docker or database service installation is required. Portable downloads retain API functionality; terminal agents require the Windows desktop installer. The portable app is already compiled and launches without installing or downloading anything. Internet is needed for provider requests after you explicitly connect or chat. Keep the launcher window open; Ctrl+C stops it. Packages are unsigned portable apps, so operating-system security controls may require approval.
-
-See **[START-HERE.md](START-HERE.md)** for the full walkthrough, updates, backups and troubleshooting. Windows, macOS and Linux are the target platforms; [portable download verification](verification/portable/REPORT.md) records actual test results. The older [v0.5.0 source download report](verification/distribution/REPORT.md) is retained for reference.
-
-The default address is **http://127.0.0.1:3000**. If you change the port in `.env`'s `APP_ORIGIN`, the launcher uses the new port. It binds only to `127.0.0.1`, refuses a busy port instead of stopping another app, and prevents concurrent setup from the same folder.
-
-Each first launch creates its own `.env` with a permanent encryption key and local SQLite database, then applies bundled migrations. No provider key is required to start. Missing/invalid keys in an existing configuration stop setup; existing encryption keys and data are not silently replaced. Existing databases are backed up before pending migrations. Portable/source versions use manual updates; the Windows installed app supports automatic GitHub updates. Keep `.env` and `data/` together when updating or backing up.
-
-## Developer setup
-
-Developer checkouts and GitHub's automatic **Source code** archives still require **Node.js 24 LTS** (24.11+ in the 24.x line, with npm). Download a named platform package above for the version with Node included. The source launchers run `npm run launch` with automatic local setup; `--repair` reinstalls/rebuilds while preserving data.
-
-```powershell
-npm ci
-npm run setup
-npm run dev
-```
-
-To run the production build manually, use:
-
-```powershell
-npm run build
-npm start
-```
-
-Manual start commands use port 3000. The launcher follows `APP_ORIGIN`; use it for a custom local port. The public `/api/health` route returns only the app name, version and readiness marker, with the same host/origin checks and no user data.
-
-For optional **Writing partner** and **Code reviewer** demo configurations, run `npm run db:seed`. This repeatable seed does not overwrite existing agents or create messages or provider keys. Demo configurations make normal provider calls after you connect a key.
-
-### Build a portable release
-
-On the target OS/processor, after setup, run `npm run build:portable`, `npm run package:portable`, then `npm run test:portable`. The package contains Next.js standalone output, Node 24.22.1 verified against the official archive SHA-256, native dependencies, SQL migrations and third-party licenses. Packaging rejects private configuration/database files and scans for the build's master key. Portable verification extracts into a path containing spaces, removes Node/npm from PATH, blocks real outbound requests, and checks first boot, local assets, mocked streaming, key removal, restart persistence and native account registration. The manual **Build portable releases** workflow tests each package before uploading it to a matching draft release; publication remains a separate release step.
-
-### Upgrade from an earlier stage
-
-Follow the [download update steps](START-HERE.md#updating): stop the old app, back up its database and `.env`, copy those into the new download, and run the launcher. For developer checkouts, run `npm ci`, `npm run setup`, `npm run build`, then `npm start`. Migrations preserve users, credentials and conversation history and import existing run costs into the ledger. Previous connection-test charges were not recorded and cannot be recovered automatically.
-
-## Connect a provider
-
-Connect either provider alone or both. Each card supports testing, replacement and deletion; existing agents retain their provider/model until you explicitly edit them. These are **API keys**, billed per use, separately from ChatGPT Plus / Claude Pro subscriptions.
-
-### Claude / Anthropic
-
-1. Sign in at [console.anthropic.com](https://console.anthropic.com/).
-2. Open **API Keys → Create Key** and copy the key starting with `sk-ant-`.
-3. Set up API billing/credits under **Plans & Billing**.
-4. Paste it into the masked **Claude** card and choose **Test connection**.
-
-### ChatGPT / OpenAI
-
-1. Sign in at [platform.openai.com](https://platform.openai.com/).
-2. Open **API keys → Create new secret key** and copy the key starting with `sk-`.
-3. Add a payment method or credits under **Billing**.
-4. Paste it into the masked **ChatGPT** card and choose **Test connection**.
-
-Testing fetches available models and makes one capped inference request: at most eight output tokens for Claude or sixteen for OpenAI. **The provider can charge for this test.** Authentication, billing, rate-limit and temporary provider failures are distinguished. Save occurs only after success; a failed replacement preserves the working key. The same instructions are available under **API keys**.
-
-Only the key's last four characters are returned to the browser. Entered keys remain in component memory while being submitted and are cleared after the attempt; they are never put in browser storage. **Remove key** deletes stored ciphertext and stops only that provider's runs. It does not revoke the key at the provider or delete conversations.
-
-## Your workspace
-
-Vizor uses charcoal grey surfaces and bright orange actions, selections and keyboard focus. Individual agent colours remain configurable. The latest [theme and readiness check](verification/charcoal-orange/REPORT.md) records desktop/mobile checks; earlier reports retain their original screenshots.
-
-- Choose **1**, **2**, **4** or **6** panels, or **Tabs**. Larger workspaces have previous/next controls; the sidebar can select any agent. Narrow screens stack panels and preserve touch scrolling.
-- Drag using a panel's grip; resize from its lower-right corner. Keyboard alternatives: focus the grip and press Left/Right to reorder, or focus the resize handle and use arrow keys to resize. Pointer drag/resize is disabled on narrow screens.
-- Pin agents to prioritize them in the sidebar, tabs and visible groups. Collapse a panel to its header or use Focus to open it alone. Hiding/collapsing a panel, switching tabs or opening settings does not cancel its generation.
-- Positions, sizes, mode, order, pins, collapse state and selected agent are saved per user in SQLite and survive restarts. Positions are separate for each mode. Reset panel positions returns the current mode to a fitted grid. The latest save wins if two tabs edit a layout simultaneously.
-- Each agent has its own history, provider, model, system prompt, temperature where supported, output cap, colour/icon, composer, stop control and usage. Status distinguishes Ready, Thinking, Waiting for you, Paused, Stopped and Error.
-- Agent settings support rename/edit, duplicate, pause/resume, archive and **Save as template**. Duplicate copies setup into an empty conversation. Pause/archive cancels that agent's current run. Archive retains history; restore from **Archive**.
-- Templates capture the setup currently shown in the settings form. Use one to create a fresh agent. Deleting a template leaves existing agents/conversations intact.
-- Enter sends; Shift+Enter adds a newline. Stop keeps partial output, regenerate replaces the latest assistant response, and edit-and-resend confirms removing the edited message and subsequent active branch. Prior run usage remains accounted for.
-- Tokens, status and estimated usage push over one authenticated SSE feed per browser tab. Another tab for the same account sees the updates too. Reconnection reloads the saved snapshot; while disconnected, Vizor shows Reconnecting and checks saved state every three seconds. Up to eight live browser connections per account are supported.
-- Closing or reloading the tab that submitted a message still cancels that tab's generation. Closing a tab that is only observing does not cancel another tab's work. Cancellation cannot undo tokens already billed.
-
-## Orchestrator and approvals
-
-1. Open **Orchestrator → Set up orchestrator**. On Windows, choose **Claude Code subscription**, complete **Set up Claude subscription**, and choose a model. Alternatively connect an API provider and choose that connection. Configuring it makes no inference request.
-2. Select the agents to include in context (up to 20). Ask a question, choose **Summarize progress**, or choose **Draft next steps**. Each explicit turn uses at most three model calls. Every call is metered; continuation stops when a spending limit blocks it.
-3. Review drafts beside the conversation or under **Proposals**. Edit a draft's text, target or proposed agent configuration; then approve or reject it. Bulk approval reviews up to 20 pending items at a time and reports individual failures. Older pending drafts remain available as the oldest 100 are reviewed; the recent-decisions view shows the latest 50.
-4. **Audit history** records who proposed an action, who approved it, changes to drafts, sends, agent changes, provider connections, spending settings and failures. Load older events with the page control. History is read-only through the app, owner-scoped, and local database text; it is not a tamper-proof external audit service.
-
-The orchestrator receives each selected agent's name, model, role (up to 2,000 characters), local rolling excerpts (up to 4,000 characters), and four recent message excerpts (up to 1,800 characters each). It also sees a bounded recent orchestrator conversation and proposal metadata. Rolling excerpts are an extractive cache, **not a complete semantic memory**. They can omit older details. Editing an earlier branch resets its cache. Agent output is explicitly marked untrusted reference data.
-
-Only native, structured provider tool calls can create proposals. Available tools read summaries or propose messages, creating/renaming/pausing/archiving agents. Prose, Markdown and action-looking JSON cannot execute anything. Even a native `send_message` call only creates a draft. The server requires an approval record (yours, or automatic when Full auto approval is on) before any send or management change, checks ownership, validates the stored payload, and rejects stale edit versions. Approval is recorded transactionally; repeated approvals do not repeat the action.
-
-Approved messages are labelled **Orchestrator · Approved by you** in the target conversation. After approval, that message's response continues in the local Node process even if you leave the approval page; use the target agent's **Stop** control to cancel. Provider removal and pause/archive also cancel it. Restart recovery never automatically re-delivers an uncertain approved message: review its target history before proposing another one.
-
-New accounts start with **Full auto approval** and the **approved-task queue** on: the Orchestrator's proposals are approved and delivered to idle workers automatically, and it reports outcomes and blockers instead of asking permission. Accounts created before this change keep their saved settings. Turn both switches off to approve every proposal by hand. Native CLI sign-in and permission prompts still apply, and automation pauses after a failed or uncertain delivery. Subscription planning uses Claude Code and shares its allowance with workers; it does not fall back to a paid API connection.
-
-## Spending limits
-
-Open **Spending limits**, enable a monthly limit for either provider, enter a USD amount and save. Limits are optional and start disabled; no dollar amount has been chosen for you. **$0 blocks new generations** for that provider. The same balance covers all your agent chats, orchestrator calls and new connection tests. Key replacement/removal does not reset the ledger. Each account and provider has a separate balance.
-
-Before a protected generation, Vizor calls the provider's input-token counter and reserves the cost of those tokens plus a 10% safety buffer, 256 additional input tokens and the full output-token cap. The reservation and balance check are one database transaction, so concurrent requests cannot spend the same remaining balance. Final complete usage replaces the reservation with the reported token cost. At 80% used or reserved, a warning appears. Requests whose maximum estimate will not fit are blocked before inference. Unknown model prices, unavailable token counting or unresolved unpriced usage also block protected requests.
-
-Budgets use **UTC calendar months**, integer microdollars and a dated standard-text price table. They protect this account's Vizor usage at those listed rates; they are not an exact provider invoice or an organization-wide billing cap. They do not discover spending in other apps. Price changes, taxes, negotiated pricing and provider accounting differences are outside the guard. Unknown costs stay unavailable. The recent request ledger shows the latest 50 calls/adjustments, including connection tests that are outside chat totals.
-
-Interrupted requests without complete usage retain a conservative maximum estimate rather than freeing possibly spent money. Crash recovery does the same for abandoned reservations. Known authentication/billing/rate-limit rejections release their hold. You must stop or finish current provider requests before changing its limit.
-
-If earlier usage has no reliable price/complete usage, **Reconcile earlier usage** accepts a conservative month-to-date total from your provider account. This is an explicit manual reconciliation recorded in the audit log, cannot lower Vizor's already recorded spend, and clears the unresolved-usage block. An opening-balance adjustment is added to the ledger. It can also include spending outside Vizor. A new UTC month starts with a new balance while retaining prior records.
-
-## Privacy and storage
-
-- SQLite lives at `data/vizor.db`. WAL/SHM sidecars can exist while running.
-- Provider credentials use AES-256-GCM with fresh nonces and owner/provider identity as authenticated data. The required 32-byte base64 `MASTER_KEY` comes from `.env`; decryption occurs server-side for the chosen provider's calls only. Missing or changed master keys never trigger a silent reset.
-- Messages, prompts, summaries, proposals, audit events and templates are ordinary local database text. Direct agent chats send that agent's history to its provider. Orchestrator submissions also send the selected agents' compact context to the orchestrator's chosen provider; the context selector explains this sharing.
-- OpenAI uses the Responses API with `store: false`; no remote conversation resource is created. This does not override the provider's own service retention policies.
-- Vizor cannot execute code, browse websites or contact external tools on a model's behalf. Native tools are limited to read-only summaries and reviewable proposals; mutations require approval. Raw HTML and automatically loaded remote Markdown images remain disabled. Production CSP uses per-request nonces. Development additionally permits the style/evaluation operations required by Next's development server.
-- Runtime conversations use the local app and selected Anthropic/OpenAI APIs. The installed Windows app additionally contacts Vizor's GitHub release feed and asset CDN for automatic updates; this can be disabled in Help. It does not send conversations or provider keys with update requests, and replaces the updater's per-install rollout header with a shared non-identifying value. Console links open when clicked. No analytics, paid infrastructure, cloud database, remote fonts or background AI calls are installed. Next.js telemetry is disabled in the generated environment.
-- npm installation downloads dependencies; browser-test setup downloads Chromium. These development operations do not upload conversations or API keys.
-
-Stop the app before backing up **both `.env` and the database**, including any remaining WAL/SHM sidecars. Restore them together. Losing `MASTER_KEY` makes saved provider keys unreadable; restore it or reconnect providers. Protect `.env` and backups with Windows account/file permissions: someone who can read both the database and master key can decrypt the credentials.
-
-## Accounts and deployment boundaries
-
-Default configuration:
-
-```dotenv
-DATABASE_URL="file:./data/vizor.db"
-SELF_HOST="true"
-APP_ORIGIN="http://127.0.0.1:3000"
-MASTER_KEY="<32 random bytes encoded as base64>"
-NEXT_TELEMETRY_DISABLED="1"
-CHECKPOINT_DISABLE="1"
-```
-
-`SELF_HOST=true` skips signup and uses one local owner. It requires a loopback origin. Keep the local-only start commands; do not expose this mode through a proxy or tunnel.
-
-`SELF_HOST=false` enables local email/password registration, login and logout. Passwords require 12–128 characters and use Argon2id. Sessions use hashed random tokens and expiring HttpOnly, SameSite=Strict cookies (Secure on HTTPS). Every query and live event feed is scoped to its owner. Cross-origin API requests are rejected. There is no email delivery, password recovery, OAuth or verification service. Switching modes retains separate local-owner and email-account workspaces. Restart after configuration changes.
-
-Execution and live-event coordination support **one Node process**. Startup marks abandoned runs interrupted, clears their locks, conservatively settles abandoned spending reservations and fails uncertain in-progress approvals without retrying them. Text is checkpointed during streaming and finalized on normal cancellation; a hard crash can lose the latest uncheckpointed text (normally up to 250 ms). One active generation is allowed per conversation; different agents run independently. Idempotent submission IDs and unique approval-to-run links prevent duplicate paid generations.
-
-**Hosted PostgreSQL remains outside this handoff.** The portable relational data model still needs a PostgreSQL driver, provider configuration and database-specific migrations. Changing `DATABASE_URL` alone is insufficient. Public signup controls, multi-process hosting and deployment hardening require separate work.
-
-## Models, usage and extensions
-
-Models are fetched live after connection and on Refresh. A discovery failure exposes a labelled fallback list and never silently changes an existing selection. OpenAI discovery excludes incompatible audio, image, embedding and realtime models. Temperature is sent only for known compatible model families.
-
-Reported usage comes from provider events. Per-agent and workspace totals use dated standard-text prices for known models; unknown prices remain unavailable. Incomplete usage is marked partial, and totals show a known subtotal plus unknown usage where needed. Chat totals and the spending ledger have different scopes: connection tests, opening balances and conservative interrupted-call reservations are in the ledger. Chat estimates alone are not spending caps; enable the separate provider limit to protect new requests.
-
-Providers implement `send`, `stream`, `listModels`, `validateKey`, optional `countTokens`, metadata and model compatibility in one adapter file under `src/lib/providers`. Native tool calls/results use normalized types across providers. Export a named `Provider` constant like the existing adapters. `scripts/providers.mjs` discovers it and regenerates the registry before development, build, tests and type checks. Onboarding/provider selection use adapter metadata. New providers/models need an explicit price and token counter to support protected generations; unknown prices stay unavailable.
-
-## Verification
-
-```powershell
-npm run format:check
-npm run typecheck
+```sh
 npm test
-npm run build
-npx playwright install chromium
-npm run test:e2e
+npm run format:check
 ```
 
-Tests use invented credentials and mocked provider HTTP transport; they make no billable calls. Browser servers use isolated databases on ports 3100, 3101, 3102 (restart check), 3103 and 3104. The test preload is never imported by the app, and production has no mock-provider switch. See [current verification](verification/orchestration/REPORT.md) for actual results, screenshots and limitations. Earlier stage reports are historical snapshots.
-
-Live inference, billing eligibility and model access require your own key entered through the app and remain untested unless explicitly recorded in that report.
-
-For release history, see the [v0.8.0 automatic update report](verification/automatic-updates/REPORT.md) and the [Windows icon update report](verification/icon-refresh/REPORT.md).
-
-## Later stages
-
-The [development automation plan](docs/automation-plan.md) describes the proposed GitHub issue, webhook, agent, and dashboard workflow. See [repository decisions](AGENTS.md) for the rules agents should follow.
-
-The proposed [intelligent orchestration architecture](docs/architecture/intelligent-orchestration.md) and [Agent Skills and model routing design](docs/architecture/agent-skills-and-routing.md) cover portable skills, model selection, context management, and verification.
-
-Stages three/four and provider spending limits are delivered here. Bounded autopilot, hourly/loop limits and a global kill switch for autonomous activity remain future work. User preference for that stage: bounded agent-triggered replies may be automatic; agent-management actions require approval. Its provenance/permission design still needs review before implementation. Hosted PostgreSQL and public deployment also remain separate work.
-
-## License
-
-**Rights reserved; not open source.** The included [LICENSE](LICENSE) permits downloading and running a personal or internal local workspace. Redistribution, modification, sublicensing and resale rights are reserved. Third-party dependencies retain their own licenses.
-
-References: [Anthropic models](https://platform.claude.com/docs/en/api/models/list), [Anthropic streaming](https://platform.claude.com/docs/en/build-with-claude/streaming), [Anthropic pricing](https://platform.claude.com/docs/en/about-claude/pricing), [OpenAI Responses](https://developers.openai.com/api/docs/guides/text?api-mode=responses), [OpenAI models](https://developers.openai.com/api/reference/resources/models/methods/list), [OpenAI GPT-4.1 mini pricing](https://developers.openai.com/api/docs/models/gpt-4.1-mini), [Prisma SQLite](https://www.prisma.io/docs/orm/v7/core-concepts/supported-databases/sqlite).
+Project configuration, queue state, logs and credentials live in each project's `.vizor/` folder and the OS credential helper. Never commit them here.
