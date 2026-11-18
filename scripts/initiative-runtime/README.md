@@ -18,6 +18,8 @@ The webhook supervisor starts the local relay, starts a Quick Tunnel, registers 
 
 Local mode is available with -Mode local. The runtime also supports automatic artifact acceptance and automatic repair/reverification policies from the queue. These settings are project decisions.
 
+For tunnel-free Windows dispatch, install with `-Mode local`. Both the saved host mode and the queue must select `local`; `doctor` checks their agreement and does not require webhook configuration, a listener or Cloudflare. GitHub eligibility and result checks run every 45 seconds; ready assignments call the saved worker directly and keep the same durable duplicate protection. The scheduler and dashboard restart after Windows sign-in. When switching an already-running scheduler between modes, stop its exact Node scheduler process before starting the logon task once: updating the task action or stopping only its PowerShell wrapper does not reload that process. Disconnect the project's saved GitHub webhook and stop its tunnel after switching. Do not touch another project's tunnels or worker sessions.
+
 ## Commands
 
 Run these in the configured project directory, using this runtime's scripts/vizor.mjs.

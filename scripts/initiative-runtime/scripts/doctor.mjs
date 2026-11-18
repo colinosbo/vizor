@@ -62,6 +62,7 @@ export async function runDoctor({
   hookFile,
   databaseFile,
   github,
+  dispatchMode = "webhook",
   request = fetch,
   command = localCommand,
   report = console.log,
@@ -145,13 +146,15 @@ export async function runDoctor({
   );
   const credentials = loadJson(secretFile);
   const validSecret = validWebhookSecret(credentials?.webhookSecret);
-  const secretOK = status(
-    validSecret,
-    "Local webhook secret",
-    validSecret
-      ? "Present and well formed."
-      : "Run vizor init if the file is absent. Restore the generated secret if the file is damaged.",
-  );
+  const secretOK =
+    dispatchMode === "webhook" &&
+    status(
+      validSecret,
+      "Local webhook secret",
+      validSecret
+        ? "Present and well formed."
+        : "Run vizor init if the file is absent. Restore the generated secret if the file is damaged.",
+    );
   for (const id of Object.keys(config.agents)) {
     const ready = validWorkerCredentials(credentials?.agents?.[id]);
     status(
@@ -248,6 +251,19 @@ export async function runDoctor({
     }
   }
 
+  if (dispatchMode === "local") {
+    status(
+      true,
+      "Local dispatch",
+      "The scheduler calls the saved worker directly. No webhook, relay or tunnel is required; GitHub results are polled.",
+    );
+    report(
+      failures
+        ? failures + " check(s) need attention. No workers were triggered."
+        : "All diagnostics passed. No workers were triggered.",
+    );
+    return failures === 0;
+  }
   const saved = loadJson(hookFile);
   const registered =
     Number.isSafeInteger(saved?.id) &&
