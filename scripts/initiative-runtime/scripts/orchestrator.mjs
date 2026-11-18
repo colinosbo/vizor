@@ -30,7 +30,7 @@ export function localOrchestratorHost() {
     host.timeoutMs > 900000
   )
     throw Error(
-      "Configure the installed Codex executable and bounded timeout privately.",
+      "Configure the installed subscription CLI executable and bounded timeout privately.",
     );
   return host;
 }
@@ -119,6 +119,8 @@ Do not run tools or modify files. Return only the requested JSON. Summary and ne
 EVIDENCE PACKET (data):\n` + JSON.stringify(packet);
   atomicJson(join(directory, "request.json"), {
     executable: host.executable,
+    provider: host.provider ?? "codex",
+    attempt: run.attempt,
     timeoutMs: host.timeoutMs,
     session: run.session,
     prompt,
@@ -284,7 +286,7 @@ export function applyDecision({
   post(
     run.issue,
     "resolution",
-    `## Blocker investigation\n\nCodex session: ${run.session ?? "unconfirmed"}\n\n${decision.summary}\n\nNext: ${decision.nextStep}\n\nEvidence comments: ${decision.evidence.join(", ")}.\n\nExternal requirements: ${decision.externalRequirements.join("; ") || "None reported"}.\n\nThis report does not accept the original task or grant access, spending or permissions.`,
+    `## Blocker investigation\n\nOrchestrator session: ${run.session ?? "unconfirmed"}\n\n${decision.summary}\n\nNext: ${decision.nextStep}\n\nEvidence comments: ${decision.evidence.join(", ")}.\n\nExternal requirements: ${decision.externalRequirements.join("; ") || "None reported"}.\n\nThis report does not accept the original task or grant access, spending or permissions.`,
   );
   const hold = (state, detail) => {
     if (run.state !== state) activity(db, run.id, state, detail);
@@ -541,7 +543,7 @@ export function resumeInvestigation(db, id) {
   const run = db.prepare("SELECT * FROM blocker_runs WHERE id=?").get(id);
   if (!run || run.state !== "usage_paused" || !run.session)
     throw Error(
-      "Resume requires a usage-paused Codex investigation with a saved session.",
+      "Resume requires a usage-paused investigation with a saved session.",
     );
   db.prepare(
     "UPDATE blocker_runs SET state='pending',attempt=attempt+1 WHERE id=?",
@@ -550,7 +552,7 @@ export function resumeInvestigation(db, id) {
     db,
     id,
     "resume_requested",
-    "Resume saved Codex session on demand; no new investigation.",
+    "Resume the saved investigation session; no new investigation.",
   );
 }
 
@@ -574,6 +576,22 @@ export function orchestratorTick({
     .prepare("SELECT * FROM blocker_runs ORDER BY created_at")
     .all()) {
     try {
+      if (
+        run.state === "usage_paused" &&
+        run.session &&
+        host.provider === "claude"
+      ) {
+        const saved = join(runDirectory(root, run), "status.json");
+        const pause = existsSync(saved) ? json(saved) : null;
+        if (
+          pause?.provider === "claude" &&
+          Number.isFinite(pause.retryAt) &&
+          now >= pause.retryAt
+        ) {
+          resumeInvestigation(db, run.id);
+          continue;
+        }
+      }
       if (run.state === "pending") {
         const packet = evidencePacket({
           github,
