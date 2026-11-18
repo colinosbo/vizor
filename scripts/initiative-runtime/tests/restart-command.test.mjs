@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -17,7 +18,10 @@ test(
   "Windows serialized restart replaces one matching scheduler, coalesces concurrent callers and never kills another project",
   { skip: process.platform !== "win32", timeout: 120000 },
   async (t) => {
-    const root = mkdtempSync(join(tmpdir(), "vizor isolated restart "));
+    // Hosted runners expose 8.3 temp paths; installed hosts store canonical long paths.
+    const root = realpathSync.native(
+      mkdtempSync(join(tmpdir(), "vizor isolated restart ")),
+    );
     const other = join(root, "other project");
     mkdirSync(other);
     mkdirSync(join(root, ".vizor"));
@@ -94,6 +98,7 @@ function Get-ScheduledTask { param($TaskName) [pscustomobject]@{Actions=@([pscus
 function Stop-ScheduledTask { param($TaskName) }
 function Start-ScheduledTask { param($TaskName) Start-Process -FilePath $h.node -ArgumentList ('"'+(Join-Path $h.runtime 'scripts/vizor.mjs')+'" schedule "'+$h.queue+'"') -WindowStyle Hidden | Out-Null }
 & ${quote(restart)} -ProjectPath ${quote(root)} -ExpectedExecutable ${quote(script)}
+exit $LASTEXITCODE
 `,
     );
     const execute = promisify(execFile);
