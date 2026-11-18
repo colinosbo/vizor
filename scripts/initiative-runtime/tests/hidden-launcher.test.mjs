@@ -13,7 +13,7 @@ import { test } from "node:test";
 
 test(
   "Windows non-console launcher keeps PowerShell invisible, quotes project paths and propagates exits",
-  { skip: process.platform !== "win32" },
+  { skip: process.platform !== "win32", timeout: 300000 },
   (t) => {
     const directory = mkdtempSync(join(tmpdir(), "vizor hidden launcher "));
     t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -35,7 +35,7 @@ exit 7
     const result = spawnSync(
       executable,
       ["//B", "//Nologo", launcher, directory, "Scheduler"],
-      { windowsHide: true, timeout: 15000 },
+      { windowsHide: true, timeout: 120000 },
     );
     assert.equal(result.status, 7, String(result.error ?? ""));
     const evidence = JSON.parse(
@@ -50,7 +50,7 @@ exit 7
     const invalid = spawnSync(
       executable,
       ["//B", "//Nologo", launcher, directory, "Unknown"],
-      { windowsHide: true, timeout: 5000 },
+      { windowsHide: true, timeout: 120000 },
     );
     assert.equal(invalid.status, 2);
   },

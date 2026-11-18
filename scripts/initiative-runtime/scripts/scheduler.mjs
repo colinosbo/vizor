@@ -1,3 +1,13 @@
+import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
+import {
+  atomicJson,
+  snapshotPath,
+  validArtifactEvidence,
+  logLine,
+  readRuntimeSnapshot,
+} from "./runtime-snapshot.mjs";
+import { blockerSnapshot } from "./blockers.mjs";
 import { readFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
 import { openRecoveryStore, recoverBlockedTasks } from "./recovery.mjs";
@@ -101,7 +111,7 @@ function assertAcyclic(tasks) {
     if (visiting.has(issue)) fail("Dependency cycle includes #" + issue);
     if (visited.has(issue)) return;
     visiting.add(issue);
-    tasks.get(issue).dependsOn.forEach(visit);
+    tasks.get(issue)?.dependsOn.forEach(visit);
     visiting.delete(issue);
     visited.add(issue);
   }
@@ -121,9 +131,37 @@ export function openSchedulerStore(db) {
       pull INTEGER,
       accepted INTEGER NOT NULL DEFAULT 0
     );
+    CREATE TABLE IF NOT EXISTS task_cache (issue INTEGER PRIMARY KEY, json TEXT NOT NULL, accepted INTEGER NOT NULL DEFAULT 0, evidence TEXT);
     CREATE UNIQUE INDEX IF NOT EXISTS one_scheduled_issue_per_agent
       ON scheduled_issues(agent) WHERE active = 1;
   `);
+}
+
+export function acceptedTaskMetadata(db) {
+  return db
+    .prepare(
+      `SELECT issue,json,evidence FROM task_cache WHERE accepted=1
+      UNION ALL SELECT s.issue,c.json,c.evidence FROM scheduled_issues s LEFT JOIN task_cache c USING(issue)
+      WHERE s.accepted=1 AND s.active=0 AND s.result='done'
+      AND NOT EXISTS (SELECT 1 FROM task_cache a WHERE a.issue=s.issue AND a.accepted=1)`,
+    )
+    .all()
+    .map((row) => {
+      const issueData = row.json ? JSON.parse(row.json) : null;
+      const block = [
+        ...(issueData?.body ?? "").matchAll(
+          /^\x60{3}vizor\r?\n([\s\S]*?)^\x60{3}/gm,
+        ),
+      ];
+      return {
+        issue: row.issue,
+        issueData,
+        task: block.length === 1 ? JSON.parse(block[0][1]) : null,
+        evidence: row.evidence
+          ? JSON.parse(row.evidence)
+          : { kind: "previous-explicit-acceptance" },
+      };
+    });
 }
 
 export function acceptReview(db, issue) {
@@ -175,6 +213,7 @@ export async function scheduleTick({
   preview = false,
   log = console.log,
   onStatus,
+  authorizeAssignment = () => true,
 }) {
   const repo = "repos/" + config.repository;
   const path = (issue) => repo + "/issues/" + issue;
@@ -182,8 +221,33 @@ export async function scheduleTick({
   const allowed = new Set(queue.issues);
   const tasks = new Map();
   const issues = new Map();
-  for (const issue of allowed) {
-    const data = github("GET", path(issue));
+  const cached = new Map(
+    db
+      .prepare("SELECT * FROM task_cache")
+      .all()
+      .map((r) => [r.issue, { ...r, data: JSON.parse(r.json) }]),
+  );
+  const cacheIssue = (data, accepted = false, evidence = null) => {
+    if (!preview)
+      db.prepare(
+        "INSERT INTO task_cache VALUES (?,?,?,?) ON CONFLICT(issue) DO UPDATE SET json=excluded.json, accepted=max(task_cache.accepted,excluded.accepted), evidence=coalesce(excluded.evidence,task_cache.evidence)",
+      ).run(data.number, JSON.stringify(data), Number(accepted), evidence);
+  };
+  for (const issue of queue.issues) {
+    const data = cached.get(issue)?.accepted
+      ? cached.get(issue).data
+      : github("GET", path(issue));
+    cacheIssue(data);
+    // Dependencies can be pruned from the active queue; only durable accepted
+    // evidence satisfies them. Fetch an unknown external prerequisite once per round.
+    const block = [
+      ...(data.body ?? "").matchAll(/^\x60{3}vizor\r?\n([\s\S]*?)^\x60{3}/gm),
+    ];
+    if (block.length === 1) {
+      const deps = JSON.parse(block[0][1]).dependsOn;
+      if (Array.isArray(deps))
+        for (const dep of deps.filter(number)) allowed.add(dep);
+    }
     if (data.pull_request || data.number !== issue)
       fail("Queue entry #" + issue + " must be an issue.");
     issues.set(issue, data);
@@ -200,6 +264,31 @@ export async function scheduleTick({
       );
     }
   }
+  const external = new Map();
+  for (const dep of allowed)
+    if (!tasks.has(dep)) {
+      const data = cached.get(dep)?.accepted
+        ? cached.get(dep).data
+        : github("GET", path(dep), undefined, true);
+      if (data) {
+        external.set(dep, data);
+        const prior = db
+          .prepare("SELECT * FROM scheduled_issues WHERE issue=?")
+          .get(dep);
+        const explicitlyAccepted =
+          prior?.accepted === 1 &&
+          prior.active === 0 &&
+          prior.result === "done";
+        cacheIssue(
+          data,
+          explicitlyAccepted,
+          explicitlyAccepted
+            ? JSON.stringify({ kind: "previous-explicit-acceptance" })
+            : null,
+        );
+        if (explicitlyAccepted) cached.set(dep, { accepted: 1, data });
+      }
+    }
   assertAcyclic(tasks);
   const replacements = new Map(
     db
@@ -248,7 +337,14 @@ export async function scheduleTick({
   }
   if (!preview && queue.blockerOrchestrator === true) {
     // Reconcile authenticated GitHub results missed while offline, including manual/external/capacity gates.
-    for (const row of rows.all().filter((r) => allowed.has(r.issue))) {
+    for (const row of rows
+      .all()
+      .filter(
+        (r) =>
+          queue.issues.includes(r.issue) &&
+          !cached.get(r.issue)?.accepted &&
+          (r.active || r.result === "blocked"),
+      )) {
       const result = latest(
         readComments(row.issue),
         (c) =>
@@ -267,9 +363,12 @@ export async function scheduleTick({
         recordBlocker({ db, config, issue: row.issue, comment: result });
     }
   }
+  const capacityIssues = new Set();
   const active = preview
     ? []
-    : rows.all().filter((item) => item.active && allowed.has(item.issue));
+    : rows
+        .all()
+        .filter((item) => item.active && queue.issues.includes(item.issue));
   for (const row of active) {
     if (receipt.get(row.issue)?.state !== "started") continue;
     const result = latest(
@@ -295,6 +394,7 @@ export async function scheduleTick({
       state === "blocked" &&
       lines(result.body).includes("Vizor blocker: capacity")
     ) {
+      capacityIssues.add(row.issue);
       finishCloudReturn(db, cloudReturn, result, state);
       continue;
     }
@@ -332,9 +432,18 @@ export async function scheduleTick({
       accepted.set(issue, result);
       return result;
     }
+    if (cached.get(issue)?.accepted) {
+      accepted.set(issue, true);
+      return true;
+    }
     const task = tasks.get(issue);
     const row = state.get(issue);
+    if (!task) {
+      accepted.set(issue, false);
+      return false;
+    }
     let ok = false;
+    let mergeEvidence = null;
     if (row?.result === "done" && task.gate === "review") {
       ok = Boolean(row.accepted);
       if (
@@ -343,7 +452,19 @@ export async function scheduleTick({
         !queue.manualReviewIssues?.includes(issue) &&
         !row.active &&
         row.pull === null &&
-        receipt.get(issue)?.state === "started"
+        receipt.get(issue)?.state === "started" &&
+        validArtifactEvidence(
+          latest(
+            readComments(issue),
+            (c) =>
+              Number.isSafeInteger(c.id) &&
+              BigInt(c.id) > BigInt(row.assignment) &&
+              config.agents[row.agent]?.trustedManagers.some(
+                (login) => login.toLowerCase() === c.user?.login?.toLowerCase(),
+              ) &&
+              lines(c.body).includes("Vizor result: done"),
+          )?.body,
+        )
       ) {
         if (!preview) {
           acceptReview(db, issue);
@@ -444,6 +565,7 @@ export async function scheduleTick({
         pr.merge_commit_sha &&
         lines(pr.body).includes("Vizor issue: #" + issue)
       ) {
+        mergeEvidence = { pull: row.pull, commit: pr.merge_commit_sha, branch };
         const checks = github(
           "GET",
           repo +
@@ -483,6 +605,22 @@ export async function scheduleTick({
         }
       }
     }
+    if (ok && !preview)
+      db.prepare(
+        "UPDATE scheduled_issues SET accepted=1 WHERE issue=? AND active=0",
+      ).run(issue);
+    if (ok)
+      cacheIssue(
+        issues.get(issue),
+        true,
+        JSON.stringify({
+          gate: task.gate,
+          pull: row?.pull,
+          merge: mergeEvidence,
+          checks: task.checks,
+          acceptedAt: new Date().toISOString(),
+        }),
+      );
     accepted.set(issue, ok);
     return ok;
   }
@@ -505,6 +643,7 @@ export async function scheduleTick({
         state_reason: "completed",
       });
       issues.get(issue).state = "closed";
+      cacheIssue(issues.get(issue), true);
       github("POST", path(issue) + "/comments", {
         body: "Vizor accepted this task (" + reason + "). Closed as completed.",
       });
@@ -533,7 +672,7 @@ export async function scheduleTick({
         reason,
         waitingOn,
         pull: row?.pull ?? null,
-        receipt: currentReceipt?.state ?? null,
+        receipt: receipt.get(issue)?.state ?? currentReceipt?.state ?? null,
       });
     };
     if (row && !row.active) {
@@ -564,8 +703,23 @@ export async function scheduleTick({
       !currentReceipt;
     if (!recoverClaim && (row || currentReceipt)) {
       if (!onStatus) show("already claimed or dispatched.");
+      else if (
+        capacityIssues.has(issue) ||
+        db
+          .prepare(
+            "SELECT kind,state FROM blocker_runs WHERE issue=? AND assignment=? ORDER BY created_at DESC LIMIT 1",
+          )
+          .get(issue, row?.assignment)?.kind === "capacity"
+      )
+        show(
+          "Worker usage limit: preserving the same session and occupied assignment; no replacement will be fired.",
+          "capacity",
+        );
       else if (currentReceipt?.state === "started")
-        show("Worker started. Waiting for its result.", "running");
+        show(
+          "Provider start confirmed; current activity is unknown. Waiting for a result (capacity holds retain this assignment).",
+          "started",
+        );
       else if (currentReceipt)
         show(
           "Provider start unconfirmed. Check the run history before retrying.",
@@ -584,7 +738,23 @@ export async function scheduleTick({
     }
     const waiting = task.dependsOn.filter((dependency) => !passed(dependency));
     if (waiting.length) {
-      show("waiting for #" + waiting.join(", #") + ".", "waiting", waiting);
+      const closed = waiting.filter(
+        (dep) => (issues.get(dep) ?? external.get(dep))?.state === "closed",
+      );
+      const unavailable = waiting.filter((dep) => !tasks.has(dep));
+      show(
+        closed.length
+          ? "Blocked by closed, unaccepted prerequisite #" +
+              closed.join(", #") +
+              " (including not-planned closures)."
+          : unavailable.length
+            ? "Blocked by unaccepted prerequisite outside the active queue #" +
+              unavailable.join(", #") +
+              ". Reconcile its acceptance or schedule it."
+            : "waiting for #" + waiting.join(", #") + ".",
+        closed.length || unavailable.length ? "blocked" : "waiting",
+        waiting,
+      );
       continue;
     }
     const labels = data.labels.map((label) => label.name);
@@ -608,7 +778,8 @@ export async function scheduleTick({
       readComments(issue),
       (item) =>
         item.user?.login?.toLowerCase() === who &&
-        lines(item.body).includes("### Task for " + agent.name),
+        lines(item.body).includes("### Task for " + agent.name) &&
+        authorizeAssignment({ issue, comment: item, agent: task.agent, task }),
     );
     if (!comment || !Number.isSafeInteger(comment.id)) {
       show("Missing a trusted assignment comment.", "blocked");
@@ -677,13 +848,57 @@ export async function scheduleTick({
     github("POST", path(issue) + "/labels", { labels: [config.dispatchLabel] });
     if (dispatch) await dispatch(issue);
     log("Released #" + issue + " to " + agent.name + ".");
+    const confirmed = receipt.get(issue)?.state === "started";
+    show(
+      confirmed
+        ? "Provider start confirmed; current activity is unknown."
+        : "Dispatch reserved; provider start unconfirmed. Check run history before retrying.",
+      confirmed ? "started" : "unconfirmed",
+    );
   }
 }
 
 export async function runScheduler({ file, once, ...services }) {
+  const startId = randomUUID();
+  const startedAt = new Date().toISOString();
   for (;;) {
+    const roundStart = Date.now();
+    const statuses = [];
+    const errors = [];
+    let queue;
+    const previous = readRuntimeSnapshot(file).snapshot;
+    if (!services.preview)
+      atomicJson(snapshotPath(file), {
+        ...previous,
+        schema: "vizor.scheduler/1",
+        repository: services.config.repository,
+        project: process.cwd(),
+        executable: resolve(process.argv[1]),
+        queue: resolve(file),
+        pid: process.pid,
+        startId,
+        startedAt,
+        updatedAt: new Date().toISOString(),
+        roundStartedAt: new Date(roundStart).toISOString(),
+        roundState: "syncing",
+        errors: [],
+        tasks: previous?.tasks ?? [],
+        tasksObservedAt: previous?.tasksObservedAt ?? null,
+        agents: Object.entries(services.config.agents).map(
+          ([id, { name }]) => ({ id, name }),
+        ),
+      });
+    const baseLog = services.log ?? console.log;
+    const roundServices = {
+      ...services,
+      log: (value) => baseLog(logLine(value)),
+      onStatus: (status) => {
+        statuses.push(status);
+        services.onStatus?.(status);
+      },
+    };
     try {
-      const queue = readQueue(file);
+      queue = readQueue(file);
       if (!services.preview) {
         try {
           if (queue.blockerOrchestrator !== true)
@@ -694,26 +909,75 @@ export async function runScheduler({ file, once, ...services }) {
               parseTask: readTask,
             });
         } catch (error) {
-          console.error("Recovery needs reconciliation: " + error.message);
+          errors.push("Recovery needs reconciliation: " + error.message);
+          console.error(logLine(errors.at(-1)));
         }
       }
-      await scheduleTick({ ...services, queue });
+      await scheduleTick({ ...roundServices, queue });
       if (!services.preview && queue.blockerOrchestrator === true) {
         try {
           advanceCloudRechecks({ ...services, queue });
           orchestratorTick({ ...services, queue, file, parseTask: readTask });
         } catch {
-          console.error(
+          errors.push(
             "Blocker orchestrator configuration needs reconciliation; independent work continues.",
           );
+          console.error(logLine(errors.at(-1)));
         }
       }
     } catch (error) {
-      if (once) throw error;
-      console.error(
-        "Scheduler holding dispatch: " +
-          (error instanceof SyntaxError ? "invalid queue JSON" : error.message),
+      errors.push(
+        error instanceof SyntaxError ? "Invalid queue JSON" : error.message,
       );
+      if (once) {
+        throw error;
+      }
+      console.error(
+        logLine(
+          "Scheduler holding dispatch: " +
+            (error instanceof SyntaxError
+              ? "invalid queue JSON"
+              : error.message),
+        ),
+      );
+    } finally {
+      if (!services.preview) {
+        const finishedAt = new Date().toISOString();
+        atomicJson(snapshotPath(file), {
+          schema: "vizor.scheduler/1",
+          queue: resolve(file),
+          repository: services.config.repository,
+          pid: process.pid,
+          startId,
+          startedAt,
+          updatedAt: finishedAt,
+          roundStartedAt: new Date(roundStart).toISOString(),
+          roundDurationMs: Date.now() - roundStart,
+          mode: queue?.dispatchMode ?? "webhook",
+          paused: queue?.paused ?? true,
+          lastSuccessfulGitHubSync:
+            services.github.budget?.().lastSuccessfulSync ?? null,
+          rate: services.github.budget?.() ?? null,
+          errors,
+          roundState: errors.length ? "holding" : "idle",
+          project: process.cwd(),
+          executable: resolve(process.argv[1]),
+          tasks:
+            !statuses.length && (errors.length || queue?.paused)
+              ? (previous?.tasks ?? [])
+              : statuses,
+          tasksObservedAt:
+            errors.length && !statuses.length
+              ? (previous?.tasksObservedAt ?? null)
+              : finishedAt,
+          nextEligible: statuses.filter((t) => t.status === "ready"),
+          blockedTasks: statuses.filter((t) => t.status === "blocked"),
+          agents: Object.entries(services.config.agents).map(
+            ([id, { name }]) => ({ id, name }),
+          ),
+          blockers: blockerSnapshot(services.db),
+        });
+      }
     }
     if (once) return;
     await delay(45000);

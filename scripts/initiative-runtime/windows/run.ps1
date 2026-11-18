@@ -6,6 +6,20 @@ $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath $ProjectPath).Path
 Set-Location -LiteralPath $project
 $log = Join-Path $project ('.vizor/host-' + $Role.ToLowerInvariant() + '.log')
+# Preserve historical Windows PowerShell UTF-16 logs verbatim before UTF-8 append.
+if (Test-Path -LiteralPath $log) {
+  $bytes = [IO.File]::ReadAllBytes($log)
+  if ($bytes.Length -ge 2 -and (($bytes[0] -eq 255 -and $bytes[1] -eq 254) -or ($bytes[0] -eq 254 -and $bytes[1] -eq 255))) {
+    Move-Item -LiteralPath $log -Destination ($log + '.utf16-' + [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffffff') + '.log')
+  }
+}
+function Write-VizorLog($line) {
+  $text = [string]$line
+  if ($env:GH_TOKEN) { $text = $text.Replace($env:GH_TOKEN, '[redacted]') }
+  $text = [regex]::Replace($text, '(?i)(gh[pousr]_[A-Za-z0-9_]+|github_pat_[A-Za-z0-9_]+|Bearer\s+\S+)', '[redacted]')
+  if ($text -notmatch '^\d{4}-\d{2}-\d{2}T') { $text = [DateTime]::UtcNow.ToString('o') + ' ' + $text }
+  [IO.File]::AppendAllText($log, $text + [Environment]::NewLine, (New-Object Text.UTF8Encoding($false)))
+}
 $basePath = $env:Path
 $retrySeconds = 2
 # Keep supervision inside the hidden parent. Task Scheduler's restart setting
@@ -28,13 +42,13 @@ while ($true) {
     # Native stderr is a log stream. The process exit code determines failure.
     $ErrorActionPreference = 'Continue'
     switch ($Role) {
-        'Relay' { & $hostConfig.node $vizor serve >> $log 2>&1 }
-        'Scheduler' { & $hostConfig.node $vizor schedule $hostConfig.queue >> $log 2>&1 }
-        'Dashboard' { & $hostConfig.node $vizor dashboard $hostConfig.queue >> $log 2>&1 }
+        'Relay' { & $hostConfig.node $vizor serve 2>&1 | ForEach-Object { Write-VizorLog $_ } }
+        'Scheduler' { & $hostConfig.node $vizor schedule $hostConfig.queue 2>&1 | ForEach-Object { Write-VizorLog $_ } }
+        'Dashboard' { & $hostConfig.node $vizor dashboard $hostConfig.queue 2>&1 | ForEach-Object { Write-VizorLog $_ } }
         'Webhooks' { & (Join-Path $PSScriptRoot 'supervise-webhooks.ps1') -ProjectPath $project }
     }
   } catch {
-    Add-Content -LiteralPath $log -Value ((Get-Date).ToUniversalTime().ToString('o') + ' Runtime startup failed (' + $_.Exception.GetType().Name + '). Check setup and credential availability.')
+    Write-VizorLog ((Get-Date).ToUniversalTime().ToString('o') + ' Runtime startup failed (' + $_.Exception.GetType().Name + '). Check setup and credential availability.')
   } finally {
     Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
   }

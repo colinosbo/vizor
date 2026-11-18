@@ -12,6 +12,7 @@ $queue = if ([IO.Path]::IsPathRooted($QueuePath)) { (Resolve-Path -LiteralPath $
 if (-not $config.repository -or $config.port -lt 1024 -or $config.port -gt 65534) { throw 'Configure a valid repository and local port before installation.' }
 $null = Get-Content -Raw -LiteralPath $queue | ConvertFrom-Json
 $node = (Get-Command node.exe -ErrorAction Stop).Source
+if ((& $node --version) -notmatch '^v24\.') { throw 'Vizor runtime requires Node.js 24.' }
 $git = (Get-Command git.exe -ErrorAction Stop).Source
 $gh = Get-Command gh.exe -ErrorAction SilentlyContinue
 if (-not $gh) {
