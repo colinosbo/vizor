@@ -1,19 +1,10 @@
 node_modules/
-data/
-.next/
+# Runtime state, logs and credentials belong to each project, never to Git.
+.vizor/
+vizor.config.json
 .env
 .env.*
-!.env.example
 *.db
 *.db-journal
 *.db-wal
 *.db-shm
-src/generated/
-test-results/
-playwright-report/
-*.tsbuildinfo
-artifacts/
-.release-check/
-.release-secrets/
-.ui-backup/
-vizor-src.tgz
