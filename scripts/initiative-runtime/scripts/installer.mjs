@@ -16,6 +16,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { processAlive } from "./runner-lease.mjs";
 import { readRuntimeSnapshot } from "./runtime-snapshot.mjs";
+import { windowsPowerShellEnv } from "./runtime-control.mjs";
 
 // Installed layout (code only; project state never lives here):
 //   <home>/versions/<version>/   immutable runtime files + manifest.json
@@ -336,7 +337,12 @@ export function windowsOps({
         script,
         ...args,
       ],
-      { encoding: "utf8", windowsHide: true, timeout: 180000 },
+      {
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 180000,
+        env: windowsPowerShellEnv(),
+      },
     );
     if (result.error || result.status !== 0)
       throw Error(

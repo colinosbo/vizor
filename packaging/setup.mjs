@@ -7,7 +7,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const { requireNode24 } = await import("./runtime/scripts/runtime-control.mjs");
+const runtimeControl = await import("./runtime/scripts/runtime-control.mjs");
+const { requireNode24 } = runtimeControl;
 const installer = await import("./runtime/scripts/installer.mjs");
 
 try {
@@ -44,7 +45,11 @@ try {
       const r = spawnSync(
         "powershell.exe",
         ["-NoProfile", "-NonInteractive", "-Command", ps],
-        { encoding: "utf8", windowsHide: true },
+        {
+          encoding: "utf8",
+          windowsHide: true,
+          env: runtimeControl.windowsPowerShellEnv(),
+        },
       );
       if (r.stdout?.trim() === "added")
         console.log(

@@ -17,6 +17,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { windowsPowerShellEnv } from "../scripts/runtime-control.mjs";
 
 // End-to-end install lifecycle with synthetic data only: build two release
 // packages, install from an extracted copy with no source checkout, connect a
@@ -107,7 +108,7 @@ test("clean install, upgrade, rollback and restart keep one dispatch per assignm
                 target.replaceAll("'", "''") +
                 "'",
             ],
-            { encoding: "utf8" },
+            { encoding: "utf8", env: windowsPowerShellEnv() },
           )
         : spawnSync("unzip", ["-q", zip, "-d", target], { encoding: "utf8" });
     assert.equal(

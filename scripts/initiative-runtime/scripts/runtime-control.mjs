@@ -56,7 +56,12 @@ export function restartRuntime({
       "-ExpectedExecutable",
       resolve(executable),
     ],
-    { encoding: "utf8", windowsHide: true, timeout: 120000 },
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 120000,
+      env: windowsPowerShellEnv(),
+    },
   );
   if (result.error || result.status !== 0)
     throw Error(
@@ -104,4 +109,13 @@ export function useRunnerGitHub({
     return "git-credential";
   }
   return null;
+}
+
+// Environment for launching Windows PowerShell 5.1. When Vizor runs from
+// PowerShell 7, PSModulePath points at PS7 module builds (Archive, Management)
+// that 5.1 cannot load correctly; without it, 5.1 uses its own defaults.
+export function windowsPowerShellEnv(env = process.env) {
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => key.toLowerCase() !== "psmodulepath"),
+  );
 }

@@ -21,6 +21,7 @@ import {
   waitForRunner,
   withInstallLock,
 } from "./installer.mjs";
+import { windowsPowerShellEnv } from "./runtime-control.mjs";
 
 export const LIFECYCLE_COMMANDS = [
   "version",
@@ -55,7 +56,12 @@ function powershell(script, args) {
       join(runtimeRoot(), "windows", script),
       ...args,
     ],
-    { encoding: "utf8", windowsHide: true, timeout: 180000 },
+    {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 180000,
+      env: windowsPowerShellEnv(),
+    },
   );
   const output = ((result.stdout || "") + (result.stderr || "")).trim();
   if (result.error || result.status !== 0)

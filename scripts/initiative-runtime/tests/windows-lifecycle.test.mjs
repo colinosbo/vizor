@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { windowsPowerShellEnv } from "../scripts/runtime-control.mjs";
 
 const scripts = fileURLToPath(new URL("../windows/", import.meta.url));
 const alive = (pid) => {
@@ -95,7 +96,7 @@ test(
           "-Role",
           "Scheduler",
         ],
-        { windowsHide: true, stdio: "ignore" },
+        { windowsHide: true, stdio: "ignore", env: windowsPowerShellEnv() },
       );
       spawned.push(child);
       return child;
@@ -112,7 +113,7 @@ test(
             pid +
             "' | Where-Object Name -eq 'node.exe').ProcessId",
         ],
-        { encoding: "utf8" },
+        { encoding: "utf8", env: windowsPowerShellEnv() },
       )
         .stdout.trim()
         .split(/\s+/)
@@ -144,7 +145,7 @@ test(
           mine +
           "' -Disable",
       ],
-      { encoding: "utf8", timeout: 120000 },
+      { encoding: "utf8", timeout: 120000, env: windowsPowerShellEnv() },
     );
     assert.equal(stop.status, 0, stop.stdout + stop.stderr);
     assert.match(
@@ -172,7 +173,7 @@ test(
           mine +
           "'",
       ],
-      { encoding: "utf8", timeout: 60000 },
+      { encoding: "utf8", timeout: 60000, env: windowsPowerShellEnv() },
     );
     assert.equal(start.status, 0, start.stdout + start.stderr);
     assert.ok(
@@ -209,10 +210,10 @@ test(
     const log = join(work, "tasks.log");
     const registerMocks =
       mocks(log) +
-      "function New-ScheduledTaskTrigger { param($AtLogOn, $User) 'trigger' }; " +
-      "function New-ScheduledTaskPrincipal { param($UserId, $LogonType, $RunLevel) 'principal' }; " +
+      "function New-ScheduledTaskTrigger { 'trigger' }; " +
+      "function New-ScheduledTaskPrincipal { 'principal' }; " +
       "function New-ScheduledTaskSettingsSet { 'settings' }; " +
-      "function New-ScheduledTaskAction { param($Execute, $Argument, $WorkingDirectory) 'action' }; " +
+      "function New-ScheduledTaskAction { 'action' }; " +
       "function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Principal, $Settings, [switch]$Force) Add-Content -LiteralPath '" +
       log +
       "' ('register ' + $TaskName) }; ";
@@ -231,7 +232,7 @@ test(
             "' -QueuePath '.vizor\\queue.json' -TaskPrefix 'Vizor nostart'" +
             extra,
         ],
-        { encoding: "utf8", timeout: 120000 },
+        { encoding: "utf8", timeout: 120000, env: windowsPowerShellEnv() },
       );
     const stopped = run(" -NoStart");
     assert.equal(stopped.status, 0, stopped.stdout + stopped.stderr);

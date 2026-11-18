@@ -33,8 +33,12 @@ try {
 foreach ($proc in $parents) { Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue }
 $targets = @($children + $recorded)
 foreach ($proc in $targets) { Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue }
-foreach ($proc in @($parents + $targets)) { try { Wait-Process -Id $proc.ProcessId -Timeout 15 -ErrorAction Stop } catch { } }
-$left = @(@($parents + $targets) | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
+# Poll for exit (up to 15 seconds); termination is asynchronous on Windows.
+$deadline = [DateTime]::UtcNow.AddSeconds(15)
+do {
+    $left = @(@($parents + $targets) | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
+    if ($left.Count) { Start-Sleep -Milliseconds 250 }
+} while ($left.Count -and [DateTime]::UtcNow -lt $deadline)
 if ($left.Count) { throw ('Runtime processes still running: ' + (($left | ForEach-Object { $_.ProcessId }) -join ',')) }
 # Remember the stop so upgrades and rollbacks keep this project stopped.
 if ($Disable) { [IO.File]::WriteAllText((Join-Path $project '.vizor/stopped'), [DateTime]::UtcNow.ToString('o')) }
