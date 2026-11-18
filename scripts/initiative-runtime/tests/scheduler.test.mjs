@@ -58,6 +58,9 @@ test("releases three agents independently, then waits for review and verified me
   addIssue(2, "morgan", [], ["test"]);
   addIssue(3, "riley");
   addIssue(4, "ronald", [1, 2]);
+  const closed = [];
+  const closeNotes = [];
+  let failClose = 0;
   let reachable = false;
   let merged = false;
   let conclusion = "failure";
@@ -76,7 +79,22 @@ test("releases three agents independently, then waits for review and verified me
     }
     const [, id, suffix] = path.match(/\/issues\/(\d+)(.*)$/);
     const issue = Number(id);
-    if (suffix.startsWith("/comments")) return comments.get(issue);
+    if (suffix.startsWith("/comments")) {
+      if (method === "POST") {
+        closeNotes.push(issue);
+        return;
+      }
+      return comments.get(issue);
+    }
+    if (method === "PATCH") {
+      if (failClose === issue) {
+        failClose = 0;
+        throw Error("GitHub PATCH failed");
+      }
+      assert.deepEqual(body, { state: "closed", state_reason: "completed" });
+      closed.push(issue);
+      return;
+    }
     if (method === "POST") {
       assert.equal(
         db.prepare("SELECT agent FROM assignments WHERE issue = ?").get(issue)
@@ -141,17 +159,25 @@ test("releases three agents independently, then waits for review and verified me
       .accepted,
     0,
   );
+  assert.deepEqual(closed, [], "preview and unaccepted results never close");
   acceptReview(db, 1);
   queue.autoAcceptReviews = true;
   queue.manualReviewIssues = [3];
   await tick();
+  assert.deepEqual(closed, [1]);
+  assert.deepEqual(closeNotes, [1]);
+  assert.equal(issues.get(1).state, "closed");
   assert.equal(
     db.prepare("SELECT accepted FROM scheduled_issues WHERE issue = 3").get()
       .accepted,
     0,
   );
   queue.manualReviewIssues = [];
+  failClose = 3;
   await tick();
+  assert.deepEqual(closed, [1], "a failed close is logged and retried");
+  await tick();
+  assert.deepEqual(closed, [1, 3]);
   assert.equal(
     db.prepare("SELECT accepted FROM scheduled_issues WHERE issue = 3").get()
       .accepted,
@@ -164,7 +190,9 @@ test("releases three agents independently, then waits for review and verified me
   conclusion = "success";
   await tick();
   await tick();
-  assert.deepEqual(deliveries, [1, 2, 3, 4]);
+  assert.deepEqual(deliveries, [1, 2, 3, 4], "closed prerequisites release #4");
+  assert.deepEqual(closed, [1, 3, 2]);
+  assert.deepEqual(closeNotes, [1, 3, 2]);
   retireClaim(db, 4);
   assert.equal(
     db.prepare("SELECT issue FROM assignments WHERE issue = 4").get(),
@@ -205,6 +233,7 @@ test("releases three agents independently, then waits for review and verified me
   await localTick();
   await localTick();
   assert.deepEqual(started, [5]);
+  assert.deepEqual(closed, [1, 3, 2], "retired and active issues stay open");
 
   addIssue(1, "ronald", [4]);
   await assert.rejects(tick(), /Dependency cycle/);
