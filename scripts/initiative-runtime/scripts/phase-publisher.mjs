@@ -61,7 +61,17 @@ export function readApprovedPlan({ github, config, planFile }) {
   return { plan, revision: file.sha };
 }
 
-function accepted(db, issue) {
+// Mirrors the scheduler: a blocked task whose recovery recheck was accepted counts as
+// accepted (its replacement satisfied the same acceptance), recursively.
+function accepted(db, issue, seen = new Set()) {
+  if (seen.has(issue)) return false;
+  seen.add(issue);
+  const replacement = db
+    .prepare(
+      "SELECT recheck FROM task_recoveries WHERE issue=? AND recheck IS NOT NULL",
+    )
+    .get(issue);
+  if (replacement) return accepted(db, replacement.recheck, seen);
   return Boolean(
     db
       .prepare(
