@@ -487,6 +487,33 @@ export async function scheduleTick({
     return ok;
   }
 
+  // Close the GitHub issue once Vizor accepts it so GitHub matches the queue.
+  // Dependencies read acceptance from the database, so a closed issue never blocks dependents.
+  function closeAccepted(issue, row, task) {
+    const reason = replacements.has(issue)
+      ? "superseded by accepted recheck #" + replacements.get(issue)
+      : task.gate === "merge"
+        ? "PR #" +
+          row.pull +
+          " merged and " +
+          task.checks.join(", ") +
+          " passed on the merge commit"
+        : "completed artifact accepted";
+    try {
+      github("PATCH", path(issue), {
+        state: "closed",
+        state_reason: "completed",
+      });
+      issues.get(issue).state = "closed";
+      github("POST", path(issue) + "/comments", {
+        body: "Vizor accepted this task (" + reason + "). Closed as completed.",
+      });
+      log("Closed #" + issue + ": " + reason + ".");
+    } catch (error) {
+      log("Could not close accepted #" + issue + ": " + error.message);
+    }
+  }
+
   for (const [issue, task] of [...tasks].sort(
     ([a, x], [b, y]) => x.priority - y.priority || a - b,
   )) {
@@ -511,6 +538,8 @@ export async function scheduleTick({
     };
     if (row && !row.active) {
       const complete = passed(issue);
+      if (complete && !preview && data.state === "open")
+        closeAccepted(issue, row, task);
       if (complete) show("accepted.", "complete");
       else if (row.result === "blocked")
         show(
