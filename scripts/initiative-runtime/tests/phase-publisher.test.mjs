@@ -219,3 +219,20 @@ test("invalid or out-of-order plans hold publication without creating work", (t)
   assert.throws(() => g.run(), /Invalid/);
   assert.equal(f.writes.length + g.writes.length, 0);
 });
+
+test("a blocked plan task counts as accepted only through its accepted recovery recheck (live #62 -> #65 case)", (t) => {
+  const f = fixture(t);
+  f.run();
+  f.accept(101);
+  // #100 was blocked; recovery created repair #200 and recheck #201.
+  f.db
+    .prepare(
+      "INSERT INTO task_recoveries(issue,token,repair,recheck,created_at) VALUES (100,'tok',200,201,'now')",
+    )
+    .run();
+  assert.equal(f.run().state, "running");
+  f.accept(200);
+  assert.equal(f.run().state, "running");
+  f.accept(201);
+  assert.equal(f.run().phase, "two");
+});
