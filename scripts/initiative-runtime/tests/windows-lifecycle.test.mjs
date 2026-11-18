@@ -245,6 +245,10 @@ test(
     const started = run("");
     assert.equal(started.status, 0, started.stdout + started.stderr);
     calls = readFileSync(log, "utf8");
-    assert.doesNotMatch(calls, /disable Vizor nostart/);
+    // Local mode still disables the unused Webhooks task; the runtime roles stay enabled.
+    assert.doesNotMatch(
+      calls,
+      /disable Vizor nostart (Relay|Scheduler|Dashboard)/,
+    );
   },
 );
