@@ -1,8 +1,9 @@
 // Detached supervisor: survives scheduler restarts; never retries an ambiguous start.
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, renameSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { randomUUID } from "node:crypto";
 
 export const decisionSchema = {
   type: "object",
@@ -67,11 +68,37 @@ export function codexArguments(request, directory) {
   return args;
 }
 
+export function claudeArguments(request, session) {
+  const args = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--json-schema",
+    JSON.stringify(request.schema ?? decisionSchema),
+    "--tools",
+    "",
+    "--strict-mcp-config",
+    "--mcp-config",
+    '{"mcpServers":{}}',
+    "--setting-sources",
+    "",
+    "--permission-mode",
+    "plan",
+    "--permission-prompts",
+    "none",
+  ];
+  args.push(request.session ? "--resume" : "--session-id", session);
+  return args;
+}
+
 export async function supervise(directory) {
   const request = JSON.parse(
     readFileSync(join(directory, "request.json"), "utf8"),
   );
   const statusFile = join(directory, "status.json");
+  const provider = request.provider ?? "codex";
+  const proposedSession = request.session ?? randomUUID();
   let session = request.session ?? null;
   let state = "starting";
   let usage = false;
@@ -82,19 +109,29 @@ export async function supervise(directory) {
       session,
       pid: process.pid,
       at: Date.now(),
+      provider,
+      retryAt:
+        state === "usage_paused"
+          ? Date.now() +
+            Math.min(3600000, 300000 * 2 ** Math.min(request.attempt ?? 0, 4))
+          : null,
     });
   status();
   writeFileSync(join(directory, "schema.json"), JSON.stringify(decisionSchema));
   // Do not pass GitHub tokens, API keys, or provider credentials to the model process.
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([key]) =>
-      /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|HOME|CODEX_HOME)$/i.test(
+      /^(PATH|PATHEXT|SYSTEMROOT|WINDIR|COMSPEC|USERPROFILE|APPDATA|LOCALAPPDATA|TEMP|TMP|HOME|CODEX_HOME|CLAUDE_CONFIG_DIR)$/i.test(
         key,
       ),
     ),
   );
-  const child = spawn(request.executable, codexArguments(request, directory), {
-    cwd: directory,
+  const args =
+    provider === "claude"
+      ? claudeArguments(request, proposedSession)
+      : codexArguments(request, directory);
+  const child = spawn(request.executable, args, {
+    cwd: provider === "claude" ? dirname(directory) : directory,
     env,
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
@@ -103,7 +140,7 @@ export async function supervise(directory) {
   const consume = (chunk) => {
     tail = (tail + chunk.toString()).slice(-32768);
     if (
-      /usage.limit|usage_limit|rate.limit|rate_limit|quota.exceeded|quota_exceeded/i.test(
+      /usage.limit|usage_limit|rate.limit|rate_limit|quota.exceeded|quota_exceeded|hit your (?:usage )?limit/i.test(
         tail,
       )
     )
@@ -119,6 +156,25 @@ export async function supervise(directory) {
     for (const row of rows) {
       try {
         const event = JSON.parse(row);
+        if (
+          provider === "claude" &&
+          event.session_id === proposedSession &&
+          event.type === "system" &&
+          event.subtype === "init"
+        ) {
+          session = proposedSession;
+          state = "running";
+          status();
+        }
+        if (
+          provider === "claude" &&
+          event.type === "result" &&
+          event.session_id === proposedSession &&
+          !event.is_error &&
+          event.structured_output
+        ) {
+          atomicJson(join(directory, "decision.json"), event.structured_output);
+        }
         if (
           event.type === "thread.started" &&
           /^[a-f0-9-]{36}$/i.test(event.thread_id)
