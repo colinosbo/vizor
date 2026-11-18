@@ -9,8 +9,8 @@
   },
   "scripts": {
     "test": "node --test scripts/initiative-runtime/tests/*.test.mjs",
-    "format": "prettier --write scripts *.json *.md",
-    "format:check": "prettier --check scripts *.json *.md"
+    "format": "prettier --write scripts docs *.json *.md",
+    "format:check": "prettier --check scripts docs *.json *.md"
   },
   "devDependencies": {
     "prettier": "3.9.10"
