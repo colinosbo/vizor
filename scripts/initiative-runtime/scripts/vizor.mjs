@@ -195,12 +195,21 @@ async function main() {
     return;
   }
   if (command === "doctor") {
+    const host = existsSync(".vizor/runtime-host.json")
+      ? readJson(".vizor/runtime-host.json")
+      : null;
+    const queue = host?.queue ? readQueue(host.queue) : null;
+    check(
+      !host || host.mode === (queue?.dispatchMode ?? "webhook"),
+      "Installed runtime mode and queue delivery mode disagree. Reinstall the selected mode before restarting the scheduler.",
+    );
     const healthy = await runDoctor({
       config,
       secretFile,
       hookFile,
       databaseFile,
       github,
+      dispatchMode: queue?.dispatchMode ?? "webhook",
     });
     if (!healthy) process.exitCode = 1;
     return;

@@ -36,7 +36,7 @@ $settingsData = @{
     node = $node; git = $git; gh = $ghPath; cloudflared = $tunnel
     mode = $Mode; prefix = $TaskPrefix
 }
-$settingsData | ConvertTo-Json | Set-Content -LiteralPath $settingsFile -Encoding utf8
+[IO.File]::WriteAllText($settingsFile, ($settingsData | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
@@ -71,4 +71,8 @@ foreach ($role in $roles) {
     if ((Get-ScheduledTask -TaskName $name).State -ne 'Running') { Start-ScheduledTask -TaskName $name }
 }
 Write-Output ('Installed ' + $config.repository + ' runtime. Tasks restart after Windows sign-in.')
-Write-Output ('Logs are in ' + $state + '. Webhook mode activates after signed diagnostics succeed.')
+if ($Mode -eq 'local') {
+    Write-Output ('Logs are in ' + $state + '. Local dispatch calls workers directly; no tunnel is required.')
+} else {
+    Write-Output ('Logs are in ' + $state + '. Webhook mode activates after signed diagnostics succeed.')
+}

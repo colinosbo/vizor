@@ -82,4 +82,29 @@ test("doctor verifies signed pings, reports a stale webhook and never prints sec
   );
   for (const secret of [webhookSecret, fireUrl, token])
     assert.ok(!output.join("\n").includes(secret));
+  // Local delivery must work with no webhook configuration or listener at all.
+  writeFileSync(
+    secretFile,
+    JSON.stringify({ agents: { worker: { fireUrl, token } } }),
+  );
+  writeFileSync(hookFile, "{}");
+  assert.equal(
+    await runDoctor({
+      config,
+      secretFile,
+      hookFile,
+      databaseFile,
+      dispatchMode: "local",
+      github: (method, path, ...args) => {
+        assert.ok(!path.includes("/hooks/"));
+        return github(method, path, ...args);
+      },
+      request: () =>
+        assert.fail("Local dispatch must never probe a tunnel or relay"),
+      command: () => 0,
+      report: (line) => output.push(line),
+    }),
+    true,
+  );
+  assert.ok(output.some((line) => line.startsWith("PASS Local dispatch")));
 });
