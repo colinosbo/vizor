@@ -106,7 +106,11 @@ function Start-ScheduledTask { param($TaskName) Start-Process -FilePath $h.node 
     const results = await Promise.all([run(), run()]);
     const final = snapshot();
     pids.add(final.pid);
-    assert.notEqual(final.pid, initial.pid);
+    assert.notEqual(
+      final.pid,
+      initial.pid,
+      results.map((r) => r.stdout + r.stderr).join("\n---\n"),
+    );
     assert.doesNotThrow(() => process.kill(final.pid, 0));
     assert.doesNotThrow(() => process.kill(unrelated.pid, 0));
     const reported = results.map((r) =>

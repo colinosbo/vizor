@@ -38,6 +38,7 @@ try {
     })
   }
   $prior = @(Schedulers)
+  Write-Output ('Matching schedulers before restart: ' + ((@($prior | ForEach-Object { $_.ProcessId })) -join ',') + '; prior generation ' + $initialGeneration)
   $snapshotFile = $queue + '.snapshot.json'
   # Without a generation captured before waiting, never infer that another caller restarted.
   if ($null -ne $initialGeneration -and $prior.Count -eq 1 -and (Test-Path -LiteralPath $snapshotFile)) {
@@ -57,7 +58,8 @@ try {
     if ($i -ge 0 -and $p -ge 0 -and $r -ge 0 -and $parts[$i+1] -ieq $run -and $parts[$p+1] -ieq $project -and $parts[$r+1] -eq 'Scheduler') { Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue }
   }
   foreach ($proc in @(Schedulers)) { Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue }
-  if (@(Schedulers).Count -ne 0) { throw 'Old scheduler still present; replacement was not started.' }
+  foreach ($old in $prior) { try { Wait-Process -Id $old.ProcessId -Timeout 15 -ErrorAction Stop } catch [Microsoft.PowerShell.Commands.ProcessCommandException] { } }
+  if (@($prior | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }).Count -ne 0 -or @(Schedulers).Count -ne 0) { throw 'Old scheduler still present; replacement was not started.' }
   Start-ScheduledTask -TaskName $taskName
   $deadline = [DateTime]::UtcNow.AddSeconds(45)
   do {
