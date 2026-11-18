@@ -1,75 +1,18 @@
 {
   "name": "vizor",
-  "version": "0.10.20",
+  "version": "0.11.0",
   "private": true,
   "license": "UNLICENSED",
-  "scripts": {
-    "dev": "next dev --hostname 127.0.0.1",
-    "build": "next build",
-    "build:portable": "node scripts/build-standalone.mjs",
-    "start": "next start --hostname 127.0.0.1",
-    "launch": "node scripts/launch.mjs",
-    "package:portable": "node scripts/build-portable.mjs",
-    "test:portable": "node scripts/portable-smoke.mjs",
-    "package:windows": "node scripts/build-windows.mjs",
-    "test:windows": "node scripts/windows-smoke.mjs",
-    "test:startup": "node scripts/startup-smoke.mjs",
-    "test:terminals": "node scripts/terminal-smoke.mjs",
-    "test:updates": "node scripts/update-smoke.mjs",
-    "release:sign-update": "node scripts/sign-update.mjs",
-    "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run",
-    "test:e2e": "playwright test",
-    "setup": "node scripts/setup.mjs",
-    "db:migrate": "prisma migrate deploy",
-    "db:seed": "tsx prisma/seed.ts",
-    "format": "prettier --write src tests scripts desktop prisma/seed.ts *.ts *.json *.mjs README.md",
-    "format:check": "prettier --check src tests scripts desktop prisma/seed.ts *.ts *.json *.mjs README.md",
-    "predev": "node scripts/providers.mjs",
-    "prebuild": "node scripts/providers.mjs",
-    "pretest": "node scripts/providers.mjs",
-    "pretypecheck": "node scripts/providers.mjs"
+  "description": "Background runner, CLI and local dashboard that dispatch an approved GitHub plan to coding agents.",
+  "engines": {
+    "node": ">=24"
   },
-  "dependencies": {
-    "@prisma/adapter-better-sqlite3": "7.10.1",
-    "@prisma/client": "7.10.1",
-    "@xterm/addon-fit": "0.11.0",
-    "@xterm/xterm": "6.0.0",
-    "argon2": "0.45.1",
-    "better-sqlite3": "12.11.1",
-    "dotenv": "18.0.9",
-    "lucide-react": "1.62.0",
-    "next": "16.4.3",
-    "react": "19.3.1",
-    "react-dom": "19.3.1",
-    "react-grid-layout": "2.3.0",
-    "react-markdown": "10.1.0",
-    "remark-gfm": "4.0.1",
-    "zod": "4.6.7"
+  "scripts": {
+    "test": "node --test scripts/initiative-runtime/tests/*.test.mjs",
+    "format": "prettier --write scripts *.json *.md",
+    "format:check": "prettier --check scripts *.json *.md"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.14.0",
-    "@playwright/test": "1.64.1",
-    "@tailwindcss/postcss": "4.3.3",
-    "@types/better-sqlite3": "9.6.0",
-    "@types/node": "26.6.5",
-    "@types/react": "19.3.0",
-    "@types/react-dom": "19.3.0",
-    "@xterm/headless": "6.0.0",
-    "prettier": "3.9.10",
-    "prisma": "7.10.1",
-    "sharp": "0.35.5",
-    "tailwindcss": "4.3.3",
-    "tsx": "4.23.15",
-    "typescript": "7.0.2",
-    "vitest": "5.0.5"
-  },
-  "overrides": {
-    "better-sqlite3": "12.11.1"
-  },
-  "type": "module",
-  "engines": {
-    "node": ">=24.11.0 <25",
-    "npm": ">=11"
+    "prettier": "3.9.10"
   }
 }

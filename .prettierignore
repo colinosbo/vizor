@@ -1,8 +1,2 @@
 node_modules
-.next
-src/generated
 package-lock.json
-data
-verification/*.png
-test-results
-playwright-report
