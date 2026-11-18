@@ -143,7 +143,9 @@ function renderBlockers() {
         }
       }
       if (run.session)
-        card.append(node("p", "Saved Codex session: " + run.session, "detail"));
+        card.append(
+          node("p", "Saved investigation session: " + run.session, "detail"),
+        );
       if (run.successor)
         card.append(
           issueLink(run.successor, "Linked follow-up #" + run.successor),
