@@ -59,7 +59,7 @@ try {
   }
   foreach ($proc in @(Schedulers)) { Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue }
   foreach ($old in $prior) { try { Wait-Process -Id $old.ProcessId -Timeout 15 -ErrorAction Stop } catch [Microsoft.PowerShell.Commands.ProcessCommandException] { } }
-  if (@($prior | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue }).Count -ne 0 -or @(Schedulers).Count -ne 0) { throw 'Old scheduler still present; replacement was not started.' }
+  if (@($prior | Where-Object { $live = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; $live -and -not $live.HasExited }).Count -ne 0 -or @(Schedulers).Count -ne 0) { throw 'Old scheduler still present; replacement was not started.' }
   Start-ScheduledTask -TaskName $taskName
   $deadline = [DateTime]::UtcNow.AddSeconds(45)
   do {
