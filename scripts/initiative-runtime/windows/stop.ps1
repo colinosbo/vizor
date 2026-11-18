@@ -36,4 +36,6 @@ foreach ($proc in $targets) { Stop-Process -Id $proc.ProcessId -Force -ErrorActi
 foreach ($proc in @($parents + $targets)) { try { Wait-Process -Id $proc.ProcessId -Timeout 15 -ErrorAction Stop } catch { } }
 $left = @(@($parents + $targets) | Where-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue })
 if ($left.Count) { throw ('Runtime processes still running: ' + (($left | ForEach-Object { $_.ProcessId }) -join ',')) }
+# Remember the stop so upgrades and rollbacks keep this project stopped.
+if ($Disable) { [IO.File]::WriteAllText((Join-Path $project '.vizor/stopped'), [DateTime]::UtcNow.ToString('o')) }
 Write-Output ('Stopped ' + $parents.Count + ' supervisor(s) and ' + $targets.Count + ' runtime process(es)' + $(if ($Disable) { '; tasks disabled until vizor start.' } else { '.' }))

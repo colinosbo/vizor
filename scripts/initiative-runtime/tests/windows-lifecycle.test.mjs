@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -173,12 +175,75 @@ test(
       { encoding: "utf8", timeout: 60000 },
     );
     assert.equal(start.status, 0, start.stdout + start.stderr);
-    const calls = (await import("node:fs")).readFileSync(log, "utf8");
+    assert.ok(
+      !existsSync(join(mine, ".vizor", "stopped")),
+      "start clears the stop",
+    );
+    const calls = readFileSync(log, "utf8");
     assert.match(calls, /disable Vizor mine Scheduler/);
     assert.match(
       calls,
       /enable Vizor mine Relay[\s\S]*enable Vizor mine Scheduler[\s\S]*enable Vizor mine Dashboard/,
     );
     assert.doesNotMatch(calls, /Vizor other/);
+  },
+);
+
+test(
+  "install.ps1 -NoStart registers the tasks disabled and starts none",
+  { skip: process.platform !== "win32" },
+  (t) => {
+    const work = realpathSync.native(
+      mkdtempSync(join(tmpdir(), "vizor nostart ")),
+    );
+    t.after(() => rmSync(work, { recursive: true, force: true }));
+    mkdirSync(join(work, ".vizor"));
+    writeFileSync(
+      join(work, "vizor.config.json"),
+      JSON.stringify({ repository: "o/r", port: 4388 }),
+    );
+    writeFileSync(
+      join(work, ".vizor", "queue.json"),
+      JSON.stringify({ paused: false, issues: [], dispatchMode: "local" }),
+    );
+    const log = join(work, "tasks.log");
+    const registerMocks =
+      mocks(log) +
+      "function New-ScheduledTaskTrigger { param($AtLogOn, $User) 'trigger' }; " +
+      "function New-ScheduledTaskPrincipal { param($UserId, $LogonType, $RunLevel) 'principal' }; " +
+      "function New-ScheduledTaskSettingsSet { 'settings' }; " +
+      "function New-ScheduledTaskAction { param($Execute, $Argument, $WorkingDirectory) 'action' }; " +
+      "function Register-ScheduledTask { param($TaskName, $Action, $Trigger, $Principal, $Settings, [switch]$Force) Add-Content -LiteralPath '" +
+      log +
+      "' ('register ' + $TaskName) }; ";
+    const run = (extra) =>
+      spawnSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          registerMocks +
+            ". '" +
+            join(scripts, "install.ps1") +
+            "' -ProjectPath '" +
+            work +
+            "' -QueuePath '.vizor\\queue.json' -TaskPrefix 'Vizor nostart'" +
+            extra,
+        ],
+        { encoding: "utf8", timeout: 120000 },
+      );
+    const stopped = run(" -NoStart");
+    assert.equal(stopped.status, 0, stopped.stdout + stopped.stderr);
+    assert.match(stopped.stdout, /left stopped/);
+    let calls = readFileSync(log, "utf8");
+    assert.match(calls, /register Vizor nostart Scheduler/);
+    assert.match(calls, /disable Vizor nostart Scheduler/);
+    assert.doesNotMatch(calls, /start Vizor nostart/);
+    writeFileSync(log, "");
+    const started = run("");
+    assert.equal(started.status, 0, started.stdout + started.stderr);
+    calls = readFileSync(log, "utf8");
+    assert.doesNotMatch(calls, /disable Vizor nostart/);
   },
 );

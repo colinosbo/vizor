@@ -14,4 +14,5 @@ foreach ($role in $roles) {
     Enable-ScheduledTask -TaskName $name | Out-Null
     if ((Get-ScheduledTask -TaskName $name).State -ne 'Running') { Start-ScheduledTask -TaskName $name }
 }
+Remove-Item -LiteralPath (Join-Path $project '.vizor/stopped') -ErrorAction SilentlyContinue
 Write-Output ('Started ' + ($roles -join ', ') + '.')

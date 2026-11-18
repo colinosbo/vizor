@@ -5,7 +5,10 @@ param(
     # Webhook mode only: the public HTTPS URL that forwards to this relay
     # (a reverse proxy or a tunnel you operate). Vizor does not start one.
     [string]$WebhookUrl,
-    [string]$TaskPrefix
+    [string]$TaskPrefix,
+    # Register (or re-register on upgrade) but leave the tasks disabled and not
+    # running, for a project the user stopped with `vizor stop`.
+    [switch]$NoStart
 )
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath $ProjectPath).Path
@@ -78,7 +81,12 @@ if ($Mode -eq 'local') {
 }
 foreach ($role in $roles) {
     $name = $TaskPrefix + ' ' + $role
-    if ((Get-ScheduledTask -TaskName $name).State -ne 'Running') { Start-ScheduledTask -TaskName $name }
+    if ($NoStart) { Disable-ScheduledTask -TaskName $name | Out-Null }
+    elseif ((Get-ScheduledTask -TaskName $name).State -ne 'Running') { Start-ScheduledTask -TaskName $name }
+}
+if ($NoStart) {
+    Write-Output ('Installed ' + $config.repository + ' runtime, left stopped. Run vizor start to start it.')
+    exit 0
 }
 Write-Output ('Installed ' + $config.repository + ' runtime. Tasks restart after Windows sign-in.')
 if ($Mode -eq 'local') {

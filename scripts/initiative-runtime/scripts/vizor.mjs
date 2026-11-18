@@ -9,6 +9,7 @@ import { LIFECYCLE_COMMANDS, runLifecycle } from "./lifecycle-commands.mjs";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { resolve } from "node:path";
 import { dashboardSnapshot, serveDashboard } from "./dashboard.mjs";
 import {
   runDoctor,
@@ -233,8 +234,25 @@ async function main() {
   const hookFile = prefix + "-webhook.json";
   const databaseFile = prefix + ".db";
   if (command === "health" || command === "restart") {
-    if (command === "restart")
+    if (command === "restart") {
+      const host = existsSync(".vizor/runtime-host.json")
+        ? readJson(".vizor/runtime-host.json")
+        : null;
+      check(host, "This project has no installed runner. Run vizor start.");
+      const mine = resolve(process.argv[1], "..", "..");
+      const theirs = resolve(host.runtime);
+      check(
+        process.platform === "win32"
+          ? theirs.toLowerCase() === mine.toLowerCase()
+          : theirs === mine,
+        "This project runs Vizor from " +
+          theirs +
+          ", not this version (" +
+          mine +
+          "). Run vizor start to move it to this version, or restart with that version's CLI.",
+      );
       restartRuntime({ project: process.cwd(), executable: process.argv[1] });
+    }
     const health = runtimeHealth({ project: process.cwd(), file: first });
     console.log(JSON.stringify(health, null, 2));
     if (!health.healthy) process.exitCode = 1;

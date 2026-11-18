@@ -257,7 +257,8 @@ export function activate(home, version, ops, log = console.log) {
     for (const project of install.projects) {
       try {
         log("Switching " + project + " to " + version + "...");
-        ops.switchProject(project, dir);
+        if (ops.switchProject(project, dir) === "stopped")
+          log(project + " was stopped by vizor stop and stays stopped.");
         switched.push(project);
       } catch (error) {
         log("Failed to switch " + project + ": " + error.message);
@@ -349,6 +350,8 @@ export function windowsOps({
       const host = JSON.parse(
         readFileSync(join(project, ".vizor", "runtime-host.json"), "utf8"),
       );
+      // A project the user stopped stays stopped across upgrade and rollback.
+      const stopped = existsSync(join(project, ".vizor", "stopped"));
       powershell(join(dir, "windows", "stop.ps1"), ["-ProjectPath", project]);
       const args = [
         "-ProjectPath",
@@ -360,8 +363,11 @@ export function windowsOps({
       ];
       if (host.prefix) args.push("-TaskPrefix", host.prefix);
       if (host.webhookUrl) args.push("-WebhookUrl", host.webhookUrl);
+      if (stopped) args.push("-NoStart");
       powershell(join(dir, "windows", "install.ps1"), args);
+      if (stopped) return "stopped";
       waitForRunner(project, host.queue, dir, { wait, timeoutMs });
+      return "running";
     },
   };
 }

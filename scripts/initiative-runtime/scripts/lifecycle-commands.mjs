@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -200,18 +201,19 @@ function start(args) {
   const queue = resolve(host?.queue ?? ".vizor/queue.json");
   const installedRoot = host?.runtime ? resolve(host.runtime) : null;
   const root = runtimeRoot();
+  // Windows paths compare case-insensitively (C:\ and c:\ are one folder).
+  const sameRuntime =
+    installedRoot !== null &&
+    (process.platform === "win32"
+      ? installedRoot.toLowerCase() === root.toLowerCase()
+      : installedRoot === root);
   const urlIndex = args.indexOf("--webhook-url");
   const webhookUrl = urlIndex >= 0 ? args[urlIndex + 1] : host?.webhookUrl;
   check(
     urlIndex < 0 || /^https:\/\//.test(webhookUrl ?? ""),
     "Pass --webhook-url <public HTTPS URL that forwards to the relay>.",
   );
-  if (
-    !host ||
-    urlIndex >= 0 ||
-    args.includes("--reinstall") ||
-    installedRoot !== root
-  ) {
+  if (!host || urlIndex >= 0 || args.includes("--reinstall") || !sameRuntime) {
     const mode =
       urlIndex >= 0
         ? "webhook"
@@ -234,6 +236,8 @@ function start(args) {
   } else {
     console.log(powershell("start.ps1", ["-ProjectPath", process.cwd()]));
   }
+  // Started again: upgrades and rollbacks may restart this project.
+  rmSync(join(".vizor", "stopped"), { force: true });
   const home = owningHome(root);
   if (home) registerProject(home, process.cwd());
   else
@@ -278,13 +282,14 @@ async function open(args) {
     );
   console.log(url);
   if (args.includes("--print")) return;
-  const [program, ...rest] =
+  // explorer.exe hands an http URL to the default browser with no cmd quoting.
+  const program =
     process.platform === "win32"
-      ? ["cmd.exe", "/c", "start", '""', url]
+      ? "explorer.exe"
       : process.platform === "darwin"
-        ? ["open", url]
-        : ["xdg-open", url];
-  spawnSync(program, rest, { stdio: "ignore", windowsHide: true });
+        ? "open"
+        : "xdg-open";
+  spawnSync(program, [url], { stdio: "ignore", windowsHide: true });
 }
 
 function versions() {
