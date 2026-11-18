@@ -8,3 +8,4 @@ vizor.config.json
 *.db-journal
 *.db-wal
 *.db-shm
+dist/

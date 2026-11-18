@@ -4,17 +4,13 @@ The initiative runtime connects an approved GitHub backlog to configured cloud w
 
 ## Windows setup
 
-Install Node 24, Git and GitHub CLI. Connect GitHub under the Windows user that will run Vizor, and configure the workers through the existing init/setup flow.
+Install a release package and follow `INSTALL.md` (package root; `packaging/INSTALL.md` in the repository): `node setup.mjs`, then `vizor connect`, `vizor doctor`, `vizor start` and `vizor open` in the project folder. Requirements are Node 24, Git and the GitHub CLI, under the Windows user that will run Vizor.
 
-Run the installer from PowerShell, pointing to your project and queue.
+`vizor start` runs this version's `windows/install.ps1` for the project. That script resolves program paths, creates a project-specific task group, and records runtime paths in the ignored `.vizor/runtime-host.json`. The tasks run under the signed-in user and restart after that user signs in following a reboot. Paths with spaces are supported. Credentials stay in `.vizor/secrets.json` or the OS Git credential helper. If `gh` is not on PATH, the installer reuses the GitHub CLI already recorded for the project. The CLI uses the same `gh` and Git credential as the runner, so `doctor` reports what the runner sees.
 
-```powershell
-& "<Vizor checkout>\scripts\initiative-runtime\windows\install.ps1" -ProjectPath "<project folder>" -QueuePath ".vizor\queue.json"
-```
+Installed versions live in `%LOCALAPPDATA%\Vizor\versions\<version>` and are verified against the package's SHA-256 manifest. Upgrades (`node setup.mjs` from a newer package) and `vizor rollback` hold an install lock and switch every registered project: `windows/stop.ps1`, then `install.ps1` from the target version, then a heartbeat check from the target runtime. A failure returns all projects to the previous version. Project state is never copied or rewritten.
 
-Local dispatch is the default and needs no public endpoint.
-
-The installer resolves program paths, creates a project-specific task group and stores runtime paths in the ignored .vizor/runtime-host.json. It runs under the signed-in user and restarts after that user signs in following a reboot. It supports paths containing spaces. Runtime credentials stay in .vizor/secrets.json or the OS Git credential helper.
+The scheduler holds a lease on the project's queue (`runner_lease` in the project database). A second scheduler for the same project exits with "Another Vizor runner owns this project's queue" until the holder exits; a dead holder on the same PC is taken over immediately, and an unrenewed lease expires after three minutes. Every round and every dispatch re-checks the lease, so a runner that lost it stops without dispatching.
 
 In local mode both the saved host mode and the queue select `local`; `doctor` checks their agreement and does not require webhook configuration or a listener. GitHub eligibility and result checks run every 45 seconds; ready assignments call the saved worker directly and keep the same durable duplicate protection. The scheduler and dashboard restart after Windows sign-in. When switching an already-running scheduler between modes, stop its exact Node scheduler process before starting the logon task once: updating the task action or stopping only its PowerShell wrapper does not reload that process. Disconnect the project's saved GitHub webhook after switching to local. Do not touch another project's webhooks or worker sessions.
 
@@ -25,29 +21,31 @@ The runtime also supports automatic artifact acceptance and automatic repair/rev
 Webhook mode is for operators who already run a public HTTPS endpoint (a reverse proxy or a tunnel they manage) that forwards to the local relay port. Vizor does not start or manage that endpoint.
 
 ```powershell
-& "<Vizor checkout>\scripts\initiative-runtime\windows\install.ps1" -ProjectPath "<project folder>" -QueuePath ".vizor\queue.json" -Mode webhook -WebhookUrl "https://hooks.example.com"
+vizor start --webhook-url "https://hooks.example.com"
 ```
+
+Run `vizor start` without the flag later to keep the saved URL. Switching back to local means setting `"dispatchMode": "local"` in the queue, running `vizor start --reinstall` and then `vizor disconnect`.
 
 The webhook supervisor starts the relay, registers `<WebhookUrl>/webhooks/github` in GitHub and verifies a signed ping through the public URL before switching the queue to webhook dispatch. It re-verifies about every five minutes and re-registers after a failure; the scheduler holds dispatch while the endpoint is unreachable. Failures leave a diagnostic stage in .vizor/webhook-supervisor.log.
 
 ## Commands
 
-Run these in the configured project directory, using this runtime's scripts/vizor.mjs.
+Run these in the project folder. `vizor` with no arguments lists every command. From a source checkout, use `node <checkout>/scripts/initiative-runtime/scripts/vizor.mjs` instead.
 
 ```text
-node <runtime>/scripts/vizor.mjs doctor
-node <runtime>/scripts/vizor.mjs status
-node <runtime>/scripts/vizor.mjs schedule .vizor/queue.json --preview
-node <runtime>/scripts/vizor.mjs dashboard .vizor/queue.json
+vizor doctor
+vizor status
+vizor schedule --preview
+vizor dashboard
 ```
 
 The dashboard is served on loopback at the configured webhook port plus one by default. It reads agent names, repository, issues, receipts and scheduler decisions from the same project. It never launches another scheduler.
 
 ## Verification and current limits
 
-Run node --test scripts/initiative-runtime/tests/*.test.mjs from the Vizor checkout. The tests exercise duplicate suppression, signed webhooks, dependency gates, automatic acceptance and repair/recheck progression. The Windows health regression test exercises PowerShell 5.1's wrapped HTTP exception.
+Run `npm test` from a source checkout. The tests exercise the install lifecycle (package, clean install, upgrade, rollback, restart, queue lease), duplicate suppression, signed webhooks, dependency gates, automatic acceptance and repair/recheck progression. The Windows health regression test exercises PowerShell 5.1's wrapped HTTP exception.
 
-The runtime runs from a Vizor checkout; there is no separate installer yet (see docs/ROADMAP.md). Installed paths must remain available. Logon startup requires the PC to be on, connected and signed in. A successful logon-task installation does not establish a tested reboot.
+The supervised runner is Windows-only. On macOS and Linux, run `vizor schedule` and `vizor dashboard` in a terminal. Logon startup requires the PC to be on, connected and signed in. A successful logon-task installation does not establish a tested reboot.
 
 A provider routine must stay enabled. An ambiguous provider response is retained for reconciliation to avoid duplicate sessions. End-to-end webhook restart recovery must be verified in the user's permitted environment before declaring unattended webhook operation ready.
 

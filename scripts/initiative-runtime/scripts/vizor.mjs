@@ -3,7 +3,9 @@ import {
   runtimeHealth,
   restartRuntime,
   requireNode24,
+  useRunnerGitHub,
 } from "./runtime-control.mjs";
+import { LIFECYCLE_COMMANDS, runLifecycle } from "./lifecycle-commands.mjs";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -38,6 +40,29 @@ const check = (condition, message) => {
   if (!condition) throw Error(message);
 };
 
+// Create the dispatch and worker labels that are missing. Existing labels are
+// left as they are. Returns the names that were created.
+function ensureLabels(config, repo) {
+  const created = [];
+  for (const name of [
+    config.dispatchLabel,
+    ...Object.values(config.agents).map((agent) => agent.label),
+  ]) {
+    if (
+      !github(
+        "GET",
+        repo + "/labels/" + encodeURIComponent(name),
+        undefined,
+        true,
+      )
+    ) {
+      github("POST", repo + "/labels", { name, color: "5319e7" });
+      created.push(name);
+    }
+  }
+  return created;
+}
+
 let githubClient;
 function github(...args) {
   githubClient ??= createGitHubClient();
@@ -46,6 +71,12 @@ function github(...args) {
 github.budget = () => githubClient?.budget() ?? {};
 
 function readConfig() {
+  check(
+    existsSync("vizor.config.json"),
+    "No vizor.config.json in " +
+      process.cwd() +
+      ". Run vizor from your project folder, or connect this folder with vizor connect.",
+  );
   const config = readJson("vizor.config.json");
   check(
     typeof config.repository === "string" &&
@@ -134,7 +165,24 @@ function getCredentials(config, verify = true) {
 
 async function main() {
   requireNode24();
-  const [command, first, second, third] = process.argv.slice(2);
+  const argv = process.argv.slice(2);
+  const command = argv[0];
+  if (LIFECYCLE_COMMANDS.includes(command))
+    return await runLifecycle(command, argv.slice(1));
+  let [, first, second, third] = argv;
+  // Commands that take the queue default to the installed or standard queue.
+  if (
+    ["schedule", "dashboard", "dashboard-snapshot", "health"].includes(
+      command,
+    ) &&
+    (first === undefined || first.startsWith("--"))
+  ) {
+    const host = existsSync(".vizor/runtime-host.json")
+      ? readJson(".vizor/runtime-host.json")
+      : null;
+    const fallback = host?.queue ?? ".vizor/queue.json";
+    if (existsSync(fallback)) [first, second] = [fallback, first];
+  }
   if (
     ![
       "health",
@@ -149,6 +197,7 @@ async function main() {
       "accept",
       "retire",
       "doctor",
+      "labels",
       "dashboard",
       "dashboard-snapshot",
       "orchestrator-resume",
@@ -156,11 +205,26 @@ async function main() {
     ].includes(command)
   ) {
     console.log(
-      "Usage: node <runtime>/scripts/vizor.mjs init | serve | setup <public HTTPS URL> | assign <issue> <agent ID> <comment ID> | status | disconnect | schedule <queue.json> [--once|--preview] | accept <issue> | retire <queue.json> <issue> | doctor | health [queue.json] | restart | dashboard <queue.json> [port]",
+      [
+        "Usage: vizor <command>",
+        "",
+        "Set up:     connect --help | labels | init | doctor | setup <public HTTPS URL> (webhook mode only)",
+        "Run:        start [--reinstall] [--webhook-url <https URL>] | stop | restart | open [--print] | health",
+        "Inspect:    status | dashboard [queue.json] [port] | schedule [queue.json] --preview",
+        "Work:       assign <issue> <agent ID> <comment ID> | accept <issue> | retire <queue.json> <issue>",
+        "Install:    version | versions | rollback   (upgrade: run setup.mjs from a newer package)",
+        "Foreground: schedule [queue.json] [--once] | serve | disconnect",
+      ].join("\n"),
     );
     return;
   }
   const config = readConfig();
+  if (!["status", "health", "restart", "init"].includes(command))
+    useRunnerGitHub({
+      host: existsSync(".vizor/runtime-host.json")
+        ? readJson(".vizor/runtime-host.json")
+        : null,
+    });
   const repo = "repos/" + config.repository;
   const repoKey = createHash("sha256")
     .update(config.repository.toLowerCase())
@@ -198,11 +262,25 @@ async function main() {
     serveDashboard({ executable: process.argv[1], queueFile: first, port });
     return;
   }
+  if (command === "labels") {
+    const created = ensureLabels(config, repo);
+    console.log(
+      created.length
+        ? "Created GitHub labels: " + created.join(", ") + "."
+        : "All configured GitHub labels already exist.",
+    );
+    return;
+  }
   if (command === "doctor") {
     const host = existsSync(".vizor/runtime-host.json")
       ? readJson(".vizor/runtime-host.json")
       : null;
-    const queue = host?.queue ? readQueue(host.queue) : null;
+    // Before the first start there is no host file; use the project's queue.
+    const queue = host?.queue
+      ? readQueue(host.queue)
+      : existsSync(".vizor/queue.json")
+        ? readQueue(".vizor/queue.json")
+        : null;
     check(
       !host || host.mode === (queue?.dispatchMode ?? "webhook"),
       "Installed runtime mode and queue delivery mode disagree. Reinstall the selected mode before restarting the scheduler.",
@@ -267,20 +345,7 @@ async function main() {
       endpoint,
       "Pass the public HTTPS URL that forwards to this relay (no credentials, query or loopback host). Local dispatch needs no setup URL.",
     );
-    for (const name of [
-      config.dispatchLabel,
-      ...Object.values(config.agents).map((agent) => agent.label),
-    ]) {
-      if (
-        !github(
-          "GET",
-          repo + "/labels/" + encodeURIComponent(name),
-          undefined,
-          true,
-        )
-      )
-        github("POST", repo + "/labels", { name, color: "5319e7" });
-    }
+    ensureLabels(config, repo);
     const previous = existsSync(hookFile) ? readJson(hookFile) : {};
     const existing =
       previous.id &&

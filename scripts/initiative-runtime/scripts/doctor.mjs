@@ -190,30 +190,44 @@ export async function runDoctor({
         : "Set this worker's Fire URL and token in .vizor/secrets.json.",
     );
   }
-  try {
-    accessSync(dirname(databaseFile), constants.W_OK);
-    accessSync(databaseFile, constants.W_OK);
-    const database = new DatabaseSync(databaseFile, { readOnly: true });
+  if (!existsSync(databaseFile)) {
+    let writable = false;
     try {
-      database.prepare("SELECT issue FROM assignments LIMIT 1").get();
-      database.prepare("SELECT issue FROM deliveries LIMIT 1").get();
-    } finally {
-      database.close();
+      accessSync(dirname(databaseFile), constants.W_OK);
+      writable = true;
+    } catch {}
+    status(
+      writable,
+      "Local dispatch state",
+      writable
+        ? "Not created yet; the runner creates it on first start. The folder is writable."
+        : "The .vizor folder is missing or not writable. Run vizor init.",
+    );
+  } else
+    try {
+      accessSync(dirname(databaseFile), constants.W_OK);
+      accessSync(databaseFile, constants.W_OK);
+      const database = new DatabaseSync(databaseFile, { readOnly: true });
+      try {
+        database.prepare("SELECT issue FROM assignments LIMIT 1").get();
+        database.prepare("SELECT issue FROM deliveries LIMIT 1").get();
+      } finally {
+        database.close();
+      }
+      status(
+        true,
+        "Local dispatch state",
+        "Database is readable and its path passes the write-access check.",
+      );
+    } catch {
+      status(
+        false,
+        "Local dispatch state",
+        existsSync(databaseFile)
+          ? "Check database permissions and integrity on the relay host."
+          : "Start the relay from this repository to initialize dispatch state.",
+      );
     }
-    status(
-      true,
-      "Local dispatch state",
-      "Database is readable and its path passes the write-access check.",
-    );
-  } catch {
-    status(
-      false,
-      "Local dispatch state",
-      existsSync(databaseFile)
-        ? "Check database permissions and integrity on the relay host."
-        : "Start the relay from this repository to initialize dispatch state.",
-    );
-  }
 
   const ready = command("gh", "--version") === 0;
   status(
@@ -271,7 +285,7 @@ export async function runDoctor({
         "GitHub label " + label,
         found?.name === label
           ? "Present."
-          : "Check label access or run vizor setup to create the configured label with this casing.",
+          : "Run vizor labels to create it, or check label access and casing.",
       );
     }
   }

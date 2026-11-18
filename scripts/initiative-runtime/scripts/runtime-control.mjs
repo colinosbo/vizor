@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { delimiter, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readRuntimeSnapshot } from "./runtime-snapshot.mjs";
 
@@ -67,4 +67,41 @@ export function restartRuntime({
         ).trim(),
     );
   return result.stdout;
+}
+
+// Give CLI commands the same GitHub access the installed runner has: the GitHub
+// CLI recorded at install time, and the Windows user's Git credential when gh
+// itself is not signed in. The token stays in this process's environment only.
+export function useRunnerGitHub({
+  host,
+  env = process.env,
+  execute = spawnSync,
+  exists = existsSync,
+}) {
+  if (host?.gh && exists(host.gh)) {
+    const key =
+      Object.keys(env).find((k) => k.toLowerCase() === "path") ?? "PATH";
+    env[key] = dirname(host.gh) + delimiter + (env[key] ?? "");
+  }
+  if (env.GH_TOKEN || env.GITHUB_TOKEN) return "environment";
+  const options = { encoding: "utf8", windowsHide: true, timeout: 15000, env };
+  const auth = execute("gh", ["auth", "token"], options);
+  if (auth.status === 0 && auth.stdout?.trim()) return "gh";
+  const git = execute(
+    host?.git && exists(host.git) ? host.git : "git",
+    ["credential", "fill"],
+    {
+      ...options,
+      input: "protocol=https\nhost=github.com\n\n",
+      env: { ...env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" },
+    },
+  );
+  const line = git.stdout
+    ?.split(/\r?\n/)
+    .find((l) => l.startsWith("password="));
+  if (git.status === 0 && line) {
+    env.GH_TOKEN = line.slice(9);
+    return "git-credential";
+  }
+  return null;
 }
