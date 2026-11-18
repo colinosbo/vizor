@@ -716,6 +716,6 @@ export async function runScheduler({ file, once, ...services }) {
       );
     }
     if (once) return;
-    await delay(15000);
+    await delay(45000);
   }
 }
