@@ -39,7 +39,8 @@ try {
   }
   $prior = @(Schedulers)
   $snapshotFile = $queue + '.snapshot.json'
-  if ($prior.Count -eq 1 -and (Test-Path -LiteralPath $snapshotFile)) {
+  # Without a generation captured before waiting, never infer that another caller restarted.
+  if ($null -ne $initialGeneration -and $prior.Count -eq 1 -and (Test-Path -LiteralPath $snapshotFile)) {
     try {
       $previous = Get-Content -Raw -LiteralPath $snapshotFile | ConvertFrom-Json
       if ($previous.pid -eq $prior[0].ProcessId -and $previous.startId -and $previous.startId -ne $initialGeneration) {
