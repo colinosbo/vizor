@@ -4,21 +4,31 @@ The initiative runtime connects an approved GitHub backlog to configured cloud w
 
 ## Windows setup
 
-Install Node 24, Git, GitHub CLI and cloudflared. Connect GitHub under the Windows user that will run Vizor, and configure the workers through the existing init/setup flow.
+Install Node 24, Git and GitHub CLI. Connect GitHub under the Windows user that will run Vizor, and configure the workers through the existing init/setup flow.
 
 Run the installer from PowerShell, pointing to your project and queue.
 
 ```powershell
-& "<Vizor checkout>\scripts\initiative-runtime\windows\install.ps1" -ProjectPath "<project folder>" -QueuePath ".vizor\queue.json" -Mode webhook
+& "<Vizor checkout>\scripts\initiative-runtime\windows\install.ps1" -ProjectPath "<project folder>" -QueuePath ".vizor\queue.json"
 ```
+
+Local dispatch is the default and needs no public endpoint.
 
 The installer resolves program paths, creates a project-specific task group and stores runtime paths in the ignored .vizor/runtime-host.json. It runs under the signed-in user and restarts after that user signs in following a reboot. It supports paths containing spaces. Runtime credentials stay in .vizor/secrets.json or the OS Git credential helper.
 
-The webhook supervisor starts the local relay, starts a Quick Tunnel, registers its new URL in GitHub, and checks the signed connection before switching dispatch mode. The scheduler owns assignment eligibility. When it applies the dispatch label, the GitHub webhook calls the relay and the relay starts the saved worker assignment. Quick Tunnel URLs change on restart, and the supervisor updates GitHub before restarting the scheduler with the new endpoint. A tunnel exit causes reconstruction. Failed startup leaves a diagnostic stage in .vizor/webhook-supervisor.log.
+In local mode both the saved host mode and the queue select `local`; `doctor` checks their agreement and does not require webhook configuration or a listener. GitHub eligibility and result checks run every 45 seconds; ready assignments call the saved worker directly and keep the same durable duplicate protection. The scheduler and dashboard restart after Windows sign-in. When switching an already-running scheduler between modes, stop its exact Node scheduler process before starting the logon task once: updating the task action or stopping only its PowerShell wrapper does not reload that process. Disconnect the project's saved GitHub webhook after switching to local. Do not touch another project's webhooks or worker sessions.
 
-Local mode is available with -Mode local. The runtime also supports automatic artifact acceptance and automatic repair/reverification policies from the queue. These settings are project decisions.
+The runtime also supports automatic artifact acceptance and automatic repair/reverification policies from the queue. These settings are project decisions.
 
-For tunnel-free Windows dispatch, install with `-Mode local`. Both the saved host mode and the queue must select `local`; `doctor` checks their agreement and does not require webhook configuration, a listener or Cloudflare. GitHub eligibility and result checks run every 45 seconds; ready assignments call the saved worker directly and keep the same durable duplicate protection. The scheduler and dashboard restart after Windows sign-in. When switching an already-running scheduler between modes, stop its exact Node scheduler process before starting the logon task once: updating the task action or stopping only its PowerShell wrapper does not reload that process. Disconnect the project's saved GitHub webhook and stop its tunnel after switching. Do not touch another project's tunnels or worker sessions.
+### Optional webhook mode
+
+Webhook mode is for operators who already run a public HTTPS endpoint (a reverse proxy or a tunnel they manage) that forwards to the local relay port. Vizor does not start or manage that endpoint.
+
+```powershell
+& "<Vizor checkout>\scripts\initiative-runtime\windows\install.ps1" -ProjectPath "<project folder>" -QueuePath ".vizor\queue.json" -Mode webhook -WebhookUrl "https://hooks.example.com"
+```
+
+The webhook supervisor starts the relay, registers `<WebhookUrl>/webhooks/github` in GitHub and verifies a signed ping through the public URL before switching the queue to webhook dispatch. It re-verifies about every five minutes and re-registers after a failure; the scheduler holds dispatch while the endpoint is unreachable. Failures leave a diagnostic stage in .vizor/webhook-supervisor.log.
 
 ## Commands
 
@@ -39,7 +49,7 @@ Run node --test scripts/initiative-runtime/tests/*.test.mjs from the Vizor check
 
 This is a source-integrated runtime. The desktop installer does not yet bundle or invoke these components through a setup screen. Installed paths must remain available. Logon startup requires the PC to be on, connected and signed in. A successful logon-task installation does not establish a tested reboot.
 
-Quick Tunnels are temporary testing endpoints. A provider routine must stay enabled. An ambiguous provider response is retained for reconciliation to avoid duplicate sessions. End-to-end webhook restart recovery must be verified in the user's permitted environment before declaring unattended webhook operation ready.
+A provider routine must stay enabled. An ambiguous provider response is retained for reconciliation to avoid duplicate sessions. End-to-end webhook restart recovery must be verified in the user's permitted environment before declaring unattended webhook operation ready.
 
 See docs/vision-pilot-handoff.md for the broader productization work.
 

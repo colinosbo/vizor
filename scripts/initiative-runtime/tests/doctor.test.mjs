@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { runDoctor } from "../scripts/doctor.mjs";
+import {
+  runDoctor,
+  validWebhookEndpoint,
+  webhookEndpointFor,
+} from "../scripts/doctor.mjs";
 import { openDispatchStore } from "../scripts/relay.mjs";
 
 test("doctor verifies signed pings, reports a stale webhook and never prints secret values", async (context) => {
@@ -18,7 +22,7 @@ test("doctor verifies signed pings, reports a stale webhook and never prints sec
   const fireUrl =
     "https://api.anthropic.com/v1/claude_code/routines/trig_test/fire";
   const token = "private-worker-token";
-  const endpoint = "https://example.trycloudflare.com/webhooks/github";
+  const endpoint = "https://hooks.example.com/vizor/webhooks/github";
   const config = {
     repository: "owner/repo",
     port: 4388,
@@ -72,7 +76,7 @@ test("doctor verifies signed pings, reports a stale webhook and never prints sec
     "http://127.0.0.1:4388/webhooks/github",
     endpoint,
   ]);
-  webhookUrl = "https://other.trycloudflare.com/webhooks/github";
+  webhookUrl = "https://other.example.com/webhooks/github";
   assert.equal(await run(), false);
   assert.ok(
     output.some(
@@ -100,11 +104,43 @@ test("doctor verifies signed pings, reports a stale webhook and never prints sec
         return github(method, path, ...args);
       },
       request: () =>
-        assert.fail("Local dispatch must never probe a tunnel or relay"),
+        assert.fail(
+          "Local dispatch must never probe a public endpoint or relay",
+        ),
       command: () => 0,
       report: (line) => output.push(line),
     }),
     true,
   );
   assert.ok(output.some((line) => line.startsWith("PASS Local dispatch")));
+});
+
+test("webhook setup accepts any public HTTPS URL and rejects unsafe ones", () => {
+  assert.equal(
+    webhookEndpointFor("https://hooks.example.com"),
+    "https://hooks.example.com/webhooks/github",
+  );
+  assert.equal(
+    webhookEndpointFor("https://example.com/vizor/"),
+    "https://example.com/vizor/webhooks/github",
+  );
+  assert.equal(
+    webhookEndpointFor("https://example.com/webhooks/github"),
+    "https://example.com/webhooks/github",
+  );
+  // Endpoints saved by earlier Quick Tunnel installs remain valid.
+  assert.ok(
+    validWebhookEndpoint("https://old-name.trycloudflare.com/webhooks/github"),
+  );
+  for (const unsafe of [
+    "http://example.com",
+    "https://user:pass@example.com",
+    "https://example.com/?token=1",
+    "https://example.com/#x",
+    "https://localhost",
+    "https://127.0.0.1:4388",
+    "not a url",
+    undefined,
+  ])
+    assert.equal(webhookEndpointFor(unsafe), null, String(unsafe));
 });

@@ -13,9 +13,34 @@ export const validWorkerCredentials = (entry) =>
   ) &&
   typeof entry.token === "string" &&
   /^\S+$/.test(entry.token);
-export const validTunnelEndpoint = (value) =>
-  typeof value === "string" &&
-  /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/webhooks\/github$/.test(value);
+const loopbackHost = /^(localhost|127\.\d+\.\d+\.\d+|\[::1\]|0\.0\.0\.0)$/i;
+// Turn the operator's public HTTPS base URL (a reverse proxy or their own
+// tunnel) into the relay's webhook endpoint. Returns null when GitHub could
+// not deliver to it or the URL carries credentials, a query or a fragment.
+export function webhookEndpointFor(base) {
+  let url;
+  try {
+    url = new URL(base);
+  } catch {
+    return null;
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    loopbackHost.test(url.hostname)
+  )
+    return null;
+  const path = url.pathname.replace(/\/+$/, "");
+  return (
+    url.origin +
+    (path.endsWith("/webhooks/github") ? path : path + "/webhooks/github")
+  );
+}
+export const validWebhookEndpoint = (value) =>
+  typeof value === "string" && webhookEndpointFor(value) === value;
 
 function localCommand(program, ...args) {
   return spawnSync(program, args, {
@@ -255,7 +280,7 @@ export async function runDoctor({
     status(
       true,
       "Local dispatch",
-      "The scheduler calls the saved worker directly. No webhook, relay or tunnel is required; GitHub results are polled.",
+      "The scheduler calls the saved worker directly. No webhook, relay or public endpoint is required; GitHub results are polled.",
     );
     report(
       failures
@@ -268,13 +293,13 @@ export async function runDoctor({
   const registered =
     Number.isSafeInteger(saved?.id) &&
     saved.id > 0 &&
-    validTunnelEndpoint(saved.endpoint);
+    validWebhookEndpoint(saved.endpoint);
   status(
     registered,
     "Saved webhook",
     registered
-      ? "A Quick Tunnel webhook is registered locally."
-      : "Start a Quick Tunnel and run vizor setup with its HTTPS URL.",
+      ? "A public webhook endpoint is registered locally."
+      : "Run vizor setup with the public HTTPS URL that forwards to this relay, or use local dispatch.",
   );
   if (registered && remote) {
     const hook = attempt(repo + "/hooks/" + saved.id);
@@ -289,17 +314,17 @@ export async function runDoctor({
       Boolean(configured),
       "GitHub webhook",
       configured
-        ? "Active Issues webhook matches the saved tunnel."
+        ? "Active Issues webhook matches the saved endpoint."
         : !hook
           ? "The saved webhook is unavailable. Check repository webhook permissions and GitHub settings."
           : !matches
-            ? "GitHub's URL differs from the saved tunnel. Review webhook settings before updating it."
+            ? "GitHub's URL differs from the saved endpoint. Review webhook settings before updating it."
             : "Check that the webhook is active, sends JSON Issues events, and verifies TLS.",
     );
   }
   if (secretOK) {
     const local = "http://127.0.0.1:" + config.port + "/webhooks/github";
-    const [relay, tunnel] = await Promise.all([
+    const [relay, publicEndpoint] = await Promise.all([
       probe(local, credentials.webhookSecret, request),
       registered
         ? probe(saved.endpoint, credentials.webhookSecret, request)
@@ -316,13 +341,13 @@ export async function runDoctor({
     );
     if (registered)
       status(
-        tunnel === "ok",
-        "Cloudflare tunnel",
-        tunnel === "ok"
+        publicEndpoint === "ok",
+        "Public endpoint",
+        publicEndpoint === "ok"
           ? "Forwarded a signed ping to the relay."
           : relay !== "ok"
             ? "Fix the local relay first, then rerun doctor."
-            : "The saved tunnel did not reach this relay. Check cloudflared and run setup if its URL changed.",
+            : "The saved public URL did not reach this relay. Check your proxy or tunnel and rerun setup if the URL changed.",
       );
   }
   report(

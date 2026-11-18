@@ -6,7 +6,7 @@ $hostConfig = Get-Content -Raw -LiteralPath (Join-Path $project '.vizor/runtime-
 $state = Join-Path $project '.vizor'
 Set-Location -LiteralPath $project
 $node = $hostConfig.node
-$cloudflared = $hostConfig.cloudflared
+$endpoint = $hostConfig.webhookUrl
 $vizor = Join-Path $hostConfig.runtime 'scripts/vizor.mjs'
 $queueFile = $hostConfig.queue
 $config = Get-Content -Raw -LiteralPath (Join-Path $project 'vizor.config.json') | ConvertFrom-Json
@@ -18,8 +18,20 @@ function Write-Status([string]$message) {
     Add-Content -LiteralPath $log -Value ((Get-Date).ToUniversalTime().ToString('o') + ' ' + $message)
 }
 
+function Invoke-VizorDoctor {
+    & $node $vizor doctor >> $log 2>&1
+    return $LASTEXITCODE -eq 0
+}
+
+if (-not $endpoint) {
+    Write-Status 'Webhook mode has no public URL. Reinstall with -WebhookUrl or use -Mode local.'
+    exit 1
+}
+
+# Vizor does not start a tunnel. The operator's public HTTPS URL must forward
+# to the local relay; this supervisor registers it, verifies a signed ping end
+# to end, and only then hands the scheduler over to webhook dispatch.
 while ($true) {
-    $tunnel = $null
     $stage = 'GitHub sign-in'
     try {
         $credential = "protocol=https`nhost=github.com`n`n" | git.exe credential fill 2>$null
@@ -38,44 +50,36 @@ while ($true) {
         }
         if (-not $relayReady) { throw 'Local relay did not become ready.' }
 
-        $stage = 'tunnel startup'
-        $output = Join-Path $state 'supervised-tunnel.out.log'
-        $errors = Join-Path $state 'supervised-tunnel.err.log'
-        $tunnel = Start-Process -WindowStyle Hidden -FilePath $cloudflared -ArgumentList @('tunnel','--url',"http://127.0.0.1:$($config.port)") -WorkingDirectory $project -RedirectStandardOutput $output -RedirectStandardError $errors -PassThru
-        $endpoint = ''
-        for ($attempt = 0; $attempt -lt 30; $attempt++) {
-            if ($tunnel.HasExited) { throw 'Cloudflare tunnel stopped before registration.' }
-            $text = Get-Content -Raw -LiteralPath $errors -ErrorAction SilentlyContinue
-            $endpoint = Get-VizorTunnelEndpoint -Text $text
-            if ($endpoint) { break }
-            Start-Sleep -Seconds 2
-        }
-        if (-not $endpoint) { throw 'Cloudflare did not publish a tunnel endpoint.' }
-
-        # The existing queue continues until a verified endpoint is available.
+        # The existing queue continues in its current mode until the endpoint verifies.
         $stage = 'GitHub webhook registration'
         & $node $vizor setup $endpoint >> $log 2>&1
         if ($LASTEXITCODE) { throw 'Could not register the signed GitHub webhook.' }
         $stage = 'signed connection diagnostics'
         $healthy = $false
         for ($attempt = 0; $attempt -lt 12; $attempt++) {
-            & $node $vizor doctor >> $log 2>&1
-            if ($LASTEXITCODE -eq 0) { $healthy = $true; break }
+            if (Invoke-VizorDoctor) { $healthy = $true; break }
             Start-Sleep -Seconds 5
         }
-        if (-not $healthy) { throw 'Signed relay and tunnel diagnostics did not pass.' }
+        if (-not $healthy) { throw 'Signed relay and public endpoint diagnostics did not pass.' }
 
         $stage = 'scheduler handoff'
-        Stop-ScheduledTask -TaskName ($hostConfig.prefix + ' Scheduler')
         $queue = Get-Content -Raw -LiteralPath $queueFile | ConvertFrom-Json
-        $queue | Add-Member -NotePropertyName dispatchMode -NotePropertyValue 'webhook' -Force
-        $temporary = $queueFile + '.webhook.tmp'
-        [IO.File]::WriteAllText($temporary, ($queue | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding($false)))
-        Move-Item -LiteralPath $temporary -Destination $queueFile -Force
-        Start-ScheduledTask -TaskName ($hostConfig.prefix + ' Scheduler')
+        if ($queue.dispatchMode -ne 'webhook') {
+            Stop-ScheduledTask -TaskName ($hostConfig.prefix + ' Scheduler')
+            $queue | Add-Member -NotePropertyName dispatchMode -NotePropertyValue 'webhook' -Force
+            $temporary = $queueFile + '.webhook.tmp'
+            [IO.File]::WriteAllText($temporary, ($queue | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding($false)))
+            Move-Item -LiteralPath $temporary -Destination $queueFile -Force
+            Start-ScheduledTask -TaskName ($hostConfig.prefix + ' Scheduler')
+        }
         Write-Status 'Webhook mode enabled. GitHub assignment events now call the local relay.'
 
-        while (-not $tunnel.HasExited) {
+        # Keep the relay and scheduler running, and re-verify the public path.
+        # A failed check re-enters registration; the scheduler already holds
+        # dispatch while the endpoint is unreachable.
+        $stage = 'endpoint monitoring'
+        $checks = 0
+        while ($true) {
             foreach ($name in @(($hostConfig.prefix + ' Relay'), ($hostConfig.prefix + ' Scheduler'))) {
                 if ((Get-ScheduledTask -TaskName $name).State -ne 'Running') {
                     Start-ScheduledTask -TaskName $name
@@ -83,16 +87,16 @@ while ($true) {
                 }
             }
             Start-Sleep -Seconds 10
+            $checks++
+            if ($checks -ge 30) {
+                $checks = 0
+                if (-not (Invoke-VizorDoctor)) { throw 'Public endpoint check failed.' }
+            }
         }
-        Write-Status 'Tunnel exited. Restoring a new endpoint and updating GitHub.'
     } catch {
         # Avoid logging credentials or provider URLs from native-command failures.
         Write-Status ("Webhook restoration failed during " + $stage + " (" + $_.Exception.GetType().Name + ").")
-        if ($stage -eq 'tunnel startup') {
-            Write-Status ("Tunnel diagnostic: " + $_.Exception.Message + " at " + $_.InvocationInfo.ScriptLineNumber)
-        }
     } finally {
-        if ($tunnel -and -not $tunnel.HasExited) { Stop-Process -Id $tunnel.Id -ErrorAction SilentlyContinue }
         Remove-Item Env:GH_TOKEN -ErrorAction SilentlyContinue
     }
     Start-Sleep -Seconds 15

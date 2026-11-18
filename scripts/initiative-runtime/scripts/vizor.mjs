@@ -10,7 +10,8 @@ import { DatabaseSync } from "node:sqlite";
 import { dashboardSnapshot, serveDashboard } from "./dashboard.mjs";
 import {
   runDoctor,
-  validTunnelEndpoint,
+  validWebhookEndpoint,
+  webhookEndpointFor,
   validWebhookSecret,
   validWorkerCredentials,
 } from "./doctor.mjs";
@@ -152,7 +153,7 @@ async function main() {
     ].includes(command)
   ) {
     console.log(
-      "Usage: npm run vizor -- init | serve | setup <Quick Tunnel URL> | assign <issue> <agent ID> <comment ID> | status | disconnect | schedule <queue.json> [--once|--preview] | accept <issue> | retire <queue.json> <issue> | doctor | health [queue.json] | restart | dashboard <queue.json> [port]",
+      "Usage: npm run vizor -- init | serve | setup <public HTTPS URL> | assign <issue> <agent ID> <comment ID> | status | disconnect | schedule <queue.json> [--once|--preview] | accept <issue> | retire <queue.json> <issue> | doctor | health [queue.json] | restart | dashboard <queue.json> [port]",
     );
     return;
   }
@@ -258,12 +259,11 @@ async function main() {
     command === "serve" || command === "setup",
   );
   if (command === "setup") {
+    const endpoint = webhookEndpointFor(first);
     check(
-      typeof first === "string" &&
-        /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/?$/.test(first),
-      "Pass the HTTPS Quick Tunnel URL printed by cloudflared.",
+      endpoint,
+      "Pass the public HTTPS URL that forwards to this relay (no credentials, query or loopback host). Local dispatch needs no setup URL.",
     );
-    const endpoint = first.replace(/\/$/, "") + "/webhooks/github";
     for (const name of [
       config.dispatchLabel,
       ...Object.values(config.agents).map((agent) => agent.label),
@@ -363,8 +363,8 @@ async function main() {
       }
       const saved = readJson(hookFile);
       check(
-        saved.id && validTunnelEndpoint(saved.endpoint),
-        "Register the Quick Tunnel with Vizor setup before scheduling.",
+        saved.id && validWebhookEndpoint(saved.endpoint),
+        "Register the public webhook URL with vizor setup before scheduling, or switch the queue to local dispatch.",
       );
       const reachable = async () => {
         try {

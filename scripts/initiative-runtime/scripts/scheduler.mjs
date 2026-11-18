@@ -423,7 +423,9 @@ export async function scheduleTick({
   }
 
   if (!preview && !(await reachable()))
-    return log("Relay or tunnel unavailable. Holding dispatch.");
+    return log(
+      "Relay or public webhook endpoint unavailable. Holding dispatch.",
+    );
   if (preview && queue.paused)
     log("Queue paused. Showing eligibility without dispatch.");
   const branch = github("GET", repo).default_branch;
