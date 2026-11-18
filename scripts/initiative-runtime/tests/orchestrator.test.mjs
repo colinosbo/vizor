@@ -872,3 +872,56 @@ test("repair keeps merge/check dependencies then queues verification in the orig
   await dispatch(recheck.number, randomUUID());
   assert.equal(queues, 1);
 });
+
+test(
+  "Claude subscription investigator binds its session, saves only structured output and classifies usage pauses",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    for (const mode of ["success", "usage", "wrong-session"]) {
+      const directory = mkdtempSync(join(tmpdir(), "vizor-claude-protocol-"));
+      t.after(() => rmSync(directory, { recursive: true, force: true }));
+      const fake = join(directory, "fake-claude");
+      // A portable stand-in for the installed CLI's documented stream-json events.
+      writeFileSync(
+        fake,
+        `#!${process.execPath}
+const args=process.argv.slice(2);
+const at=args.indexOf('--session-id');
+const id=${mode === "wrong-session" ? "'99999999-9999-9999-9999-999999999999'" : "args[at+1]"};
+if(!args.includes('--tools')||args[args.indexOf('--tools')+1]!==''||!args.includes('--strict-mcp-config'))process.exit(9);
+console.log(JSON.stringify({type:'system',subtype:'init',session_id:id}));
+${
+  mode === "usage"
+    ? "console.log(JSON.stringify({type:'result',is_error:true,session_id:id,result:\"You've hit your usage limit\"}));process.exitCode=1;"
+    : "console.log(JSON.stringify({type:'result',is_error:false,session_id:id,structured_output:{action:'external',summary:'s',nextStep:'n',evidence:['1'],externalRequirements:[]}}));"
+}`,
+        { mode: 0o755 },
+      );
+      atomicJson(join(directory, "request.json"), {
+        provider: "claude",
+        executable: fake,
+        prompt: "classify",
+        timeoutMs: 5000,
+        attempt: 0,
+      });
+      await supervise(directory);
+      const status = JSON.parse(readFileSync(join(directory, "status.json")));
+      assert.equal(status.provider, "claude");
+      if (mode === "success") {
+        assert.equal(status.state, "completed");
+        assert.match(status.session, /^[0-9a-f-]{36}$/);
+        assert.equal(
+          JSON.parse(readFileSync(join(directory, "decision.json"))).action,
+          "external",
+        );
+      } else if (mode === "usage") {
+        assert.equal(status.state, "usage_paused");
+        assert.ok(status.retryAt > Date.now());
+      } else {
+        // Output from any other session is never accepted as this run's decision.
+        assert.equal(status.state, "uncertain");
+        assert.equal(status.session, null);
+      }
+    }
+  },
+);

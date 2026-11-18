@@ -208,7 +208,12 @@ async function update() {
       ? "Queue paused"
       : "Queue enabled · " + snapshot.mode;
     $("queue-state").className =
-      "badge " + (snapshot.paused ? "paused" : "running");
+      "badge " +
+      (data.stale || snapshot.errors?.length
+        ? "blocked"
+        : snapshot.paused
+          ? "paused"
+          : "running");
     $("queue-state").textContent = data.stale
       ? "Scheduler stale / stopped"
       : snapshot.errors?.length
@@ -250,6 +255,17 @@ async function update() {
         ? "Scheduler snapshot is stale or its process is stopped. Check runtime health."
         : "";
     $("notice").hidden = !data.stale && !snapshot.errors?.length;
+    // The approved plan's phase state, so an empty queue is never mistaken for idle work.
+    $("plan").textContent = snapshot.plan
+      ? "Approved plan " +
+        (snapshot.plan.plan ?? "") +
+        (snapshot.plan.phase ? " · phase " + snapshot.plan.phase : "") +
+        " · " +
+        snapshot.plan.state +
+        ": " +
+        snapshot.plan.detail
+      : "";
+    $("plan").hidden = !snapshot.plan;
     $("agent-section").hidden = false;
     $("task-section").hidden = false;
     renderAgents();

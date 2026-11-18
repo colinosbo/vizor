@@ -19,6 +19,10 @@ import {
   finishCloudReturn,
 } from "./cloud-return.mjs";
 import { advanceCloudRechecks } from "./cloud-recheck.mjs";
+import {
+  planAssignmentAllowed,
+  publishApprovedPhases,
+} from "./phase-publisher.mjs";
 
 const number = (value) => Number.isSafeInteger(value) && value > 0;
 const fail = (message) => {
@@ -45,7 +49,8 @@ export function readQueue(file) {
     (queue.dispatchMode !== undefined &&
       !["webhook", "local"].includes(queue.dispatchMode)) ||
     (queue.blockerOrchestrator !== undefined &&
-      typeof queue.blockerOrchestrator !== "boolean")
+      typeof queue.blockerOrchestrator !== "boolean") ||
+    (queue.planFile !== undefined && typeof queue.planFile !== "string")
   ) {
     fail(
       "Invalid queue issues, pause setting, automatic review setting or dispatch mode.",
@@ -213,7 +218,7 @@ export async function scheduleTick({
   preview = false,
   log = console.log,
   onStatus,
-  authorizeAssignment = () => true,
+  authorizeAssignment = (args) => planAssignmentAllowed(db, args),
 }) {
   const repo = "repos/" + config.repository;
   const path = (issue) => repo + "/issues/" + issue;
@@ -866,6 +871,7 @@ export async function runScheduler({ file, once, ...services }) {
     const statuses = [];
     const errors = [];
     let queue;
+    let planStatus = null;
     const previous = readRuntimeSnapshot(file).snapshot;
     if (!services.preview)
       atomicJson(snapshotPath(file), {
@@ -910,6 +916,22 @@ export async function runScheduler({ file, once, ...services }) {
             });
         } catch (error) {
           errors.push("Recovery needs reconciliation: " + error.message);
+          console.error(logLine(errors.at(-1)));
+        }
+      }
+      if (!services.preview && queue.planFile) {
+        try {
+          planStatus = publishApprovedPhases({
+            ...services,
+            log: roundServices.log,
+            queue,
+            file,
+          });
+        } catch (error) {
+          planStatus = { state: "holding", detail: error.message };
+          errors.push(
+            "Plan publication holding; queued work continues: " + error.message,
+          );
           console.error(logLine(errors.at(-1)));
         }
       }
@@ -976,6 +998,7 @@ export async function runScheduler({ file, once, ...services }) {
             ([id, { name }]) => ({ id, name }),
           ),
           blockers: blockerSnapshot(services.db),
+          plan: planStatus ?? previous?.plan ?? null,
         });
       }
     }
