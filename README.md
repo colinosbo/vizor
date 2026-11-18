@@ -8,7 +8,7 @@ Vizor is a background runner and a local web dashboard. It dispatches an approve
 
 Dispatch is local by default and needs no public endpoint. Webhook mode is optional and uses a public HTTPS URL you supply.
 
-Setup, commands and current limits are in the [runtime README](scripts/initiative-runtime/README.md).
+Setup, commands and current limits are in the [runtime README](scripts/initiative-runtime/README.md). Decisions are in [AGENTS.md](AGENTS.md) and remaining release work in the [roadmap](docs/ROADMAP.md).
 
 ## Development
 

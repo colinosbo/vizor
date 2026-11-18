@@ -1,32 +1,23 @@
-# Vizor development automation plan
+# How Vizor works
 
-**Status:** Proposed workflow. GitHub webhook dispatch through Cloudflare still needs implementation and a live test.
+**Status:** Implemented in `scripts/initiative-runtime/` and exercised by the Vision pilot. Open product work is tracked in [ROADMAP.md](ROADMAP.md).
 
-Vizor is the standalone app for planning and coordinating development work. GitHub is the source of truth for issues, code, pull requests, and checks. Vizor records assignments, runner activity, blockers, and handoffs.
+Vizor is a background runner with a local dashboard for planning and coordinating development work. GitHub is the source of truth for issues, code, pull requests, and checks. Vizor records assignments, runner activity, blockers, and handoffs.
 
-| Phase                        | Workflow                                                                                                                                                                                                                                                                        |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. Plan                      | The user brings a project goal to the Orchestrator. Together they fill gaps and break the plan into phases. Each task has acceptance criteria, dependencies, and an expected file scope.                                                                                        |
-| 2. Approve and publish tasks | The user approves the plan and scope. Vizor creates GitHub issues and links them to their phases and dependencies.                                                                                                                                                              |
-| 3. Release ready work        | The Orchestrator sequences dependent tasks and tasks with overlapping file scopes. It saves the assignment and applies the agreed GitHub dispatch label when the task is ready.                                                                                                 |
-| 4. Dispatch on the event     | GitHub sends a signed event through Cloudflare Tunnel to Vizor's local webhook endpoint. Vizor verifies the signature, matches the issue to the saved assignment, and records the delivery once before dispatching it. The listener waits for work. The model runs when called. |
-| 5. Build and review          | The worker reads the issue and relevant code, works in an isolated branch and worktree, and reports questions, blockers, and check results. It hands off a PR. Review and CI determine readiness under the project's merge rules.                                               |
-| 6. Show progress             | The local dashboard shows phases, open issues and PRs, who is working, blockers, completed work, and a chronological log. GitHub supplies issue, PR, and check status. Vizor supplies queued work and runner-confirmed activity.                                                |
+| Phase                        | Workflow                                                                                                                                                                                                                                                                                                                                           |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Plan                      | The user brings a project goal to the Orchestrator. Together they fill gaps and break the plan into phases. Each task has acceptance criteria, dependencies, and an expected file scope.                                                                                                                                                           |
+| 2. Approve and publish tasks | The user approves the plan and scope. Vizor creates GitHub issues and links them to their phases and dependencies.                                                                                                                                                                                                                                 |
+| 3. Release ready work        | The Orchestrator sequences dependent tasks and tasks with overlapping file scopes. It saves the assignment and applies the agreed GitHub dispatch label when the task is ready.                                                                                                                                                                    |
+| 4. Dispatch                  | By default the scheduler polls GitHub and calls the saved worker directly. In optional webhook mode, GitHub sends a signed event to an operator-supplied public URL that forwards to the local relay. Either way Vizor matches the issue to the saved assignment and reserves one receipt before calling the provider. The model runs when called. |
+| 5. Build and review          | The worker reads the issue and relevant code, works in an isolated branch and worktree, and reports questions, blockers, and check results. It hands off a PR. Review and CI determine readiness under the project's merge rules.                                                                                                                  |
+| 6. Show progress             | The local dashboard shows phases, open issues and PRs, who is working, blockers, completed work, and a chronological log. GitHub supplies issue, PR, and check status. Vizor supplies queued work and runner-confirmed activity.                                                                                                                   |
 
-Planning skills guide decomposition and conflict checks before dispatch. Worker and reviewer skills guide what to inspect, test, and report. Vizor handles assignment rules and webhook verification in code.
+Planning skills guide decomposition and conflict checks before dispatch. Worker and reviewer skills guide what to inspect, test, and report. Vizor handles assignment rules, receipts and result verification in code.
 
-For the first test, run `cloudflared` on the Vizor PC and expose only the GitHub webhook endpoint. Use the GitHub signing secret to verify deliveries and keep runner credentials separate. Store secrets in private configuration. The PC, listener, and tunnel need to be running for GitHub to deliver the event.
+The runner keeps working when the dashboard tab is closed. The PC must be on and the Windows user signed in for the scheduled tasks to run. Store secrets in private configuration, never in the repository.
 
-**First milestone:** One approved GitHub issue dispatches one real agent. The dashboard shows queued, working, and PR ready, with a link to the resulting PR. Resending the same delivery starts no additional run.
-
-**Pilot evidence checklist:** Record these before marking the first milestone done.
-
-- [ ] Delivery ID: the GitHub `X-GitHub-Delivery` value of the accepted webhook delivery.
-- [ ] Observed dashboard states: queued, working, and PR ready, as shown for that run.
-- [ ] PR link: the URL of the resulting pull request.
-- [ ] Duplicate check: resending the same delivery ID started no additional run.
-
-**Open decisions:** Finalize the dispatch label and how Vizor handles missed deliveries after downtime. Choose a stable tunnel hostname if the temporary Quick Tunnel URL becomes a daily setup burden.
+The decision records below are kept as written, except that references to the Cloudflare tunnel are superseded: Vizor no longer starts a tunnel (November 18, 2026).
 
 ## Approved blocker escalation (November 17, 2026)
 
@@ -37,7 +28,7 @@ Colin authorized implementing and operating automatic blocker escalation for Vis
 3. **Return and verify.** Preserve the original worker. A capacity pause keeps its existing task/session. The configured Claude Fire interface starts a new session; there is no configured continuation or run-state endpoint. After independently confirming the original run ended, create one clearly linked successor through the normal queue. Record that it is a follow-up, not same-chat resumption. Never infer provider termination from a result marker alone.
 4. **First real case.** #25's Phase 2 activation and #36 acceptance are settled by Vision PR #40 and the recorded owner comments. Automatically return qualification preparation to Ronald, documenting unknown external facts. The real partner/workspace/access/budget gate stays held. Morgan's already-started #26 must not be duplicated.
 
-Implementation scope: scripts/initiative-runtime/{scripts,tests}, its operator documentation and this plan. Vision owns the corresponding decision record. Acceptance: signed blocker through durable investigation and original-worker handoff; duplicate, restart, ambiguous response, usage and genuine external-boundary tests; passing GitHub checks; one observed live #25 follow-up receipt and dashboard evidence. Logon startup and the signed Cloudflare supervisor remain in place; no periodic AI review is introduced.
+Implementation scope: scripts/initiative-runtime/{scripts,tests}, its operator documentation and this plan. Vision owns the corresponding decision record. Acceptance: signed blocker through durable investigation and original-worker handoff; duplicate, restart, ambiguous response, usage and genuine external-boundary tests; passing GitHub checks; one observed live #25 follow-up receipt and dashboard evidence. Logon startup and the signed webhook supervisor remain in place; no periodic AI review is introduced.
 
 ## Supported cloud continuation and lifecycle observation (November 17, 2026)
 
@@ -49,4 +40,4 @@ Same-chat message queueing does not require inventing an ended state. The provid
 
 Each continuation has a new trusted assignment comment and unguessable result-generation token. Older/cross-generation results cannot finish it. Preparation completion keeps the original external gate blocked and unaccepted. Reproducible defects use the existing repair merge/check gates, then queue the recheck assignment into the original verifier's cloud chat instead of starting a replacement verifier. Original assignments, Fire receipts and session bindings remain in the audit trail. Recursive return/repair loops remain held.
 
-Acceptance: passing signed-event, generation, exact-session, usage, unknown/stale metadata, duplicate, restart, capacity-release and repair/recheck tests; GitHub checks; one controlled live blocker through real Codex investigation and a same-session worker continuation/result. Retain hidden Windows launchers, private configuration and the signed Cloudflare webhook route. No new paid service, API key or cloud migration.
+Acceptance: passing signed-event, generation, exact-session, usage, unknown/stale metadata, duplicate, restart, capacity-release and repair/recheck tests; GitHub checks; one controlled live blocker through real Codex investigation and a same-session worker continuation/result. Retain hidden Windows launchers, private configuration and the signed webhook route. No new paid service, API key or cloud migration.
