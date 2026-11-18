@@ -628,7 +628,7 @@ export function orchestratorTick({
           db,
           run.id,
           "launching",
-          "Starting one saved Codex investigation for this blocker.",
+          `Starting one saved ${host.provider === "claude" ? "Claude" : "Codex"} investigation for this blocker.`,
         );
         launch({ root, run, host, packet });
         continue;
@@ -655,7 +655,7 @@ export function orchestratorTick({
         }
         const status = json(statusFile);
         if (status.session && !/^[a-f0-9-]{36}$/i.test(status.session))
-          throw Error("Invalid Codex session ID.");
+          throw Error("Invalid investigation session ID.");
         if (["running", "starting"].includes(status.state)) {
           if (now - status.at > 30000) status.state = "uncertain";
           else status.state = "running";
@@ -678,7 +678,7 @@ export function orchestratorTick({
             db,
             run.id,
             status.state,
-            `Codex ${status.state}; session ${status.session ?? "unconfirmed"}.`,
+            `${status.provider === "claude" ? "Claude" : "Codex"} investigation ${status.state}; session ${status.session ?? "unconfirmed"}.`,
           );
         run.session = status.session ?? run.session;
         run.state = status.state;
