@@ -1,7 +1,10 @@
 param(
     [Parameter(Mandatory)][string]$ProjectPath,
     [Parameter(Mandatory)][string]$QueuePath,
-    [ValidateSet('webhook', 'local')][string]$Mode = 'webhook',
+    [ValidateSet('webhook', 'local')][string]$Mode = 'local',
+    # Webhook mode only: the public HTTPS URL that forwards to this relay
+    # (a reverse proxy or a tunnel you operate). Vizor does not start one.
+    [string]$WebhookUrl,
     [string]$TaskPrefix
 )
 $ErrorActionPreference = 'Stop'
@@ -20,8 +23,13 @@ if (-not $gh) {
     if (-not (Test-Path -LiteralPath $bundled)) { throw 'Install GitHub CLI or put gh.exe on PATH.' }
     $ghPath = $bundled
 } else { $ghPath = $gh.Source }
-$tunnel = $null
-if ($Mode -eq 'webhook') { $tunnel = (Get-Command cloudflared.exe -ErrorAction Stop).Source }
+if ($Mode -eq 'webhook') {
+    if (-not $WebhookUrl) { throw 'Webhook mode needs -WebhookUrl with the public HTTPS URL that forwards to the relay. Use -Mode local otherwise.' }
+    $parsed = $null
+    if (-not [Uri]::TryCreate($WebhookUrl, [UriKind]::Absolute, [ref]$parsed) -or $parsed.Scheme -ne 'https' -or $parsed.UserInfo -or $parsed.Query -or $parsed.Fragment -or $parsed.IsLoopback) {
+        throw 'WebhookUrl must be a public HTTPS URL without credentials, query or loopback host.'
+    }
+} else { $WebhookUrl = $null }
 if (-not $TaskPrefix) {
     $digest = [Security.Cryptography.SHA256]::Create()
     try { $key = [BitConverter]::ToString($digest.ComputeHash([Text.Encoding]::UTF8.GetBytes($project.ToLowerInvariant()))).Replace('-', '').Substring(0, 12) }
@@ -34,7 +42,7 @@ $null = New-Item -ItemType Directory -Path $state -Force
 $settingsFile = Join-Path $state 'runtime-host.json'
 $settingsData = @{
     project = $project; queue = $queue; runtime = $runtime
-    node = $node; git = $git; gh = $ghPath; cloudflared = $tunnel
+    node = $node; git = $git; gh = $ghPath; webhookUrl = $WebhookUrl
     mode = $Mode; prefix = $TaskPrefix
 }
 [IO.File]::WriteAllText($settingsFile, ($settingsData | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
@@ -73,7 +81,7 @@ foreach ($role in $roles) {
 }
 Write-Output ('Installed ' + $config.repository + ' runtime. Tasks restart after Windows sign-in.')
 if ($Mode -eq 'local') {
-    Write-Output ('Logs are in ' + $state + '. Local dispatch calls workers directly; no tunnel is required.')
+    Write-Output ('Logs are in ' + $state + '. Local dispatch calls workers directly; no public endpoint is required.')
 } else {
     Write-Output ('Logs are in ' + $state + '. Webhook mode activates after signed diagnostics succeed.')
 }
