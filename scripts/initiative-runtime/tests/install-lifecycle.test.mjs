@@ -8,6 +8,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -51,8 +52,15 @@ const hashDir = (dir, skip = () => false) =>
   );
 
 test("clean install, upgrade, rollback and restart keep one dispatch per assignment", async (t) => {
-  const work = mkdtempSync(join(tmpdir(), "vizor install "));
-  t.after(() => rmSync(work, { recursive: true, force: true }));
+  // Long-form path: Windows temp can be an 8.3 short name (RUNNER~1).
+  const work = realpathSync.native(
+    mkdtempSync(join(tmpdir(), "vizor install ")),
+  );
+  const cleanup = [];
+  t.after(() => {
+    for (const step of cleanup.reverse()) step();
+    rmSync(work, { recursive: true, force: true });
+  });
   const home = join(work, "home");
   const env = {
     VIZOR_HOME: home,
@@ -93,7 +101,7 @@ test("clean install, upgrade, rollback and restart keep one dispatch per assignm
               "-NoProfile",
               "-NonInteractive",
               "-Command",
-              "Expand-Archive -LiteralPath '" +
+              "$ErrorActionPreference='Stop'; Expand-Archive -LiteralPath '" +
                 zip.replaceAll("'", "''") +
                 "' -DestinationPath '" +
                 target.replaceAll("'", "''") +
@@ -106,6 +114,16 @@ test("clean install, upgrade, rollback and restart keep one dispatch per assignm
       extracted.status,
       0,
       String(extracted.stdout || "") + (extracted.stderr || extracted.error),
+    );
+    assert.ok(
+      existsSync(join(target, "vizor-" + version, "setup.mjs")),
+      "extraction produced: " +
+        (existsSync(target)
+          ? readdirSync(target, { recursive: true }).slice(0, 20).join(", ")
+          : "nothing") +
+        " | " +
+        String(extracted.stdout || "") +
+        (extracted.stderr || ""),
     );
     cpSync(join(target, "vizor-" + version), target, { recursive: true });
     rmSync(join(target, "vizor-" + version), { recursive: true });
@@ -295,7 +313,7 @@ test("clean install, upgrade, rollback and restart keep one dispatch per assignm
       stdio: "ignore",
     },
   );
-  t.after(() => holder.kill("SIGKILL"));
+  cleanup.push(() => holder.kill("SIGKILL"));
   for (let i = 0; i < 100; i++) {
     const snap = existsSync(queueFile + ".snapshot.json")
       ? JSON.parse(readFileSync(queueFile + ".snapshot.json", "utf8"))

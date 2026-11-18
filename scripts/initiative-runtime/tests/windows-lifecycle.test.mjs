@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -36,7 +42,10 @@ test(
   "stop.ps1 stops only this project's supervisors and runtime processes; start.ps1 re-enables its tasks",
   { skip: process.platform !== "win32" },
   async (t) => {
-    const work = mkdtempSync(join(tmpdir(), "vizor stop test "));
+    // Long-form path, as install.ps1 records it (temp can be an 8.3 short name).
+    const work = realpathSync.native(
+      mkdtempSync(join(tmpdir(), "vizor stop test ")),
+    );
     const spawned = [];
     t.after(() => {
       for (const child of spawned)

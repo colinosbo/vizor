@@ -72,11 +72,14 @@ test("an expired heartbeat is taken over even when liveness is unknown", () => {
 
 test("runScheduler refuses to start while another runner holds the queue", async (t) => {
   const directory = mkdtempSync(join(tmpdir(), "vizor-lease-"));
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
   const file = join(directory, "queue.json");
   writeFileSync(file, JSON.stringify({ paused: false, issues: [] }));
   const db = openDispatchStore(new DatabaseSync(join(directory, "d.db")));
-  t.after(() => db.close());
+  // Close the database before deleting its folder (Windows locks open files).
+  t.after(() => {
+    db.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
   openSchedulerStore(db);
   // Simulate a live runner: this test's parent process is certainly alive.
   acquireLease(db, { queue: file, executable: "other", pid: process.ppid });
