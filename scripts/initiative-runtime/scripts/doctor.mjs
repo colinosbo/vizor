@@ -82,11 +82,11 @@ export async function runDoctor({
   };
 
   const nodeVersion = process.versions.node;
-  const supportedNode = Number(nodeVersion.split(".")[0]) >= 24;
+  const supportedNode = Number(nodeVersion.split(".")[0]) === 24;
   status(
     supportedNode,
     "Node.js",
-    supportedNode ? nodeVersion : "Install Node.js 24 or newer.",
+    supportedNode ? nodeVersion : "Install Node.js 24.",
   );
   status(
     true,

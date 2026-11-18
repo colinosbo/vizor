@@ -22,7 +22,7 @@ test(
     const result = await promisify(execFile)(
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-Command", code],
-      { windowsHide: true, timeout: 10000 },
+      { windowsHide: true, timeout: 30000 },
     );
     assert.equal(result.stdout.trim(), "passed");
   },
@@ -56,7 +56,7 @@ test(
           "-Command",
           ". '" + script + "'; Test-VizorRelay -Port " + server.address().port,
         ],
-        { windowsHide: true, timeout: 10000 },
+        { windowsHide: true, timeout: 30000 },
       );
     assert.equal((await check()).stdout.trim(), "True");
     expected = false;

@@ -140,7 +140,10 @@ test("releases three agents independently, then waits for review and verified me
     comments.get(issue).push({
       id: issue * 10 + 1,
       user: { login: "lead" },
-      body: issue === 2 ? "Vizor result: done (PR #25)" : "Vizor result: done",
+      body:
+        issue === 2
+          ? "Vizor result: done (PR #25)"
+          : "Vizor result: done\nhttps://github.com/owner/repo/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/artifact.md",
     });
   }
   await tick();
@@ -235,6 +238,9 @@ test("releases three agents independently, then waits for review and verified me
   assert.deepEqual(started, [5]);
   assert.deepEqual(closed, [1, 3, 2], "retired and active issues stay open");
 
-  addIssue(1, "ronald", [4]);
+  // Accepted issues are frozen completion records; test cycles on new tasks.
+  addIssue(6, "riley", [7]);
+  addIssue(7, "morgan", [6]);
+  queue.issues.push(6, 7);
   await assert.rejects(tick(), /Dependency cycle/);
 });

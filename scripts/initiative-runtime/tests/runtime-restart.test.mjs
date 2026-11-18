@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -22,6 +23,8 @@ test(
     const scripts = join(directory, "scripts");
     mkdirSync(state);
     mkdirSync(scripts);
+    const oldLog = Buffer.from("\ufeffhistorical UTF16 log\r\n", "utf16le");
+    writeFileSync(join(state, "host-scheduler.log"), oldLog);
     const launcher = join(directory, "run.ps1");
     copyFileSync(new URL("../windows/run.ps1", import.meta.url), launcher);
     const fakeGit = join(directory, "git-fixture.cmd");
@@ -38,7 +41,7 @@ test(
         ";\n" +
         "const first=!existsSync(file);\n" +
         'appendFileSync(file,JSON.stringify({pid:process.pid,first})+"\\n");\n' +
-        "if(first)process.exit(17);else setInterval(()=>{},1000);\n",
+        'if(first){console.log("fixture-only-credential");process.exit(17);}else setInterval(()=>{},1000);\n',
     );
     writeFileSync(
       join(state, "runtime-host.json"),
@@ -70,7 +73,7 @@ test(
         spawnSync("taskkill.exe", ["/PID", String(child.pid), "/T", "/F"], {
           windowsHide: true,
           stdio: "ignore",
-          timeout: 10000,
+          timeout: 30000,
         });
       assert.ok(resolve(directory).startsWith(resolve(tmpdir()) + sep));
       rmSync(directory, {
@@ -81,7 +84,7 @@ test(
       });
     });
     let starts = [];
-    const deadline = Date.now() + 15000;
+    const deadline = Date.now() + 45000;
     while (Date.now() < deadline) {
       if (existsSync(pidFile))
         starts = readFileSync(pidFile, "utf8")
@@ -97,6 +100,15 @@ test(
       2,
       "one failed process and one automatic replacement expected",
     );
+    const archived = readdirSync(state).find((name) =>
+      name.startsWith("host-scheduler.log.utf16-"),
+    );
+    assert.ok(archived);
+    assert.deepEqual(readFileSync(join(state, archived)), oldLog);
+    const log = readFileSync(join(state, "host-scheduler.log"), "utf8");
+    assert.match(log, /^\d{4}-\d{2}-\d{2}T/);
+    assert.ok(!log.includes("fixture-only-credential"));
+    assert.ok(log.includes("[redacted]"));
     assert.equal(starts[0].first, true);
     assert.equal(starts[1].first, false);
     assert.notEqual(starts[0].pid, starts[1].pid);

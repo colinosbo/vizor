@@ -1,5 +1,10 @@
+import { createGitHubClient } from "./github-client.mjs";
+import {
+  runtimeHealth,
+  restartRuntime,
+  requireNode24,
+} from "./runtime-control.mjs";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { dashboardSnapshot, serveDashboard } from "./dashboard.mjs";
@@ -32,28 +37,12 @@ const check = (condition, message) => {
   if (!condition) throw Error(message);
 };
 
-function github(method, path, body, allowMissing = false) {
-  const args = ["api", "-X", method, path];
-  if (body) args.push("--input", "-");
-  const result = spawnSync("gh", args, {
-    input: body && JSON.stringify(body),
-    encoding: "utf8",
-    timeout: 15000,
-    windowsHide: true,
-  });
-  check(!result.error, "Install GitHub CLI and run gh auth login.");
-  if (allowMissing && result.status && /\bHTTP 404\b/.test(result.stderr))
-    return null;
-  check(
-    result.status === 0,
-    "GitHub " +
-      method +
-      " " +
-      path +
-      " failed. Check gh auth status and repo access.",
-  );
-  return result.stdout.trim() ? JSON.parse(result.stdout) : undefined;
+let githubClient;
+function github(...args) {
+  githubClient ??= createGitHubClient();
+  return githubClient(...args);
 }
+github.budget = () => githubClient?.budget() ?? {};
 
 function readConfig() {
   const config = readJson("vizor.config.json");
@@ -140,9 +129,12 @@ function getCredentials(config, verify = true) {
 }
 
 async function main() {
+  requireNode24();
   const [command, first, second, third] = process.argv.slice(2);
   if (
     ![
+      "health",
+      "restart",
       "init",
       "serve",
       "setup",
@@ -160,7 +152,7 @@ async function main() {
     ].includes(command)
   ) {
     console.log(
-      "Usage: npm run vizor -- init | serve | setup <Quick Tunnel URL> | assign <issue> <agent ID> <comment ID> | status | disconnect | schedule <queue.json> [--once|--preview] | accept <issue> | retire <queue.json> <issue> | doctor | dashboard <queue.json> [port]",
+      "Usage: npm run vizor -- init | serve | setup <Quick Tunnel URL> | assign <issue> <agent ID> <comment ID> | status | disconnect | schedule <queue.json> [--once|--preview] | accept <issue> | retire <queue.json> <issue> | doctor | health [queue.json] | restart | dashboard <queue.json> [port]",
     );
     return;
   }
@@ -172,6 +164,14 @@ async function main() {
   const prefix = ".vizor/" + repoKey;
   const hookFile = prefix + "-webhook.json";
   const databaseFile = prefix + ".db";
+  if (command === "health" || command === "restart") {
+    if (command === "restart")
+      restartRuntime({ project: process.cwd(), executable: process.argv[1] });
+    const health = runtimeHealth({ project: process.cwd(), file: first });
+    console.log(JSON.stringify(health, null, 2));
+    if (!health.healthy) process.exitCode = 1;
+    return;
+  }
   if (command === "dashboard-snapshot") {
     console.log(
       JSON.stringify(
@@ -496,3 +496,5 @@ try {
   );
   process.exitCode = 1;
 }
+
+if (githubClient) githubClient.close();

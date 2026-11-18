@@ -859,7 +859,11 @@ test("repair keeps merge/check dependencies then queues verification in the orig
   );
   f.commentMap
     .get(recheck.number)
-    .push({ id: 900, user: { login: "lead" }, body: "Vizor result: done" });
+    .push({
+      id: 900,
+      user: { login: "lead" },
+      body: "Vizor result: done\nhttps://github.com/owner/repo/blob/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/artifact.md",
+    });
   await schedule();
   assert.equal(
     f.db

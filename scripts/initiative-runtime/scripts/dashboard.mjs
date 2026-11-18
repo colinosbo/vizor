@@ -1,59 +1,16 @@
-import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
-import { DatabaseSync } from "node:sqlite";
-import { promisify } from "node:util";
-import { readQueue, scheduleTick } from "./scheduler.mjs";
-import { blockerSnapshot } from "./blockers.mjs";
-
-const execute = promisify(execFile);
+import { readRuntimeSnapshot } from "./runtime-snapshot.mjs";
 const files = {
   "/": ["index.html", "text/html; charset=utf-8"],
   "/dashboard.css": ["dashboard.css", "text/css; charset=utf-8"],
   "/dashboard.js": ["dashboard.js", "text/javascript; charset=utf-8"],
 };
-
-export async function dashboardSnapshot({
-  config,
-  databaseFile,
-  file,
-  github,
-}) {
-  const queue = readQueue(file);
-  const db = new DatabaseSync(databaseFile, { readOnly: true, timeout: 5000 });
-  const tasks = [];
-  let blockers;
-  try {
-    blockers = blockerSnapshot(db);
-    await scheduleTick({
-      db,
-      config,
-      queue,
-      preview: true,
-      log() {},
-      github: (method, ...args) => {
-        if (method !== "GET") throw Error("Dashboard requests are read-only.");
-        return github(method, ...args);
-      },
-      onStatus: (task) => tasks.push(task),
-    });
-  } finally {
-    db.close();
-  }
-  return {
-    repository: config.repository,
-    updatedAt: new Date().toISOString(),
-    paused: queue.paused,
-    agents: Object.entries(config.agents).map(([id, { name }]) => ({
-      id,
-      name,
-    })),
-    tasks,
-    blockers,
-  };
+export async function dashboardSnapshot({ file }) {
+  return readRuntimeSnapshot(file).snapshot;
 }
 
-export function serveDashboard({ executable, queueFile, port }) {
+export function serveDashboard({ queueFile, port }) {
   const allowedHosts = new Set(["127.0.0.1:" + port, "localhost:" + port]);
   const assets = new Map(
     Object.entries(files).map(([path, [name, contentType]]) => [
@@ -64,37 +21,6 @@ export function serveDashboard({ executable, queueFile, port }) {
       },
     ]),
   );
-  let latest;
-  let attemptAt = 0;
-  let pending;
-  let unavailable = false;
-
-  function refresh() {
-    if (pending) return pending;
-    if (Date.now() - attemptAt < 55000) return;
-    attemptAt = Date.now();
-    pending = execute(
-      process.execPath,
-      [executable, "dashboard-snapshot", queueFile],
-      {
-        windowsHide: true,
-        timeout: 55000,
-        maxBuffer: 2 * 1024 * 1024,
-      },
-    )
-      .then(({ stdout }) => {
-        latest = JSON.parse(stdout);
-        unavailable = false;
-      })
-      .catch(() => {
-        unavailable = true;
-      })
-      .finally(() => {
-        pending = undefined;
-      });
-    return pending;
-  }
-
   const server = createServer(async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("X-Content-Type-Options", "nosniff");
@@ -114,13 +40,12 @@ export function serveDashboard({ executable, queueFile, port }) {
       return;
     }
     if (request.url === "/api/queue") {
-      await refresh();
+      const result = readRuntimeSnapshot(queueFile);
+      const latest = result.snapshot;
       response.writeHead(latest ? 200 : 503, {
         "Content-Type": "application/json; charset=utf-8",
       });
-      response.end(
-        JSON.stringify({ snapshot: latest ?? null, stale: unavailable }),
-      );
+      response.end(JSON.stringify(result));
       return;
     }
     const asset = assets.get(request.url);

@@ -1,6 +1,9 @@
 const $ = (id) => document.getElementById(id);
 const statusName = {
-  running: "Started",
+  running: "Running (observed)",
+  started: "Start confirmed",
+  unconfirmed: "Start unconfirmed",
+  capacity: "Usage paused",
   ready: "Ready",
   blocked: "Blocked",
   waiting: "Waiting",
@@ -8,7 +11,13 @@ const statusName = {
   checks: "PR / checks",
   complete: "Complete",
 };
-const attention = new Set(["blocked", "review", "checks"]);
+const attention = new Set([
+  "blocked",
+  "review",
+  "checks",
+  "unconfirmed",
+  "capacity",
+]);
 let snapshot;
 let filter = "remaining";
 
@@ -41,7 +50,7 @@ function renderAgents() {
     ...snapshot.agents.map(({ id, name }) => {
       const tasks = snapshot.tasks.filter((task) => task.agent === id);
       const current =
-        tasks.find((task) => task.status === "running") ??
+        tasks.find((task) => ["running", "started"].includes(task.status)) ??
         tasks.find((task) => task.status === "blocked" && task.receipt) ??
         tasks.find((task) => attention.has(task.status));
       const next =
@@ -197,18 +206,50 @@ async function update() {
     $("repository").href = "https://github.com/" + snapshot.repository;
     $("queue-state").textContent = snapshot.paused
       ? "Queue paused"
-      : "Queue enabled";
+      : "Queue enabled · " + snapshot.mode;
     $("queue-state").className =
       "badge " + (snapshot.paused ? "paused" : "running");
+    $("queue-state").textContent = data.stale
+      ? "Scheduler stale / stopped"
+      : snapshot.errors?.length
+        ? "Scheduler holding"
+        : snapshot.roundState === "syncing"
+          ? "Scheduler syncing"
+          : snapshot.paused
+            ? "Queue paused"
+            : "Queue enabled · " + snapshot.mode;
+    $("updated").title =
+      "Scheduler PID " +
+      snapshot.pid +
+      "; last GitHub sync " +
+      (snapshot.lastSuccessfulGitHubSync ?? "none") +
+      "; rate remaining " +
+      (snapshot.rate?.remaining ?? "unknown");
     $("updated").textContent =
       "Updated " +
       new Date(snapshot.updatedAt).toLocaleTimeString([], {
         hour: "numeric",
         minute: "2-digit",
-      });
+      }) +
+      " · PID " +
+      snapshot.pid +
+      " · GitHub sync " +
+      (snapshot.lastSuccessfulGitHubSync
+        ? new Date(snapshot.lastSuccessfulGitHubSync).toLocaleTimeString()
+        : "not yet") +
+      " · budget " +
+      (snapshot.rate?.remaining ?? "unknown") +
+      " · round " +
+      (snapshot.roundDurationMs ?? 0) +
+      " ms";
     $("notice").textContent =
-      "Live refresh failed. Showing the last successful snapshot.";
-    $("notice").hidden = !data.stale;
+      "Scheduler snapshot is stale or its process is stopped. Check runtime health.";
+    $("notice").textContent = snapshot.errors?.length
+      ? snapshot.errors.join(" ")
+      : data.stale
+        ? "Scheduler snapshot is stale or its process is stopped. Check runtime health."
+        : "";
+    $("notice").hidden = !data.stale && !snapshot.errors?.length;
     $("agent-section").hidden = false;
     $("task-section").hidden = false;
     renderAgents();
@@ -217,7 +258,7 @@ async function update() {
   } catch {
     $("notice").textContent = snapshot
       ? "Live refresh failed. Showing the last successful snapshot."
-      : "Queue data is unavailable. Verify the queue file and GitHub sign-in on this PC.";
+      : "Scheduler snapshot is missing. Start the scheduler or check runtime health on this PC.";
     $("notice").hidden = false;
     $("queue-state").textContent = "Refresh unavailable";
     $("queue-state").className = "badge blocked";
