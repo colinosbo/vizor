@@ -34,7 +34,10 @@ export function webhookEndpointFor(base) {
   )
     return null;
   const path = url.pathname.replace(/\/+$/, "");
-  return url.origin + (path.endsWith("/webhooks/github") ? path : path + "/webhooks/github");
+  return (
+    url.origin +
+    (path.endsWith("/webhooks/github") ? path : path + "/webhooks/github")
+  );
 }
 export const validWebhookEndpoint = (value) =>
   typeof value === "string" && webhookEndpointFor(value) === value;

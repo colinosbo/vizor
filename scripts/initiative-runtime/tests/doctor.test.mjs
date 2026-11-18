@@ -104,7 +104,9 @@ test("doctor verifies signed pings, reports a stale webhook and never prints sec
         return github(method, path, ...args);
       },
       request: () =>
-        assert.fail("Local dispatch must never probe a public endpoint or relay"),
+        assert.fail(
+          "Local dispatch must never probe a public endpoint or relay",
+        ),
       command: () => 0,
       report: (line) => output.push(line),
     }),
