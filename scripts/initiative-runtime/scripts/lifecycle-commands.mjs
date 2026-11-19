@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
   existsSync,
@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { homedir } from "node:os";
+import { createInterface } from "node:readline";
 import { cpSync, readdirSync } from "node:fs";
 import {
   activate,
@@ -25,6 +26,10 @@ import {
   withInstallLock,
 } from "./installer.mjs";
 import { windowsPowerShellEnv } from "./runtime-control.mjs";
+import {
+  ROUTINE_TIMEOUT_MS,
+  validRoutineCredentials,
+} from "./routine-investigation.mjs";
 
 export const LIFECYCLE_COMMANDS = [
   "version",
@@ -37,6 +42,7 @@ export const LIFECYCLE_COMMANDS = [
   "autonomy",
   "skills",
   "investigator",
+  "init",
 ];
 
 const check = (condition, message) => {
@@ -154,6 +160,8 @@ function connect(args) {
       agents: Object.fromEntries(
         Object.keys(agents).map((id) => [id, { fireUrl: "", token: "" }]),
       ),
+      // The investigator routine for blocked tasks (see vizor investigator).
+      orchestrator: { fireUrl: "", token: "" },
     });
   // Keep private state out of the project's Git history.
   const ignore = ".gitignore";
@@ -180,7 +188,7 @@ function connect(args) {
         secrets +
         " (keep it private).",
       "  2. vizor labels        create the dispatch and worker labels in GitHub",
-      "  3. vizor investigator  turn on blocker investigation (needs the Claude CLI signed in)",
+      "  3. vizor investigator  turn on blocker investigation (investigator routine or Claude CLI)",
       "  4. vizor doctor        check GitHub access, labels, worker credentials and the investigator",
       "  5. vizor start         start the background runner (Windows)",
       "  6. vizor open          open the dashboard",
@@ -502,8 +510,26 @@ function findClaude(args) {
 }
 
 // Blocker investigation is a core part of Vizor: when a worker reports
-// "blocked", a read-only Claude investigation decides whether to route a
-// repair, return the worker to its same chat, or hold for the owner.
+// "blocked", one read-only investigation decides whether to route a repair,
+// return the worker, or hold the task for the owner. Preferred: an investigator
+// routine (a Claude Code routine with its own Fire URL), so nothing has to be
+// installed on the PC. Alternative: the signed-in Claude CLI on this PC. The
+// CLI, when present, also enables returning a worker to its same chat.
+function claudeSignedIn(claude) {
+  if (!claude || !existsSync(claude)) return false;
+  const auth = spawnSync(claude, ["auth", "status"], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 15000,
+  });
+  try {
+    const value = JSON.parse(auth.stdout);
+    return value.loggedIn === true && value.authMethod === "claude.ai";
+  } catch {
+    return false;
+  }
+}
+
 function investigator(args) {
   check(
     existsSync("vizor.config.json"),
@@ -513,24 +539,22 @@ function investigator(args) {
   const secrets = JSON.parse(
     readFileSync(join(".vizor", "secrets.json"), "utf8"),
   );
+  const routine = validRoutineCredentials(secrets.orchestrator);
   const claude = findClaude(args);
+  const cli = claudeSignedIn(claude);
+  const useCli = args.includes("--cli");
   check(
-    claude && existsSync(claude),
-    "Claude Code CLI not found. Install it (https://code.claude.com), or pass --claude <path to claude.exe>.",
+    routine || cli,
+    [
+      "No investigator available yet. Either:",
+      '  - create an investigator routine in Claude and paste its Fire URL and token into .vizor/secrets.json under "orchestrator" (recommended; nothing to install), or',
+      "  - install the Claude Code CLI and sign in: claude auth login --claudeai",
+      "Then run vizor investigator again.",
+    ].join("\n"),
   );
-  const auth = spawnSync(claude, ["auth", "status"], {
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: 15000,
-  });
-  let signedIn = false;
-  try {
-    const value = JSON.parse(auth.stdout);
-    signedIn = value.loggedIn === true && value.authMethod === "claude.ai";
-  } catch {}
   check(
-    signedIn,
-    "Sign the Claude CLI in to the account that owns the worker routines: claude auth login --claudeai",
+    !useCli || cli,
+    "--cli needs the Claude Code CLI installed and signed in (claude auth login --claudeai).",
   );
   const triggers = {};
   for (const id of Object.keys(config.agents)) {
@@ -549,21 +573,39 @@ function investigator(args) {
   const existing = existsSync(hostFile)
     ? JSON.parse(readFileSync(hostFile, "utf8"))
     : {};
-  // Keep anything already configured (for example a Codex provider, approved
-  // preparation issues or custom timeouts); fill in only what is missing.
+  const provider =
+    args.includes("--routine") || (!useCli && routine && !existing.provider)
+      ? "routine"
+      : useCli
+        ? "claude"
+        : (existing.provider ?? (routine ? "routine" : "claude"));
+  check(
+    provider !== "routine" || routine,
+    'The investigator routine needs its Fire URL and token in .vizor/secrets.json under "orchestrator".',
+  );
+  // Keep what is already configured (timeouts, preparation issues, triggers);
+  // an explicit --routine or --cli changes only the provider.
   const host = {
-    provider: "claude",
-    executable: claude,
-    timeoutMs: 300000,
+    timeoutMs: provider === "routine" ? ROUTINE_TIMEOUT_MS : 300000,
     preparationIssues: [],
     ...existing,
-    cloudReturn: {
+    provider,
+  };
+  if (provider === "routine") delete host.executable;
+  else
+    host.executable =
+      existing.provider === provider && existing.executable
+        ? existing.executable
+        : claude;
+  if (provider !== (existing.provider ?? provider))
+    host.timeoutMs = provider === "routine" ? ROUTINE_TIMEOUT_MS : 300000;
+  if (cli)
+    host.cloudReturn = {
       type: "claude-cloud-cli",
       executable: claude,
       ...existing.cloudReturn,
       triggers: { ...triggers, ...existing.cloudReturn?.triggers },
-    },
-  };
+    };
   if (host.cloudReturn && Array.isArray(host.endedSessions))
     delete host.endedSessions;
   writeFileSync(hostFile + ".tmp", JSON.stringify(host, null, 2) + "\n", {
@@ -579,23 +621,214 @@ function investigator(args) {
     [
       "Blocker investigation is on.",
       "  Investigator: " +
-        (host.provider === "claude" ? "Claude" : "Codex") +
-        " (" +
-        host.executable +
-        "), read-only, " +
-        Math.round(host.timeoutMs / 1000) +
-        "s limit",
-      "  Same-chat return: " +
-        Object.entries(host.cloudReturn.triggers)
-          .map(([id, trigger]) => id + " -> " + trigger)
-          .join(", "),
-      "When a worker reports blocked, Vizor investigates once and either routes a repair, returns the worker to its chat, or holds the task for you with a report on the issue.",
+        (provider === "routine"
+          ? "investigator routine (cloud; nothing installed on this PC)"
+          : (provider === "claude" ? "Claude" : "Codex") +
+            " CLI (" +
+            host.executable +
+            ")") +
+        ", read-only, " +
+        Math.round(host.timeoutMs / 60000) +
+        " min limit",
+      "  Returning a worker after a blocker: " +
+        (host.cloudReturn
+          ? "same chat (" +
+            Object.keys(host.cloudReturn.triggers).join(", ") +
+            ")"
+          : "linked follow-up chat (install and sign in the Claude CLI, then rerun, for same-chat return)"),
+      provider === "routine"
+        ? "Give the investigator routine the vizor-investigate skill (vizor skills installs it in this repository)."
+        : "",
+      "When a worker reports blocked, Vizor investigates once and either routes a repair, returns the worker, or holds the task for you with a report on the issue.",
       "Run vizor doctor to confirm.",
-    ].join("\n"),
+    ]
+      .filter(Boolean)
+      .join("\n"),
   );
 }
 
+// Guided setup in one command. The owner answers a few questions and pastes
+// secrets into one file; everything else (connect, labels, investigator,
+// autonomy, skills, doctor, start) runs automatically. Flags answer questions
+// up front: --repo, --manager, --worker (repeatable), --autonomy.
+async function init(args) {
+  const flag = (name) => {
+    const i = args.indexOf(name);
+    return i >= 0 ? args[i + 1] : undefined;
+  };
+  const self = (sub, inherit = true) =>
+    spawnSync(process.execPath, [process.argv[1], ...sub], {
+      stdio: inherit ? "inherit" : "pipe",
+      encoding: "utf8",
+    });
+  // A line queue, so answers piped in by a script or agent are not lost
+  // (readline drops lines that arrive before a question is asked).
+  const rl = createInterface({ input: process.stdin, terminal: false });
+  const pending = [];
+  const waiting = [];
+  let closed = false;
+  rl.on("line", (line) =>
+    waiting.length ? waiting.shift()(line) : pending.push(line),
+  );
+  rl.on("close", () => {
+    closed = true;
+    while (waiting.length) waiting.shift()("");
+  });
+  const nextLine = () =>
+    pending.length
+      ? Promise.resolve(pending.shift())
+      : closed
+        ? Promise.resolve("")
+        : new Promise((resolveLine) => waiting.push(resolveLine));
+  const ask = async (question, fallback) => {
+    process.stdout.write(
+      question + (fallback ? " [" + fallback + "]" : "") + ": ",
+    );
+    const answer = (await nextLine()).trim();
+    if (!process.stdin.isTTY) process.stdout.write("\n");
+    return answer || fallback || "";
+  };
+  const step = (n, text) => console.log("\n" + n + ". " + text);
+  try {
+    console.log("Vizor setup. Press Enter to accept a [default].");
+    if (!existsSync("vizor.config.json")) {
+      step(1, "Connect this folder");
+      const origin = spawnSync("git", ["remote", "get-url", "origin"], {
+        encoding: "utf8",
+      }).stdout?.trim();
+      const fromOrigin = /github\.com[/:]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(
+        origin ?? "",
+      )?.[1];
+      const login = spawnSync("gh", ["api", "user", "--jq", ".login"], {
+        encoding: "utf8",
+        windowsHide: true,
+      }).stdout?.trim();
+      const repo =
+        flag("--repo") ??
+        (await ask("GitHub repository (owner/repo)", fromOrigin));
+      const manager =
+        flag("--manager") ?? (await ask("Your GitHub login", login));
+      const workers = args.includes("--worker")
+        ? args.flatMap((a, i) => (a === "--worker" ? [args[i + 1]] : []))
+        : (
+            await ask(
+              "Workers as id=Display Name, comma separated",
+              "builder=Builder,reviewer=Reviewer",
+            )
+          )
+            .split(",")
+            .map((w) => w.trim())
+            .filter(Boolean);
+      connect([
+        "--repo",
+        repo,
+        "--manager",
+        manager,
+        ...workers.flatMap((w) => ["--worker", w]),
+      ]);
+    } else console.log("\nAlready connected (vizor.config.json found).");
+
+    step(2, "How much should the agents do on their own?");
+    console.log(
+      Object.entries(AUTONOMY)
+        .map(([key, level]) => "   " + key.padEnd(10) + " " + level.summary)
+        .join("\n"),
+    );
+    let level = (
+      flag("--autonomy") ?? (await ask("Autonomy", "standard"))
+    ).toLowerCase();
+    if (!Object.hasOwn(AUTONOMY, level)) level = "standard";
+
+    step(3, "Secrets");
+    const secretsFile = join(".vizor", "secrets.json");
+    const config = JSON.parse(readFileSync("vizor.config.json", "utf8"));
+    // Create or complete the private template (older projects may lack it).
+    mkdirSync(".vizor", { recursive: true, mode: 0o700 });
+    const saved = existsSync(secretsFile)
+      ? JSON.parse(readFileSync(secretsFile, "utf8"))
+      : { webhookSecret: randomBytes(32).toString("hex"), agents: {} };
+    saved.agents ??= {};
+    for (const id of Object.keys(config.agents))
+      saved.agents[id] ??= { fireUrl: "", token: "" };
+    saved.orchestrator ??= { fireUrl: "", token: "" };
+    writePrivate(secretsFile, saved);
+    const missing = () => {
+      const secrets = JSON.parse(readFileSync(secretsFile, "utf8"));
+      const workers = Object.keys(config.agents).filter(
+        (id) =>
+          !/\/routines\/trig_[A-Za-z0-9_-]+\/fire$/.test(
+            secrets.agents?.[id]?.fireUrl ?? "",
+          ) || !secrets.agents[id].token,
+      );
+      return {
+        workers,
+        orchestrator: !validRoutineCredentials(secrets.orchestrator),
+      };
+    };
+    let gap = missing();
+    if (gap.workers.length || gap.orchestrator) {
+      console.log(
+        "   Paste each worker routine's Fire URL and token" +
+          (gap.orchestrator
+            ? ', and the investigator routine\'s under "orchestrator"'
+            : "") +
+          ", into " +
+          resolve(secretsFile) +
+          ". Save it, then press Enter. Never share these in chat.",
+      );
+      if (process.platform === "win32")
+        spawn("notepad.exe", [resolve(secretsFile)], {
+          detached: true,
+          stdio: "ignore",
+        }).unref();
+      await ask("Press Enter when saved");
+      gap = missing();
+    }
+    check(
+      !gap.workers.length,
+      "Worker credentials still missing for: " +
+        gap.workers.join(", ") +
+        ". Fill them in and run vizor init again.",
+    );
+    rl.close();
+
+    step(4, "GitHub labels");
+    self(["labels"]);
+    step(5, "Blocker investigation");
+    const investigation = self(["investigator"]);
+    step(6, "Autonomy and skills");
+    self(["autonomy", level]);
+    self(["skills"]);
+    step(7, "Doctor");
+    const doctor = self(["doctor"]);
+    if (doctor.status !== 0 || investigation.status !== 0) {
+      console.log(
+        "\nFix the FAIL lines above, then run vizor init again (finished steps are skipped).",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    step(8, "Start");
+    if (process.platform === "win32") {
+      if (self(["start"]).status !== 0) {
+        process.exitCode = 1;
+        return;
+      }
+      self(["open"]);
+    } else
+      console.log(
+        "   Run vizor schedule and vizor dashboard in a terminal (supervision is Windows-only).",
+      );
+    console.log(
+      "\nDone. Next: write your first plan (FIRST-PLAN.md, or ask your agent to use the vizor-plan skill). Commit .claude/skills and vizor.config.json so the worker routines get the skills.",
+    );
+  } finally {
+    rl.close();
+  }
+}
+
 export async function runLifecycle(command, args) {
+  if (command === "init") return init(args);
   if (command === "investigator") return investigator(args);
   if (command === "autonomy") return autonomy(args);
   if (command === "skills") return skills(args);

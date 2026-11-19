@@ -139,7 +139,12 @@ test("vizor skills installs worker skills in the project and operator skills for
   const env = { VIZOR_SKILLS_HOME: home };
   let r = run(["skills"], env);
   assert.equal(r.status, 0, r.stderr);
-  for (const name of ["vizor-accept", "vizor-deliver", "vizor-blocked"])
+  for (const name of [
+    "vizor-accept",
+    "vizor-deliver",
+    "vizor-blocked",
+    "vizor-investigate",
+  ])
     assert.ok(
       existsSync(join(dir, ".claude", "skills", name, "SKILL.md")),
       name,
@@ -199,6 +204,7 @@ test("every bundled skill has valid frontmatter and no pilot-specific details", 
     "vizor-accept",
     "vizor-blocked",
     "vizor-deliver",
+    "vizor-investigate",
     "vizor-operate",
     "vizor-plan",
     "vizor-setup",
@@ -274,3 +280,64 @@ test(
     assert.equal(check.status, "pass", JSON.stringify(check));
   },
 );
+
+test("vizor investigator prefers the investigator routine and needs no CLI", (t) => {
+  const { dir, run, read } = project(t);
+  const secretsFile = join(dir, ".vizor", "secrets.json");
+  const secrets = JSON.parse(readFileSync(secretsFile, "utf8"));
+  assert.deepEqual(
+    secrets.orchestrator,
+    { fireUrl: "", token: "" },
+    "connect adds the template",
+  );
+  for (const id of ["builder", "reviewer"])
+    secrets.agents[id] = {
+      fireUrl:
+        "https://api.anthropic.com/v1/claude_code/routines/trig_" +
+        id +
+        "1/fire",
+      token: "t",
+    };
+  writeFileSync(secretsFile, JSON.stringify(secrets));
+  // No routine credentials and no CLI: both options are explained.
+  let r = run(["investigator", "--claude", join(dir, "missing-claude")]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /investigator routine/);
+  assert.match(r.stderr, /claude auth login --claudeai/);
+  secrets.orchestrator = {
+    fireUrl:
+      "https://api.anthropic.com/v1/claude_code/routines/trig_investigator/fire",
+    token: "t",
+  };
+  writeFileSync(secretsFile, JSON.stringify(secrets));
+  r = run(["investigator", "--claude", join(dir, "missing-claude")]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(
+    r.stdout,
+    /investigator routine \(cloud; nothing installed on this PC\)/,
+  );
+  assert.match(r.stdout, /linked follow-up chat/);
+  const host = JSON.parse(
+    readFileSync(join(dir, ".vizor", "orchestrator-host.json"), "utf8"),
+  );
+  assert.equal(host.provider, "routine");
+  assert.equal(host.executable, undefined);
+  assert.equal(host.timeoutMs, 1800000);
+  assert.equal(host.cloudReturn, undefined);
+  assert.equal(read().queue.blockerOrchestrator, true);
+  r = run(["doctor", "--json"]);
+  const check = JSON.parse(r.stdout).checks.find(
+    (c) => c.label === "Blocker investigation",
+  );
+  assert.equal(check.status, "pass", JSON.stringify(check));
+  assert.match(check.detail, /investigator routine/);
+  // Removing the routine credentials makes doctor fail with a clear fix.
+  secrets.orchestrator = { fireUrl: "", token: "" };
+  writeFileSync(secretsFile, JSON.stringify(secrets));
+  r = run(["doctor", "--json"]);
+  assert.match(
+    JSON.parse(r.stdout).checks.find((c) => c.label === "Blocker investigation")
+      .detail,
+    /under "orchestrator"/,
+  );
+});

@@ -1,7 +1,7 @@
 // Synthetic GitHub CLI for isolated tests. Serves fixed data; never contacts GitHub.
 // FAKE_GH_STATE points at {"labels": {"<issue>": ["label", ...]}}.
 // Odd issues belong to worker "worker" (Synthetic Worker), even to "helper".
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
 if (args[0] === "--version") {
@@ -13,6 +13,13 @@ if (args[0] === "auth" && args[1] === "token") {
   process.exit(0);
 }
 if (args[0] !== "api") process.exit(1);
+// Plain form used by people and `vizor init`: gh api <path> [--jq .field]
+if (!args.includes("-X")) {
+  const jq = args.indexOf("--jq");
+  const value = args[1] === "user" ? { login: "synthetic-lead" } : {};
+  console.log(jq >= 0 ? value[args[jq + 1].slice(1)] : JSON.stringify(value));
+  process.exit(0);
+}
 const method = args[args.indexOf("-X") + 1];
 const path = args[4];
 const state = JSON.parse(readFileSync(process.env.FAKE_GH_STATE, "utf8"));
@@ -31,8 +38,15 @@ if (
   );
   process.exit(1);
 }
-if (method === "POST" && path.endsWith("/labels") && process.env.FAKE_GH_LOG)
-  appendFileSync(process.env.FAKE_GH_LOG, readFileSync(0, "utf8") + "\n");
+if (method === "POST" && path.endsWith(repo + "/labels")) {
+  // Label creation: record it and make the label exist from now on.
+  const created = readFileSync(0, "utf8");
+  if (process.env.FAKE_GH_LOG)
+    appendFileSync(process.env.FAKE_GH_LOG, created + "\n");
+  const name = JSON.parse(created).name;
+  state.missingLabels = (state.missingLabels ?? []).filter((n) => n !== name);
+  writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state));
+}
 if (method === "GET") {
   if (path === "user") body = { login: "synthetic-lead" };
   else if (path === repo)

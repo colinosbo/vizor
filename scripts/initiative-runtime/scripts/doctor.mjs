@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { validRoutineCredentials } from "./routine-investigation.mjs";
 
 export const validWebhookSecret = (value) =>
   typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
@@ -127,27 +128,40 @@ export async function runDoctor({
   if (investigation) {
     // Blocker investigation is core: without it a blocked task stays held.
     const host = investigation.host;
+    const routine = host?.provider === "routine";
+    const routineReady =
+      routine && validRoutineCredentials(loadJson(secretFile)?.orchestrator);
     const ready =
       investigation.enabled === true &&
-      typeof host?.executable === "string" &&
-      existsSync(host.executable) &&
-      Number.isSafeInteger(host.timeoutMs) &&
+      Number.isSafeInteger(host?.timeoutMs) &&
       host.timeoutMs >= 1000 &&
-      host.timeoutMs <= 900000 &&
-      (host.provider === undefined ||
-        ["codex", "claude"].includes(host.provider));
+      host.timeoutMs <= (routine ? 7200000 : 900000) &&
+      (routine
+        ? routineReady
+        : typeof host.executable === "string" &&
+          existsSync(host.executable) &&
+          (host.provider === undefined ||
+            ["codex", "claude"].includes(host.provider)));
     status(
       ready,
       "Blocker investigation",
       ready
         ? "On (" +
-            (host.provider === "claude" ? "Claude" : "Codex") +
-            ", read-only). Blocked tasks are investigated and routed automatically."
+            (routine
+              ? "investigator routine"
+              : host.provider === "claude"
+                ? "Claude CLI"
+                : "Codex CLI") +
+            ", read-only; worker return: " +
+            (host.cloudReturn ? "same chat" : "linked follow-up chat") +
+            "). Blocked tasks are investigated and routed automatically."
         : !host
-          ? "Not set up. Run vizor investigator (needs the Claude CLI signed in)."
+          ? "Not set up. Run vizor investigator."
           : investigation.enabled !== true
             ? "Configured but off in the queue. Run vizor investigator."
-            : "The investigator executable is missing or its settings are invalid. Run vizor investigator again.",
+            : routine
+              ? 'The investigator routine has no valid Fire URL and token in .vizor/secrets.json under "orchestrator".'
+              : "The investigator executable is missing or its settings are invalid. Run vizor investigator again.",
     );
   }
   const ignored = command("git", "check-ignore", "--", secretFile) === 0;

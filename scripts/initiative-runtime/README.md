@@ -53,7 +53,12 @@ See docs/ROADMAP.md for the remaining productization work.
 
 ## Blocker investigations
 
-Blocker investigation is a core part of Vizor. `vizor investigator` sets it up. It finds the signed-in Claude Code CLI, takes each worker's trigger ID from its Fire URL, writes `.vizor/orchestrator-host.json` (provider `claude`, a 300-second limit, same-chat return) and sets `blockerOrchestrator: true` in the queue. Existing settings in that file are kept. `vizor doctor` fails until it's on. The details below describe how it works and the manual options.
+Blocker investigation is a core part of Vizor. `vizor investigator` sets it up with one of two investigators:
+
+- **Investigator routine (preferred).** A Claude Code routine whose Fire URL and token are under `"orchestrator"` in `.vizor/secrets.json`. Nothing is installed on the PC. When a task is blocked, Vizor builds the evidence packet and fires the routine once, with the issue and a secret run token. The routine follows `vizor-investigate` and posts one decision comment carrying that token and a JSON decision. On later rounds, Vizor accepts only that comment, and only from a trusted login after the blocker report. It validates the decision with the same rules as a local run (evidence must cite comment IDs from the blocked issue or its prerequisites) and applies it. A rejected or unconfirmed fire, a malformed decision, or no decision within 30 minutes is reported and never re-fired.
+- **Claude CLI on the PC.** The alternative when there is no investigator routine.
+
+Returning a worker into its **same chat** needs the signed-in Claude CLI; without it, Vizor starts a linked follow-up chat that points to the original assignment, the worker's checkpoint and the decision. With the CLI, it takes each worker's trigger ID from its Fire URL, writes `.vizor/orchestrator-host.json` (provider `claude`, a 300-second limit, same-chat return) and sets `blockerOrchestrator: true` in the queue. Existing settings in that file are kept. `vizor doctor` fails until it's on. The details below describe how it works and the manual options.
 
 `blockerOrchestrator: true` in the project's private queue enables it. The existing deterministic scheduler ingests missed results and services saved investigations; it does not schedule model reviews. In webhook mode the signed webhook must subscribe to both `issues` and `issue_comment` (rerun `setup` with the public URL); local mode ingests these results by polling. External/manual/capacity blocker events are recorded too. With this setting enabled, the old automatic repair loop runs only when an investigation explicitly routes an eligible software repair.
 

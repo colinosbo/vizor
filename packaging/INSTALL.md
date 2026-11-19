@@ -16,7 +16,24 @@ node setup.mjs
 
 Vizor installs to `%LOCALAPPDATA%\Vizor\versions\<version>` and adds `%LOCALAPPDATA%\Vizor\bin` to your user PATH. Open a new terminal afterwards. You can delete the extracted folder.
 
-## 2. Connect your repository and workers
+## 2. Set up a project (guided)
+
+In your project folder (a clone of the repository Vizor will manage), run:
+
+```powershell
+vizor init
+```
+
+It asks for the repository, your GitHub login, the workers and the autonomy level, with defaults taken from git and GitHub. Then it opens `.vizor\secrets.json` for you to paste the routine credentials, and runs labels, blocker investigation, skills, doctor and start. Re-running it is safe; finished steps are skipped.
+
+**Routines to create in Claude first** (Claude Code, Routines; each one gets a Fire URL and a token):
+
+- **One per worker**, connected to the repository, with the prompt: "You are <Display Name>, a Vizor worker. Follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository."
+- **One investigator** (recommended), connected to the repository, with the prompt: "You are the Vizor blocker investigator. Follow the vizor-investigate skill in this repository." Its Fire URL and token go under `"orchestrator"` in `secrets.json`. With it, nothing besides Node, Git and the GitHub CLI has to be installed on the PC. Without it, `vizor investigator` uses a signed-in Claude Code CLI instead.
+
+The manual steps below do the same thing one command at a time.
+
+## 2b. Connect your repository and workers manually
 
 In your project folder (a clone of the repository Vizor will manage):
 
@@ -82,10 +99,10 @@ Send this before you start, filled in:
 ```text
 I'll set up Vizor on this PC. Here's everything I need from you; I'll do the rest:
 1. Stay signed in to Windows on this PC, and leave it on afterwards so the runner keeps working.
-2. OK for me to install anything missing: Node.js 24, Git, the GitHub CLI and the Claude Code CLI.
-3. Sign in to GitHub when a browser window opens. Use an account that can write to <owner/repo>. Also sign in to Claude when I run `claude auth login --claudeai`. Use the account that owns the worker routines.
+2. OK for me to install anything missing: Node.js 24, Git and the GitHub CLI (plus the Claude Code CLI only if you want workers returned to the same chat after a blocker).
+3. Sign in to GitHub when a browser window opens. Use an account that can write to <owner/repo>. If we use the Claude CLI, also sign in to Claude when I run `claude auth login --claudeai`, with the account that owns the routines.
 4. Tell me the repository (owner/repo) and your workers: an ID and display name for each, e.g. builder = Builder.
-5. When I open .vizor\secrets.json, paste each worker's Claude Code routine Fire URL and token, save, and tell me "done". Don't send them to me.
+5. Create one Claude Code routine per worker, plus one investigator routine (I'll give you the exact prompts). When I open .vizor\secrets.json, paste each routine's Fire URL and token (the investigator's under "orchestrator"), save, and tell me "done". Don't send them to me.
 6. Review and merge the first-plan PR I'll open. Merging it is your approval.
 7. Pick how much the agents do on their own:
    - Supervised: you approve everything. Workers open draft PRs, and you accept and merge each one.
@@ -164,7 +181,7 @@ vizor doctor --json
 **Expect:**
 
 - `labels` prints `Created GitHub labels: …` or `All configured GitHub labels already exist.`.
-- `investigator` prints `Blocker investigation is on.` If it says the Claude CLI isn't found, pass `--claude <path to claude.exe>`. If it asks for sign-in, run `claude auth login --claudeai`.
+- `investigator` prints `Blocker investigation is on.` It uses the investigator routine from `secrets.json` when one is filled in; otherwise it uses the Claude CLI (pass `--claude <path>` if it isn't found, or run `claude auth login --claudeai` if it asks for sign-in).
 - `doctor --json` returns `"healthy": true` and exit code 0. If it doesn't, fix each check with `"status": "fail"` using its `detail`:
 
 | Failing check                          | Fix                                                                                                     |

@@ -27,6 +27,11 @@ import {
 } from "../scripts/orchestrator.mjs";
 import { atomicJson, supervise } from "../scripts/codex-investigation.mjs";
 import { createDispatcher } from "../scripts/relay.mjs";
+import {
+  findRoutineDecision,
+  fireRoutine,
+  startRoutineInvestigation,
+} from "../scripts/routine-investigation.mjs";
 
 function fixture(t, options = {}) {
   const root = mkdtempSync(join(tmpdir(), "vizor-orchestrator-"));
@@ -925,3 +930,201 @@ ${
     }
   },
 );
+
+test("investigator routine: one fire, decision found by token from a trusted login, validated and routed like a local run", async (t) => {
+  const f = fixture(t);
+  f.host.provider = "routine";
+  f.host.timeoutMs = 600000;
+  delete f.host.executable;
+  const secretFile = join(f.root, "secrets.json");
+  writeFileSync(
+    secretFile,
+    JSON.stringify({
+      orchestrator: {
+        fireUrl:
+          "https://api.anthropic.com/v1/claude_code/routines/trig_investigator/fire",
+        token: "synthetic",
+      },
+    }),
+  );
+  const fires = [];
+  let launches = 0;
+  // Real request/token writer and real fire, with the provider stubbed.
+  const launch = ({ root, run, host, packet }) => {
+    launches++;
+    const directory = runDirectory(root, run);
+    mkdirSync(directory, { recursive: true });
+    startRoutineInvestigation({
+      directory,
+      run,
+      packet,
+      host,
+      secretFile,
+      launch: () => ({ on() {}, unref() {} }),
+    });
+  };
+  const tick = () => f.tick({ launch });
+  f.record();
+  tick();
+  assert.equal(launches, 1);
+  let run = f.runs()[0];
+  assert.equal(run.state, "launching");
+  const directory = runDirectory(f.root, run);
+  const request = JSON.parse(
+    readFileSync(join(directory, "request.json"), "utf8"),
+  );
+  assert.match(request.text, /owner\/repo#25/);
+  assert.match(request.text, new RegExp("Run token: " + request.token));
+  await fireRoutine(directory, {
+    fire: async (url, options) => {
+      fires.push([url, JSON.parse(options.body).text]);
+      return Response.json({ claude_code_session_id: "session_investigator1" });
+    },
+  });
+  tick();
+  run = f.runs()[0];
+  assert.equal(run.state, "running");
+  assert.equal(run.session, "https://claude.ai/code/session_investigator1");
+  tick();
+  assert.equal(launches, 1, "never fired twice");
+  // Decisions with the wrong token or from an untrusted login are ignored.
+  const decisionBody = (token) =>
+    "## Vizor investigation\n\nOwner already decided.\n\nVizor investigation: " +
+    token +
+    "\n\n```json\n" +
+    JSON.stringify({
+      action: "return",
+      summary: "Recorded owner decision resolves it.",
+      nextStep: "Continue approved work.",
+      evidence: ["12"],
+      externalRequirements: [],
+    }) +
+    "\n```";
+  f.commentMap.get(25).push(
+    { id: 40, user: { login: "lead" }, body: decisionBody(randomUUID()) },
+    {
+      id: 41,
+      user: { login: "stranger" },
+      body: decisionBody(request.token),
+    },
+  );
+  tick();
+  assert.equal(f.runs()[0].state, "running");
+  f.commentMap.get(25).push({
+    id: 42,
+    user: { login: "lead" },
+    body: decisionBody(request.token),
+  });
+  tick();
+  tick();
+  run = f.runs()[0];
+  assert.equal(run.state, "returned");
+  assert.equal(JSON.parse(run.decision).action, "return");
+  assert.equal(
+    f.issues.length,
+    2,
+    "one linked follow-up for the original worker",
+  );
+  assert.equal(fires.length, 1);
+  assert.ok(
+    blockerSnapshot(f.db).activity.some((a) =>
+      /Investigator routine posted its decision/.test(a.detail),
+    ),
+  );
+});
+
+test("investigator routine: rejected, unconfirmed, malformed and late runs are reported and never re-fired", async (t) => {
+  for (const scenario of ["rejected", "no-status", "malformed", "timeout"]) {
+    const f = fixture(t);
+    f.host.provider = "routine";
+    f.host.timeoutMs = 1000;
+    let launches = 0;
+    const launch = ({ root, run, host, packet }) => {
+      launches++;
+      const directory = runDirectory(root, run);
+      mkdirSync(directory, { recursive: true });
+      startRoutineInvestigation({
+        directory,
+        run,
+        packet,
+        host,
+        secretFile: join(f.root, "none.json"),
+        launch: () => ({ on() {}, unref() {} }),
+      });
+    };
+    f.record();
+    f.tick({ launch });
+    const run = f.runs()[0];
+    const directory = runDirectory(f.root, run);
+    const request = JSON.parse(
+      readFileSync(join(directory, "request.json"), "utf8"),
+    );
+    if (scenario === "rejected") await fireRoutine(directory); // no credentials -> rejected
+    if (scenario === "malformed" || scenario === "timeout")
+      atomicJson(join(directory, "status.json"), {
+        provider: "routine",
+        state: "running",
+        session: "https://claude.ai/code/session_x",
+        at: scenario === "timeout" ? Date.now() - 5000 : Date.now(),
+      });
+    if (scenario === "malformed")
+      f.commentMap.get(25).push({
+        id: 50,
+        user: { login: "lead" },
+        body:
+          "Vizor investigation: " + request.token + "\n```json\n{not json\n```",
+      });
+    const later = scenario === "no-status" ? Date.now() + 120000 : Date.now();
+    f.tick({ launch, now: later });
+    f.tick({ launch, now: later });
+    assert.equal(
+      f.runs()[0].state,
+      scenario === "timeout" ? "timeout" : "uncertain",
+      scenario,
+    );
+    assert.equal(launches, 1, scenario + " never re-fired");
+  }
+});
+
+test("routine decision parsing requires the exact token, a trusted login and a JSON block", () => {
+  const token = randomUUID();
+  const body = (
+    t,
+    json = '{"action":"external","summary":"s","nextStep":"n","evidence":["1"],"externalRequirements":["budget"]}',
+  ) => "Vizor investigation: " + t + "\n```json\n" + json + "\n```";
+  const pick = (comments) =>
+    findRoutineDecision({
+      comments,
+      token,
+      trustedManagers: ["Lead"],
+      after: "5",
+    });
+  assert.equal(
+    pick([{ id: 9, user: { login: "lead" }, body: body(token) }]).action,
+    "external",
+  );
+  assert.equal(
+    pick([{ id: 4, user: { login: "lead" }, body: body(token) }]),
+    null,
+    "before the blocker",
+  );
+  assert.equal(
+    pick([{ id: 9, user: { login: "other" }, body: body(token) }]),
+    null,
+  );
+  assert.equal(
+    pick([{ id: 9, user: { login: "lead" }, body: body(randomUUID()) }]),
+    null,
+  );
+  assert.throws(
+    () =>
+      pick([
+        {
+          id: 9,
+          user: { login: "lead" },
+          body: "Vizor investigation: " + token,
+        },
+      ]),
+    /no JSON block/,
+  );
+});
