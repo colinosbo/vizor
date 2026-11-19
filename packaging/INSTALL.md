@@ -101,7 +101,7 @@ I'll set up Vizor on this PC. Here's everything I need from you; I'll do the res
 1. Stay signed in to Windows on this PC, and leave it on afterwards so the runner keeps working.
 2. OK for me to install anything missing: Node.js 24, Git and the GitHub CLI (plus the Claude Code CLI only if you want workers returned to the same chat after a blocker).
 3. Sign in to GitHub when a browser window opens. Use an account that can write to <owner/repo>. If we use the Claude CLI, also sign in to Claude when I run `claude auth login --claudeai`, with the account that owns the routines.
-4. Tell me the repository (owner/repo) and your workers: an ID and display name for each, e.g. builder = Builder.
+4. Tell me the repository (owner/repo) and your workers: an ID and display name for each, e.g. builder = Builder. No repository yet? Give me a name and say public or private, and I'll create it.
 5. Create one Claude Code routine per worker, plus one investigator routine (I'll give you the exact prompts). When I open .vizor\secrets.json, paste each routine's Fire URL and token (the investigator's under "orchestrator"), save, and tell me "done". Don't send them to me.
 6. Review and merge the first-plan PR I'll open. Merging it is your approval.
 7. Pick how much the agents do on their own:
@@ -148,11 +148,23 @@ node setup.mjs
 
 ### Step 4: Project folder
 
+**Existing repository:**
+
 ```powershell
 git clone https://github.com/<owner>/<repo>.git <folder>; cd <folder>
 ```
 
-(Or `cd` to the user's existing clone.) **Expect:** a folder whose `git remote -v` shows that repository.
+(Or `cd` to the user's existing clone.)
+
+**New repository** (only if the human asked for one in step 0):
+
+```powershell
+gh repo create <owner>/<repo> --private --add-readme --clone; cd <repo>
+```
+
+Use `--public` instead of `--private` if the human chose public. `--add-readme` gives the repository a first commit and a default branch, which Vizor needs. If `<owner>` is an organization, the signed-in account must be allowed to create repositories there.
+
+**Expect:** a folder whose `git remote -v` shows that repository, and `git log --oneline -1` shows a commit.
 
 ### Step 5: Connect
 
