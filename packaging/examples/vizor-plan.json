@@ -1,0 +1,53 @@
+{
+  "schema": "vizor.plan/1",
+  "repository": "your-name/your-repo",
+  "id": "first-plan",
+  "phases": [
+    {
+      "id": "foundation",
+      "tasks": [
+        {
+          "key": "survey",
+          "agent": "reviewer",
+          "title": "Survey the test setup and list the gaps",
+          "body": "Read the repository and its CI workflows. List how tests run, which checks exist, and the three biggest gaps.",
+          "assignment": "Write docs/survey.md on a new branch with: how to run the tests locally, each CI check name and what it covers, and the three most important missing tests. Commit and push the branch, then link the commit (an immutable https://github.com/.../commit/<sha> link) in your result comment. Do not open a PR.",
+          "gate": "review",
+          "checks": [],
+          "dependsOn": [],
+          "paths": [],
+          "priority": 10
+        },
+        {
+          "key": "health-endpoint",
+          "agent": "builder",
+          "title": "Add a /health endpoint with a test",
+          "body": "Add a GET /health endpoint that returns {\"status\":\"ok\"} and a test for it.",
+          "assignment": "Implement GET /health returning {\"status\":\"ok\"} with HTTP 200, and add a test that calls it. Follow the survey's notes on how tests run. Open one PR from a new branch.",
+          "gate": "merge",
+          "checks": ["test"],
+          "dependsOn": ["survey"],
+          "paths": ["src/health/**", "tests/health/**"],
+          "priority": 20
+        }
+      ]
+    },
+    {
+      "id": "docs",
+      "tasks": [
+        {
+          "key": "readme-health",
+          "agent": "builder",
+          "title": "Document the health endpoint in the README",
+          "body": "Add a short Health check section to README.md describing GET /health.",
+          "assignment": "Add a 'Health check' section to README.md with the endpoint, the expected response and a curl example. Open one PR from a new branch.",
+          "gate": "merge",
+          "checks": ["test"],
+          "dependsOn": [],
+          "paths": ["README.md"],
+          "priority": 10
+        }
+      ]
+    }
+  ]
+}

@@ -139,6 +139,16 @@ test("clean install, upgrade, rollback and restart keep one dispatch per assignm
       },
     );
 
+  // The package ships the guides and the tested plan example.
+  for (const file of [
+    "INSTALL.md",
+    "FIRST-PLAN.md",
+    join("examples", "vizor-plan.json"),
+  ])
+    assert.ok(
+      existsSync(join(work, "download-" + V1, file)),
+      file + " is in the package",
+    );
   // Clean install from the extracted package, then delete the package.
   const first = setup(V1);
   assert.equal(first.status, 0, first.out);

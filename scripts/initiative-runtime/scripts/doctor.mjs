@@ -91,10 +91,13 @@ export async function runDoctor({
   request = fetch,
   command = localCommand,
   report = console.log,
+  onCheck = () => {},
+  investigation,
 }) {
   let failures = 0;
   function status(ok, label, detail) {
     if (!ok) failures++;
+    onCheck({ status: ok ? "pass" : "fail", label, detail });
     report((ok ? "PASS " : "FAIL ") + label + " — " + detail);
     return ok;
   }
@@ -121,6 +124,32 @@ export async function runDoctor({
       Object.keys(config.agents).length +
       " workers.",
   );
+  if (investigation) {
+    // Blocker investigation is core: without it a blocked task stays held.
+    const host = investigation.host;
+    const ready =
+      investigation.enabled === true &&
+      typeof host?.executable === "string" &&
+      existsSync(host.executable) &&
+      Number.isSafeInteger(host.timeoutMs) &&
+      host.timeoutMs >= 1000 &&
+      host.timeoutMs <= 900000 &&
+      (host.provider === undefined ||
+        ["codex", "claude"].includes(host.provider));
+    status(
+      ready,
+      "Blocker investigation",
+      ready
+        ? "On (" +
+            (host.provider === "claude" ? "Claude" : "Codex") +
+            ", read-only). Blocked tasks are investigated and routed automatically."
+        : !host
+          ? "Not set up. Run vizor investigator (needs the Claude CLI signed in)."
+          : investigation.enabled !== true
+            ? "Configured but off in the queue. Run vizor investigator."
+            : "The investigator executable is missing or its settings are invalid. Run vizor investigator again.",
+    );
+  }
   const ignored = command("git", "check-ignore", "--", secretFile) === 0;
   const cloudHost = loadJson(".vizor/orchestrator-host.json")?.cloudReturn;
   if (cloudHost) {

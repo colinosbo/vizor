@@ -31,6 +31,7 @@ import {
   runScheduler,
 } from "./scheduler.mjs";
 import { resumeInvestigation } from "./orchestrator.mjs";
+import { validatePlan } from "./approvals.mjs";
 import { blockerSnapshot } from "./blockers.mjs";
 
 const secretFile = ".vizor/secrets.json";
@@ -62,6 +63,32 @@ function ensureLabels(config, repo) {
     }
   }
   return created;
+}
+
+// Machine-readable doctor result for agents and scripts (vizor doctor --json).
+function printDoctorJson({ config, mode, checks, healthy, error }) {
+  const failures = checks.filter((item) => item.status === "fail").length;
+  console.log(
+    JSON.stringify(
+      {
+        schema: "vizor.doctor/1",
+        healthy: healthy && !error,
+        project: process.cwd(),
+        repository: config?.repository ?? null,
+        mode,
+        failures: failures + (error ? 1 : 0),
+        checks,
+        error: error ? error.message : null,
+        summary: error
+          ? error.message
+          : healthy
+            ? "All diagnostics passed. No workers were triggered."
+            : failures + " check(s) need attention. No workers were triggered.",
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 let githubClient;
@@ -199,6 +226,7 @@ async function main() {
       "retire",
       "doctor",
       "labels",
+      "check-plan",
       "dashboard",
       "dashboard-snapshot",
       "orchestrator-resume",
@@ -209,8 +237,9 @@ async function main() {
       [
         "Usage: vizor <command>",
         "",
-        "Set up:     connect --help | labels | init | doctor | setup <public HTTPS URL> (webhook mode only)",
+        "Set up:     connect --help | labels | investigator [--claude <path>] | init | doctor [--json] | setup <public HTTPS URL> (webhook mode only)",
         "Run:        start [--reinstall] [--webhook-url <https URL>] | stop | restart | open [--print] | health",
+        "Plan:       check-plan [.github/vizor-plan.json] | autonomy [supervised|standard|brazy] | skills [--workers-only|--operator-only] [--force]",
         "Inspect:    status | dashboard [queue.json] [port] | schedule [queue.json] --preview",
         "Work:       assign <issue> <agent ID> <comment ID> | accept <issue> | retire <queue.json> <issue>",
         "Install:    version | versions | rollback   (upgrade: run setup.mjs from a newer package)",
@@ -219,8 +248,24 @@ async function main() {
     );
     return;
   }
-  const config = readConfig();
-  if (!["status", "health", "restart", "init"].includes(command))
+  let config;
+  try {
+    config = readConfig();
+  } catch (error) {
+    if (command === "doctor" && argv.includes("--json")) {
+      printDoctorJson({
+        config: null,
+        mode: null,
+        checks: [],
+        healthy: false,
+        error,
+      });
+      process.exitCode = 1;
+      return;
+    }
+    throw error;
+  }
+  if (!["status", "health", "restart", "init", "check-plan"].includes(command))
     useRunnerGitHub({
       host: existsSync(".vizor/runtime-host.json")
         ? readJson(".vizor/runtime-host.json")
@@ -280,6 +325,38 @@ async function main() {
     serveDashboard({ executable: process.argv[1], queueFile: first, port });
     return;
   }
+  if (command === "check-plan") {
+    // Same validation the runner applies before publishing, run locally.
+    const file = first ?? ".github/vizor-plan.json";
+    check(existsSync(file), "No plan file at " + file + ".");
+    const plan = validatePlan(readJson(file), config.agents);
+    check(
+      plan.repository === config.repository,
+      "The plan's repository (" +
+        plan.repository +
+        ") differs from vizor.config.json (" +
+        config.repository +
+        ").",
+    );
+    const tasks = plan.phases.flatMap((phase) => phase.tasks);
+    const perWorker = {};
+    for (const task of tasks)
+      perWorker[task.agent] = (perWorker[task.agent] ?? 0) + 1;
+    console.log(
+      "Plan is valid: " +
+        plan.id +
+        ", " +
+        plan.phases.length +
+        " phase(s), " +
+        tasks.length +
+        " task(s) (" +
+        Object.entries(perWorker)
+          .map(([id, n]) => id + " " + n)
+          .join(", ") +
+        ").",
+    );
+    return;
+  }
   if (command === "labels") {
     const created = ensureLabels(config, repo);
     console.log(
@@ -290,28 +367,47 @@ async function main() {
     return;
   }
   if (command === "doctor") {
-    const host = existsSync(".vizor/runtime-host.json")
-      ? readJson(".vizor/runtime-host.json")
-      : null;
-    // Before the first start there is no host file; use the project's queue.
-    const queue = host?.queue
-      ? readQueue(host.queue)
-      : existsSync(".vizor/queue.json")
-        ? readQueue(".vizor/queue.json")
+    const json = argv.includes("--json");
+    const checks = [];
+    let mode = "webhook";
+    try {
+      const host = existsSync(".vizor/runtime-host.json")
+        ? readJson(".vizor/runtime-host.json")
         : null;
-    check(
-      !host || host.mode === (queue?.dispatchMode ?? "webhook"),
-      "Installed runtime mode and queue delivery mode disagree. Reinstall the selected mode before restarting the scheduler.",
-    );
-    const healthy = await runDoctor({
-      config,
-      secretFile,
-      hookFile,
-      databaseFile,
-      github,
-      dispatchMode: queue?.dispatchMode ?? "webhook",
-    });
-    if (!healthy) process.exitCode = 1;
+      // Before the first start there is no host file; use the project's queue.
+      const queue = host?.queue
+        ? readQueue(host.queue)
+        : existsSync(".vizor/queue.json")
+          ? readQueue(".vizor/queue.json")
+          : null;
+      mode = queue?.dispatchMode ?? "webhook";
+      check(
+        !host || host.mode === mode,
+        "Installed runtime mode and queue delivery mode disagree. Reinstall the selected mode before restarting the scheduler.",
+      );
+      const healthy = await runDoctor({
+        config,
+        secretFile,
+        hookFile,
+        databaseFile,
+        github,
+        dispatchMode: mode,
+        investigation: {
+          enabled: queue?.blockerOrchestrator === true,
+          host: existsSync(".vizor/orchestrator-host.json")
+            ? readJson(".vizor/orchestrator-host.json")
+            : null,
+        },
+        report: json ? () => {} : console.log,
+        onCheck: (item) => checks.push(item),
+      });
+      if (json) printDoctorJson({ config, mode, checks, healthy });
+      if (!healthy) process.exitCode = 1;
+    } catch (error) {
+      if (!json) throw error;
+      printDoctorJson({ config, mode, checks, healthy: false, error });
+      process.exitCode = 1;
+    }
     return;
   }
   if (command === "init") {
