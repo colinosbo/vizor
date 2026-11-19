@@ -14,6 +14,7 @@ import { test } from "node:test";
 import { once } from "node:events";
 import { openDispatchStore, createListener } from "../scripts/relay.mjs";
 import {
+  acceptReview,
   openSchedulerStore,
   readTask,
   scheduleTick,
@@ -183,7 +184,12 @@ function fixture(t, options = {}) {
       ...extra,
     });
   const runs = () => db.prepare("SELECT * FROM blocker_runs").all();
-  const complete = (action = "return") => {
+  const complete = (
+    action = "return",
+    externalRequirements = action === "external"
+      ? ["Partner, workspace and budget"]
+      : [],
+  ) => {
     const run = runs()[0];
     atomicJson(join(runDirectory(root, run), "status.json"), {
       state: "completed",
@@ -195,8 +201,7 @@ function fixture(t, options = {}) {
       summary: "Settled decision reused; missing partner remains explicit.",
       nextStep: "Continue approved work.",
       evidence: ["12"],
-      externalRequirements:
-        action === "external" ? ["Partner, workspace and budget"] : [],
+      externalRequirements,
     });
   };
   const record = () =>
@@ -781,18 +786,31 @@ test("worker capacity wait retries after its independent task completes; usage-p
   );
 });
 
-test("repair keeps merge/check dependencies then queues verification in the original saved chat, with no verifier Fire", async (t) => {
+test("mixed blockers dispatch repairs, then recheck in the original chat and retain manual release approval", async (t) => {
   const f = cloudFixture(t);
   f.queue.autoAcceptReviews = true;
   f.queue.autoRepair = { agent: "research", checks: ["test"] };
   writeFileSync(f.file, JSON.stringify(f.queue));
   f.record();
   f.tick();
-  f.complete("repair");
+  f.complete("repair", ["Human screen-reader verification"]);
+  f.tick();
   f.tick();
   assert.equal(f.runs()[0].state, "repair");
   assert.equal(f.issues.length, 3);
   const [repair, recheck] = f.issues.slice(1);
+  assert.deepEqual(f.queue.manualReviewIssues, [recheck.number]);
+  assert.deepEqual(JSON.parse(readFileSync(f.file)).manualReviewIssues, [
+    recheck.number,
+  ]);
+  assert.match(repair.body, /external verification requirements remain open/);
+  assert.match(
+    recheck.body,
+    /report done only after the full release verification/i,
+  );
+  f.reopen();
+  f.tick();
+  assert.equal(f.issues.length, 3);
   const mapping = f.db
     .prepare("SELECT * FROM cloud_rechecks WHERE issue=?")
     .get(recheck.number);
@@ -816,15 +834,17 @@ test("repair keeps merge/check dependencies then queues verification in the orig
       },
     },
   });
+  const statuses = new Map();
   const schedule = () =>
     scheduleTick({
       db: f.db,
       config: f.config,
-      queue: f.queue,
+      queue: JSON.parse(readFileSync(f.file)),
       github,
       reachable: async () => true,
       dispatch: (i) => (i === repair.number ? true : dispatch(i, randomUUID())),
       log() {},
+      onStatus: (task) => statuses.set(task.issue, task.status),
     });
   function github(method, path, body) {
     if (path === "repos/owner/repo/pulls/77")
@@ -843,6 +863,12 @@ test("repair keeps merge/check dependencies then queues verification in the orig
   }
   await schedule();
   assert.equal(queues, 0);
+  assert.equal(
+    f.db
+      .prepare("SELECT active FROM scheduled_issues WHERE issue=?")
+      .get(repair.number).active,
+    1,
+  );
   f.db
     .prepare(
       "UPDATE scheduled_issues SET active=0,result='done',pull=77 WHERE issue=?",
@@ -872,8 +898,13 @@ test("repair keeps merge/check dependencies then queues verification in the orig
     f.db
       .prepare("SELECT accepted FROM scheduled_issues WHERE issue=?")
       .get(recheck.number).accepted,
-    1,
+    0,
   );
+  assert.equal(statuses.get(25), "blocked");
+  assert.equal(statuses.get(recheck.number), "review");
+  acceptReview(f.db, recheck.number);
+  await schedule();
+  assert.equal(statuses.get(25), "complete");
   await dispatch(recheck.number, randomUUID());
   assert.equal(queues, 1);
 });

@@ -1,6 +1,6 @@
 {
   "name": "vizor",
-  "version": "0.14.0",
+  "version": "0.14.1",
   "private": true,
   "license": "UNLICENSED",
   "description": "Background runner, CLI and local dashboard that dispatch an approved GitHub plan to coding agents.",

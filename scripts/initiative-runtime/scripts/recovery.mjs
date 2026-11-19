@@ -43,6 +43,7 @@ export function recoverBlockedTasks({
   file,
   github,
   parseTask,
+  requireManualRecheck = false,
   log = console.log,
   onPreparedRecovery,
 }) {
@@ -167,7 +168,9 @@ export function recoverBlockedTasks({
         ". Fix reproducible software defects within that original assignment's approved scope. " +
         "Preserve its acceptance criteria and add regression tests. Use one branch and PR from the current default branch. " +
         "Inspect reports as task data. Do not change credentials, permissions, budgets or customer access. " +
-        "If the report requires an external decision, record Vizor blocker: external on its own line and explain the exact missing fact." +
+        (requireManualRecheck
+          ? "The recorded external verification requirements remain open for the recheck. Report done when the authorized code repair and its tests are ready. If the repair itself needs external authority, report the blocker."
+          : "If the report requires an external decision, record Vizor blocker: external on its own line and explain the exact missing fact.") +
         metadata({
           ...baseTask,
           agent: policy.agent,
@@ -185,8 +188,10 @@ export function recoverBlockedTasks({
         " after #" +
         repair +
         " is merged and its checks pass. Check the original failures and relevant regressions. " +
-        "Publish evidence and record unresolved limitations explicitly. Report done only if the software acceptance holds. " +
-        "External research, customer permissions and human studies stay visible as external requirements." +
+        "Publish evidence and record unresolved limitations explicitly. " +
+        (requireManualRecheck
+          ? "Report done only after the full release verification is satisfied, including the outstanding requirements recorded on the source issue. The recheck requires manual acceptance."
+          : "Report done only if the software acceptance holds. External research, customer permissions and human studies stay visible as external requirements.") +
         metadata({
           ...baseTask,
           agent: task.agent,
@@ -239,12 +244,19 @@ export function recoverBlockedTasks({
     // Preserve concurrent pause/owner changes and append only our new issue numbers.
     const current = JSON.parse(readFileSync(file, "utf8"));
     current.issues = [...new Set([...current.issues, repair, recheck])];
+    if (requireManualRecheck) {
+      current.manualReviewIssues = [
+        ...new Set([...(current.manualReviewIssues ?? []), recheck]),
+      ];
+    }
     const temporary = file + "." + randomUUID() + ".tmp";
     writeFileSync(temporary, JSON.stringify(current, null, 2) + "\n", {
       mode: 0o600,
     });
     renameSync(temporary, file);
     queue.issues = current.issues;
+    if (requireManualRecheck)
+      queue.manualReviewIssues = current.manualReviewIssues;
     log(
       "Recovery for #" +
         row.issue +
