@@ -144,3 +144,46 @@ test("webhook setup accepts any public HTTPS URL and rejects unsafe ones", () =>
   ])
     assert.equal(webhookEndpointFor(unsafe), null, String(unsafe));
 });
+
+test("doctor passes a new project's dispatch state before the runner first starts", async (context) => {
+  const directory = mkdtempSync(join(tmpdir(), "vizor-doctor-new-"));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const secretFile = join(directory, "secrets.json");
+  writeFileSync(
+    secretFile,
+    JSON.stringify({
+      webhookSecret: "b".repeat(64),
+      agents: {
+        worker: {
+          fireUrl:
+            "https://api.anthropic.com/v1/claude_code/routines/trig_new/fire",
+          token: "synthetic",
+        },
+      },
+    }),
+  );
+  const output = [];
+  await runDoctor({
+    config: {
+      repository: "owner/repo",
+      port: 4388,
+      dispatchLabel: "d",
+      agents: { worker: { label: "w", trustedManagers: ["lead"] } },
+    },
+    secretFile,
+    hookFile: join(directory, "hook.json"),
+    databaseFile: join(directory, "not-created.db"),
+    dispatchMode: "local",
+    github: (_method, path) =>
+      path === "user" ? { login: "lead" } : { name: "x" },
+    request: () => assert.fail("local mode never probes"),
+    command: () => 0,
+    report: (line) => output.push(line),
+  });
+  assert.ok(
+    output.some((line) =>
+      line.startsWith("PASS Local dispatch state — Not created yet"),
+    ),
+    output.join("\n"),
+  );
+});

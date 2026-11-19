@@ -19,6 +19,7 @@ import {
   finishCloudReturn,
 } from "./cloud-return.mjs";
 import { advanceCloudRechecks } from "./cloud-recheck.mjs";
+import { acquireLease, LeaseLostError } from "./runner-lease.mjs";
 import {
   planAssignmentAllowed,
   publishApprovedPhases,
@@ -865,9 +866,59 @@ export async function scheduleTick({
   }
 }
 
-export async function runScheduler({ file, once, ...services }) {
+export async function runScheduler({ file, once, ...input }) {
   const startId = randomUUID();
   const startedAt = new Date().toISOString();
+  // Only one runner may dispatch this project's queue. A second start (another
+  // task, a manual schedule, or an upgrade overlapping the old version) exits
+  // here before touching GitHub or the provider.
+  const lease = input.preview
+    ? null
+    : acquireLease(input.db, {
+        queue: resolve(file),
+        executable: resolve(process.argv[1] ?? "vizor"),
+      });
+  const services = lease
+    ? {
+        ...input,
+        dispatch:
+          input.dispatch &&
+          (async (issue) => {
+            lease.assert();
+            return input.dispatch(issue);
+          }),
+      }
+    : input;
+  const release = () => lease?.release();
+  const onSignal = (signal) => {
+    release();
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  };
+  if (lease && !once) {
+    process.once("SIGINT", onSignal);
+    process.once("SIGTERM", onSignal);
+    process.once("exit", release);
+  }
+  try {
+    await schedulerLoop({ file, once, services, lease, startId, startedAt });
+  } finally {
+    if (lease && !once) {
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+      process.off("exit", release);
+    }
+    release();
+  }
+}
+
+async function schedulerLoop({
+  file,
+  once,
+  services,
+  lease,
+  startId,
+  startedAt,
+}) {
   for (;;) {
     const roundStart = Date.now();
     const statuses = [];
@@ -906,6 +957,7 @@ export async function runScheduler({ file, once, ...services }) {
       },
     };
     try {
+      lease?.assert();
       queue = readQueue(file);
       if (!services.preview) {
         try {
@@ -950,6 +1002,7 @@ export async function runScheduler({ file, once, ...services }) {
         }
       }
     } catch (error) {
+      if (error instanceof LeaseLostError) throw error;
       errors.push(
         error instanceof SyntaxError ? "Invalid queue JSON" : error.message,
       );
