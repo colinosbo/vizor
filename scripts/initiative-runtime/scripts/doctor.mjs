@@ -3,6 +3,8 @@ import { spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { inspectMergeRails } from "./merge-rails.mjs";
+import { inspectCheckWorkflows } from "./check-workflows.mjs";
 
 export const validWebhookSecret = (value) =>
   typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
@@ -93,7 +95,8 @@ export async function runDoctor({
   report = console.log,
   onCheck = () => {},
   investigation,
-  mergeRails,
+  autonomy,
+  planChecks,
 }) {
   let failures = 0;
   function status(ok, label, detail) {
@@ -320,10 +323,36 @@ export async function runDoctor({
     }
   }
 
-  // Standard and braZy rely on GitHub refusing a merge before its checks pass.
-  if (remote && mergeRails) {
-    const rails = mergeRails();
-    status(rails.ok, "Merge rails", rails.detail);
+  if (remote && planChecks) {
+    let checks = null;
+    try {
+      checks = planChecks();
+    } catch (error) {
+      status(
+        false,
+        "Approved plan",
+        "The plan on the default branch is unreadable: " + error.message,
+      );
+    }
+    // Standard and braZy rely on GitHub refusing a merge before its checks pass.
+    if (checks && autonomy) {
+      const rails = inspectMergeRails({
+        github,
+        repository: config.repository,
+        level: autonomy,
+        checks,
+      });
+      status(rails.ok, "Merge rails", rails.detail);
+    }
+    // Acceptance needs each named check to run on the merged commit.
+    if (checks?.length) {
+      const runs = inspectCheckWorkflows({
+        github,
+        repository: config.repository,
+        checks,
+      });
+      status(runs.ok, "Check workflows", runs.detail);
+    }
   }
 
   if (dispatchMode === "local") {

@@ -34,11 +34,7 @@ import { resumeInvestigation } from "./orchestrator.mjs";
 import { validatePlan } from "./approvals.mjs";
 import { blockerSnapshot } from "./blockers.mjs";
 import { readApprovedPlan } from "./phase-publisher.mjs";
-import {
-  applyMergeRails,
-  inspectMergeRails,
-  railChecks,
-} from "./merge-rails.mjs";
+import { applyMergeRails, railChecks } from "./merge-rails.mjs";
 
 const secretFile = ".vizor/secrets.json";
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
@@ -470,25 +466,8 @@ async function main() {
             ? readJson(".vizor/orchestrator-host.json")
             : null,
         },
-        mergeRails: config.autonomy
-          ? () => {
-              let checks;
-              try {
-                checks = projectRailChecks(config, queue);
-              } catch (error) {
-                return {
-                  ok: false,
-                  detail: "The approved plan is unreadable: " + error.message,
-                };
-              }
-              return inspectMergeRails({
-                github,
-                repository: config.repository,
-                level: config.autonomy,
-                checks,
-              });
-            }
-          : undefined,
+        autonomy: config.autonomy,
+        planChecks: () => projectRailChecks(config, queue),
         report: json ? () => {} : console.log,
         onCheck: (item) => checks.push(item),
       });
