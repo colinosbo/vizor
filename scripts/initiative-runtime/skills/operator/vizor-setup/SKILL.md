@@ -46,7 +46,7 @@ vizor autonomy brazy --repair-agent <builder id> --repair-check <check name>   #
 vizor skills
 ```
 
-- `vizor autonomy` sets the queue's acceptance and repair settings and records the level in `vizor.config.json`. Workers read it from there. It also prints the one GitHub setting to change for that level: do it, or ask the human to.
+- `vizor autonomy` sets the queue's acceptance and repair settings and records the level in `vizor.config.json`. Workers read it from there. For Standard and braZy it also applies the GitHub merge rails (Allow auto-merge plus a ruleset requiring the plan's checks). If GitHub refuses, tell the human what it said. After the plan PR merges, run `vizor rails` so its checks are required.
 - `vizor skills` puts the worker skills (`vizor-accept`, `vizor-deliver`, `vizor-blocked`) in `.claude\skills` and the operator skills in the user's Claude Code skills folder.
 - Then open a PR that adds `.claude/skills/` and `vizor.config.json` (it holds no secrets), and have the human merge it. Worker routines load the skills from the repository.
 

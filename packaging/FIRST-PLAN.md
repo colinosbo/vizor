@@ -90,7 +90,7 @@ You can also put the plan file in place before connecting. Nothing is published 
 Vizor waits for the merge; it does not perform it. Pick one approach:
 
 - **You merge** each PR after review. This is the simplest and best for a first plan.
-- **GitHub auto-merge.** Enable "Allow auto-merge" in the repository settings and require the plan's checks in branch protection. Then each PR merges itself once the checks pass.
+- **GitHub auto-merge.** Run `vizor rails` (Standard and braZy autonomy). It turns on "Allow auto-merge" and adds a `Vizor merge rails` ruleset requiring the plan's checks on the default branch. Then each PR merges itself once the checks pass. Run it again whenever a merged plan adds a check; `vizor doctor` fails until you do.
 - **Your own checked-merge workflow**, as in the Vision pilot. Have it dispatch the post-merge checks explicitly if it merges with `GITHUB_TOKEN`.
 
 ## Changing the plan

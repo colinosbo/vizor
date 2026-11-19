@@ -33,6 +33,12 @@ import {
 import { resumeInvestigation } from "./orchestrator.mjs";
 import { validatePlan } from "./approvals.mjs";
 import { blockerSnapshot } from "./blockers.mjs";
+import { readApprovedPlan } from "./phase-publisher.mjs";
+import {
+  applyMergeRails,
+  inspectMergeRails,
+  railChecks,
+} from "./merge-rails.mjs";
 
 const secretFile = ".vizor/secrets.json";
 const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
@@ -89,6 +95,55 @@ function printDoctorJson({ config, mode, checks, healthy, error }) {
       2,
     ),
   );
+}
+
+// The checks the merge rails must require, from the approved plan on the
+// default branch (the queue's planFile, else .github/vizor-plan.json) and
+// the queue's automatic-repair checks.
+function projectRailChecks(config, queue) {
+  const approved = readApprovedPlan({
+    github,
+    config,
+    planFile: queue?.planFile ?? ".github/vizor-plan.json",
+  });
+  return railChecks({ plan: approved?.plan, queue });
+}
+
+function runRails(config) {
+  const level = config.autonomy ?? "standard";
+  let result;
+  try {
+    const queue = existsSync(".vizor/queue.json")
+      ? readQueue(".vizor/queue.json")
+      : null;
+    result = applyMergeRails({
+      github,
+      repository: config.repository,
+      level,
+      checks: level === "supervised" ? [] : projectRailChecks(config, queue),
+    });
+  } catch (error) {
+    result = {
+      ok: false,
+      changes: [],
+      notes: [
+        "GitHub merge rails were not applied: " +
+          error.message +
+          " Fix it, then run vizor rails.",
+      ],
+    };
+  }
+  console.log(
+    [
+      ...(result.changes.length
+        ? result.changes
+        : result.ok && level !== "supervised"
+          ? ["GitHub merge rails are already in place."]
+          : []),
+      ...result.notes,
+    ].join("\n"),
+  );
+  if (!result.ok) process.exitCode = 1;
 }
 
 let githubClient;
@@ -195,8 +250,20 @@ async function main() {
   requireNode24();
   const argv = process.argv.slice(2);
   const command = argv[0];
-  if (LIFECYCLE_COMMANDS.includes(command))
-    return await runLifecycle(command, argv.slice(1));
+  if (LIFECYCLE_COMMANDS.includes(command)) {
+    await runLifecycle(command, argv.slice(1));
+    // Setting a level also applies its GitHub merge rails.
+    if (command === "autonomy" && argv[1] && !argv[1].startsWith("-")) {
+      const config = readConfig();
+      useRunnerGitHub({
+        host: existsSync(".vizor/runtime-host.json")
+          ? readJson(".vizor/runtime-host.json")
+          : null,
+      });
+      runRails(config);
+    }
+    return;
+  }
   let [, first, second, third] = argv;
   // Commands that take the queue default to the installed or standard queue.
   if (
@@ -226,6 +293,7 @@ async function main() {
       "retire",
       "doctor",
       "labels",
+      "rails",
       "check-plan",
       "dashboard",
       "dashboard-snapshot",
@@ -237,7 +305,7 @@ async function main() {
       [
         "Usage: vizor <command>",
         "",
-        "Set up:     connect --help | labels | investigator [--claude <path>] | init | doctor [--json] | setup <public HTTPS URL> (webhook mode only)",
+        "Set up:     connect --help | labels | rails | investigator [--claude <path>] | init | doctor [--json] | setup <public HTTPS URL> (webhook mode only)",
         "Run:        start [--reinstall] [--webhook-url <https URL>] | stop | restart | open [--print] | health",
         "Plan:       check-plan [.github/vizor-plan.json] | autonomy [supervised|standard|brazy] | skills [--workers-only|--operator-only] [--force]",
         "Inspect:    status | dashboard [queue.json] [port] | schedule [queue.json] --preview",
@@ -366,6 +434,10 @@ async function main() {
     );
     return;
   }
+  if (command === "rails") {
+    runRails(config);
+    return;
+  }
   if (command === "doctor") {
     const json = argv.includes("--json");
     const checks = [];
@@ -398,6 +470,25 @@ async function main() {
             ? readJson(".vizor/orchestrator-host.json")
             : null,
         },
+        mergeRails: config.autonomy
+          ? () => {
+              let checks;
+              try {
+                checks = projectRailChecks(config, queue);
+              } catch (error) {
+                return {
+                  ok: false,
+                  detail: "The approved plan is unreadable: " + error.message,
+                };
+              }
+              return inspectMergeRails({
+                github,
+                repository: config.repository,
+                level: config.autonomy,
+                checks,
+              });
+            }
+          : undefined,
         report: json ? () => {} : console.log,
         onCheck: (item) => checks.push(item),
       });

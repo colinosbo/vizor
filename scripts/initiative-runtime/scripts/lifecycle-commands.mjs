@@ -340,21 +340,21 @@ export const AUTONOMY = {
     summary:
       "You approve everything: workers open draft PRs, you accept every review and merge every PR yourself.",
     github:
-      "Merge PRs yourself after review. Workers open draft PRs; mark one ready when you approve it.",
+      "No GitHub settings are changed. Merge PRs yourself after review; workers open draft PRs, mark one ready when you approve it.",
   },
   standard: {
     label: "Standard",
     summary:
       "Reviews with immutable evidence are accepted automatically; you (or GitHub auto-merge on required checks) merge PRs; blockers wait for you.",
     github:
-      "Merge PRs yourself, or enable 'Allow auto-merge' and require the plan's checks in branch protection.",
+      "Vizor turns on Allow auto-merge and adds a ruleset that requires the plan's checks on the default branch, so a PR merges only after they pass.",
   },
   brazy: {
     label: "braZy",
     summary:
       "Full release inside the rails: reviews auto-accepted, workers merge their own PR once every named check passes, failed verifications get automatic repair, and workers only stop for credentials, spending or outside commitments.",
     github:
-      "Require the plan's checks in branch protection (Settings > Branches) so a PR cannot merge before they pass.",
+      "Vizor turns on Allow auto-merge and adds a ruleset that requires the plan's checks on the default branch, so no PR (including a worker's) merges before they pass.",
   },
 };
 
@@ -433,6 +433,7 @@ function autonomy(args) {
       "In GitHub: " + AUTONOMY[level].github,
       ...notes,
       "The runner applies the queue settings on its next round. Commit vizor.config.json so workers see the level.",
+      "Applying the GitHub merge rails (run vizor rails again after a plan with new checks is merged):",
     ].join("\n"),
   );
 }

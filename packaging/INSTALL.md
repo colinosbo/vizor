@@ -178,6 +178,7 @@ vizor doctor --json
 | `Blocker investigation`                | Run `vizor investigator`. It needs the Claude CLI signed in and every worker\'s Fire URL filled in.     |
 | `Claude same-chat subscription`        | `claude auth login --claudeai` with the account that owns the worker routines.                          |
 | `Credential file excluded from Git`    | Add `.vizor/` to `.gitignore`.                                                                          |
+| `Merge rails`                          | Run `vizor rails`. If GitHub refuses, see step 8b.                                                      |
 
 ### Step 8: Start and verify
 
@@ -202,7 +203,7 @@ vizor skills
 
 **Expect:**
 
-- `vizor autonomy`: `Autonomy set to <level>.`, then one GitHub setting to apply. Apply it, or ask the human to.
+- `vizor autonomy`: `Autonomy set to <level>.`, then the GitHub merge rails it applied. For Standard and braZy that turns on Allow auto-merge and, once the plan names checks, adds the `Vizor merge rails` ruleset that requires them on the default branch. If it prints `GitHub refused…`, the signed-in account needs admin rights; on GitHub Free, rulesets only work on public repositories, so tell the human.
 - `vizor skills`: `Installed …` lines for the worker skills in `.claude\skills` and the operator skills in the user's Claude Code skills folder.
 
 Then open a PR adding `.claude/skills/` and `vizor.config.json` (it has no secrets) for the human to merge. Each worker routine's prompt should say: "You are <Display Name>, a Vizor worker. Follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository."
@@ -214,7 +215,7 @@ Follow [FIRST-PLAN.md](FIRST-PLAN.md):
 1. Write `.github/vizor-plan.json` from the example.
 2. Run `vizor check-plan`.
 3. Open a PR for the human to merge.
-4. Set `planFile` in `.vizor\queue.json`.
+4. Set `planFile` in `.vizor\queue.json`, then run `vizor rails` so the plan's checks become required before any PR merges.
 5. Confirm that `vizor health` shows the plan `published` and `vizor status` lists the first tasks.
 
 ### Step 10: Report to the human
