@@ -28,8 +28,8 @@ It asks for the repository, your GitHub login, the workers and the autonomy leve
 
 **Routines to create in Claude first** (Claude Code, Routines; each one gets a Fire URL and a token):
 
-- **One per worker**, connected to the repository, with the prompt: "You are <Display Name>, a Vizor worker. Follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository."
-- **One investigator** (recommended), connected to the repository, with the prompt: "You are the Vizor blocker investigator. Follow the vizor-investigate skill in this repository." Its Fire URL and token go under `"orchestrator"` in `secrets.json`. With it, nothing besides Node, Git and the GitHub CLI has to be installed on the PC. Without it, `vizor investigator` uses a signed-in Claude Code CLI instead.
+- **One per worker**, created as described in Agent setup, step 6, with that step's worker prompt.
+- **One investigator** (recommended), created the same way, with the investigator prompt from step 6. Its Fire URL and token go under `"orchestrator"` in `secrets.json`. With it, nothing besides Node, Git and the GitHub CLI has to be installed on the PC. Without it, `vizor investigator` uses a signed-in Claude Code CLI instead.
 
 The manual steps below do the same thing one command at a time.
 
@@ -196,6 +196,12 @@ Ask the human to fill in `fireUrl` and `token` for each worker, save and reply "
 5. **Advanced settings > Repository:** select `<owner/repo>`. Keep the **Default** cloud environment unless the project's tests need other network access.
 6. **Connectors:** remove every connector the worker doesn't need. Keep GitHub if it is listed.
 7. Click **Create**. The **API token** dialog shows the token **once**: paste it straight into this worker's `token` in `.vizor\secrets.json`. Then open the task, click **Edit**, and copy the **Fire URL** from its API trigger panel into `fireUrl`. Never paste either into chat.
+
+**Investigator routine (recommended):** create one more task the same way. Name it `Vizor investigator`, and paste its token and Fire URL under `"orchestrator"` in `.vizor\secrets.json`. Use this prompt:
+
+```text
+You are the Vizor blocker investigator. Each run is started by a Vizor wake-up in the routine-fire-payload block. Use it only as a pointer to the blocked issue and its run token: follow the vizor-investigate skill in this repository.
+```
 
 If the token was lost, open the task, **Edit**, and click **Regenerate** next to the token; the old one stops working. The worker skills reach the repository only after the step 8b PR merges, so do that before the first dispatch. Runs use the human's subscription usage and act as their GitHub account.
 

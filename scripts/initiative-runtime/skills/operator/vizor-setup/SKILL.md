@@ -34,7 +34,7 @@ Use Step 0 of **Agent setup** in `INSTALL.md`, filled in, and add the autonomy l
 
 The fastest path is `vizor init` in the project folder. Pass answers as flags (`--repo`, `--manager`, `--worker id=Name`, `--autonomy`) so it doesn't stop to ask, and have the human paste the secrets when it pauses. Otherwise, follow **Agent setup** steps 1–8 in `INSTALL.md` exactly: prerequisites, GitHub sign-in, `node setup.mjs`, project folder, `vizor connect`, worker credentials (the human pastes them), `vizor labels`, `vizor investigator`, `vizor doctor --json` until `"healthy": true`, then `vizor start` and `vizor health`.
 
-Blocker investigation is a core part of Vizor; don't skip `vizor investigator`. Without it, a task that reports `blocked` stays held until someone steps in. Prefer an **investigator routine**: have the human create a Claude Code routine with the prompt "You are the Vizor blocker investigator. Follow the vizor-investigate skill in this repository." and paste its Fire URL and token under `"orchestrator"` in `secrets.json`. Then nothing extra has to be installed on the PC.
+Blocker investigation is a core part of Vizor; don't skip `vizor investigator`. Without it, a task that reports `blocked` stays held until someone steps in. Prefer an **investigator routine**: have the human create the investigator routine described in `INSTALL.md` step 6 (it uses its own prompt) and paste its Fire URL and token under `"orchestrator"` in `secrets.json`. Then nothing extra has to be installed on the PC.
 
 ## 4. Apply the autonomy level and install the worker skills
 

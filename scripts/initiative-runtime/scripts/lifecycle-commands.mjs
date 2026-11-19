@@ -638,7 +638,7 @@ function investigator(args) {
             ")"
           : "linked follow-up chat (install and sign in the Claude CLI, then rerun, for same-chat return)"),
       provider === "routine"
-        ? "Give the investigator routine the vizor-investigate skill (vizor skills installs it in this repository)."
+        ? "The investigator routine needs the investigator prompt from INSTALL.md step 6, and the vizor-investigate skill in the repository (vizor skills installs it)."
         : "",
       "When a worker reports blocked, Vizor investigates once and either routes a repair, returns the worker, or holds the task for you with a report on the issue.",
       "Run vizor doctor to confirm.",
