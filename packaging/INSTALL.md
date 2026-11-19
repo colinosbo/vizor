@@ -208,6 +208,7 @@ vizor doctor --json
 | `Claude same-chat subscription`        | `claude auth login --claudeai` with the account that owns the worker routines.                          |
 | `Credential file excluded from Git`    | Add `.vizor/` to `.gitignore`.                                                                          |
 | `Merge rails`                          | Run `vizor rails`. If GitHub refuses, see step 8b.                                                      |
+| `Check workflows`                      | A named check has no job running on the default branch; see step 9, item 3.                             |
 
 ### Step 8: Start and verify
 
@@ -243,9 +244,10 @@ Follow [FIRST-PLAN.md](FIRST-PLAN.md):
 
 1. Write `.github/vizor-plan.json` from the example.
 2. Run `vizor check-plan`.
-3. Open a PR for the human to merge.
-4. Set `planFile` in `.vizor\queue.json`, then run `vizor rails` so the plan's checks become required before any PR merges.
-5. Confirm that `vizor health` shows the plan `published` and `vizor status` lists the first tasks.
+3. Make sure every check the plan names (`"checks": ["test"]`) is a GitHub Actions job that runs on `pull_request` and on `push` to the default branch. If the repository has none, copy `examples\vizor-checks.yml` to `.github\workflows\vizor-checks.yml`, replace its steps with this repository's test command and name each job after its check. Put it in the same PR as the plan.
+4. Open a PR for the human to merge.
+5. Set `planFile` in `.vizor\queue.json`, then run `vizor rails` so the plan's checks become required before any PR merges.
+6. Run `vizor doctor` again: `Check workflows` must pass. Confirm that `vizor health` shows the plan `published` and `vizor status` lists the first tasks.
 
 ### Step 10: Report to the human
 
