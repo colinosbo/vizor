@@ -27,6 +27,55 @@ const repo = "repos/synthetic-owner/synthetic-repo";
 const owner = (n) => (n % 2 ? "worker" : "helper");
 const display = (n) => (n % 2 ? "Synthetic Worker" : "Synthetic Helper");
 let body = {};
+const save = () =>
+  writeFileSync(process.env.FAKE_GH_STATE, JSON.stringify(state));
+const respond = (status, value) => {
+  process.stdout.write(
+    "HTTP/2.0 " +
+      status +
+      "\r\ncontent-type: application/json\r\n\r\n" +
+      JSON.stringify(value),
+  );
+  process.exit(status >= 400 ? 1 : 0);
+};
+// Merge rails: auto-merge flag, rulesets and the approved plan file.
+if (path === repo && method === "PATCH") {
+  state.allowAutoMerge = JSON.parse(readFileSync(0, "utf8")).allow_auto_merge;
+  save();
+  respond(200, { allow_auto_merge: state.allowAutoMerge });
+}
+if (path.startsWith(repo + "/contents/"))
+  state.plan
+    ? respond(200, {
+        encoding: "base64",
+        sha: "synthetic",
+        content: Buffer.from(JSON.stringify(state.plan)).toString("base64"),
+      })
+    : respond(404, { message: "Not Found" });
+if (path.startsWith(repo + "/rulesets")) {
+  if (state.rulesetStatus) respond(state.rulesetStatus, { message: "No" });
+  state.rulesets ??= [];
+  const id = Number(path.match(/rulesets\/(\d+)/)?.[1]);
+  if (method === "GET" && !id)
+    respond(
+      200,
+      state.rulesets.map(({ id, name }) => ({ id, name })),
+    );
+  if (method === "GET")
+    respond(
+      200,
+      state.rulesets.find((r) => r.id === id),
+    );
+  const input = JSON.parse(readFileSync(0, "utf8"));
+  if (method === "POST")
+    state.rulesets.push({ ...input, id: state.rulesets.length + 1 });
+  if (method === "PUT")
+    state.rulesets = state.rulesets.map((r) =>
+      r.id === id ? { ...input, id } : r,
+    );
+  save();
+  respond(200, {});
+}
 const label = /\/labels\/([^/]+)$/.exec(path);
 if (
   method === "GET" &&
@@ -53,6 +102,7 @@ if (method === "GET") {
     body = {
       full_name: "synthetic-owner/synthetic-repo",
       default_branch: "main",
+      allow_auto_merge: state.allowAutoMerge ?? false,
     };
   else if (/\/labels\//.test(path))
     body = { name: decodeURIComponent(path.split("/").at(-1)) };

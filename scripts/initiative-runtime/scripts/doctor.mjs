@@ -94,6 +94,7 @@ export async function runDoctor({
   report = console.log,
   onCheck = () => {},
   investigation,
+  mergeRails,
 }) {
   let failures = 0;
   function status(ok, label, detail) {
@@ -331,6 +332,12 @@ export async function runDoctor({
           : "Run vizor labels to create it, or check label access and casing.",
       );
     }
+  }
+
+  // Standard and braZy rely on GitHub refusing a merge before its checks pass.
+  if (remote && mergeRails) {
+    const rails = mergeRails();
+    status(rails.ok, "Merge rails", rails.detail);
   }
 
   if (dispatchMode === "local") {

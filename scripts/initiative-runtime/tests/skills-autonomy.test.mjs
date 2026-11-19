@@ -10,28 +10,46 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { chmodSync } from "node:fs";
 
 const runtime = fileURLToPath(new URL("..", import.meta.url));
 const cli = join(runtime, "scripts", "vizor.mjs");
 const skillsRoot = join(runtime, "skills");
+const fakeGh = join(runtime, "tests", "fixtures", "fake-gh.mjs");
 
 function project(t) {
   const dir = mkdtempSync(join(tmpdir(), "vizor-autonomy-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // A synthetic gh so `autonomy` can apply its GitHub merge rails offline.
+  const bin = mkdtempSync(join(tmpdir(), "vizor-autonomy-bin-"));
+  t.after(() => rmSync(bin, { recursive: true, force: true }));
+  writeFileSync(
+    join(bin, "gh"),
+    '#!/bin/sh\nexec "' + process.execPath + '" "' + fakeGh + '" "$@"\n',
+  );
+  chmodSync(join(bin, "gh"), 0o755);
+  const state = join(bin, "state.json");
+  writeFileSync(state, JSON.stringify({ labels: {} }));
   const run = (args, env = {}) =>
     spawnSync(process.execPath, [cli, ...args], {
       cwd: dir,
       encoding: "utf8",
-      env: { ...process.env, ...env },
+      env: {
+        ...process.env,
+        PATH: bin + delimiter + process.env.PATH,
+        FAKE_GH_STATE: state,
+        GH_TOKEN: "",
+        ...env,
+      },
     });
   assert.equal(
     run([
       "connect",
       "--repo",
-      "o/r",
+      "synthetic-owner/synthetic-repo",
       "--manager",
       "lead",
       "--worker",
@@ -45,93 +63,113 @@ function project(t) {
     config: JSON.parse(readFileSync(join(dir, "vizor.config.json"), "utf8")),
     queue: JSON.parse(readFileSync(join(dir, ".vizor", "queue.json"), "utf8")),
   });
-  return { dir, run, read };
+  const gh = () => JSON.parse(readFileSync(state, "utf8"));
+  return { dir, run, read, gh };
 }
 
-test("vizor autonomy applies each level to the queue and records it for workers", (t) => {
-  const { dir, run, read } = project(t);
-  let r = run(["autonomy"]);
-  assert.match(r.stdout, /Autonomy: Standard/);
+// Uses a POSIX gh shim for the GitHub merge rails; the logic is platform-independent.
+test(
+  "vizor autonomy applies each level to the queue and records it for workers",
+  { skip: process.platform === "win32" },
+  (t) => {
+    const { dir, run, read, gh } = project(t);
+    let r = run(["autonomy"]);
+    assert.match(r.stdout, /Autonomy: Standard/);
 
-  r = run(["autonomy", "supervised"]);
-  assert.equal(r.status, 0, r.stderr);
-  let { config, queue } = read();
-  assert.equal(config.autonomy, "supervised");
-  assert.equal(queue.autoAcceptReviews, false);
-  assert.notEqual(queue.blockerOrchestrator, true, "not set up yet");
-  assert.equal(queue.autoRepair, undefined);
-  assert.match(r.stdout, /run vizor investigator/);
-  assert.match(r.stdout, /draft PRs/);
+    r = run(["autonomy", "supervised"]);
+    assert.equal(r.status, 0, r.stderr);
+    let { config, queue } = read();
+    assert.equal(config.autonomy, "supervised");
+    assert.equal(queue.autoAcceptReviews, false);
+    assert.notEqual(queue.blockerOrchestrator, true, "not set up yet");
+    assert.equal(queue.autoRepair, undefined);
+    assert.match(r.stdout, /run vizor investigator/);
+    assert.match(r.stdout, /draft PRs/);
 
-  r = run([
-    "autonomy",
-    "brazy",
-    "--repair-agent",
-    "builder",
-    "--repair-check",
-    "test",
-  ]);
-  assert.equal(r.status, 0, r.stderr);
-  ({ config, queue } = read());
-  assert.equal(config.autonomy, "brazy");
-  assert.equal(queue.autoAcceptReviews, true);
-  assert.deepEqual(queue.autoRepair, { agent: "builder", checks: ["test"] });
-  // No orchestrator host yet: investigations stay manual and the user is told.
-  assert.notEqual(queue.blockerOrchestrator, true);
-  assert.match(r.stdout, /run vizor investigator/);
-  assert.match(r.stdout, /braZy/);
-  // Queue and config remain valid for the runtime.
-  assert.equal(queue.dispatchMode, "local");
-  assert.deepEqual(queue.issues, []);
+    r = run([
+      "autonomy",
+      "brazy",
+      "--repair-agent",
+      "builder",
+      "--repair-check",
+      "test",
+    ]);
+    assert.equal(r.status, 0, r.stderr);
+    ({ config, queue } = read());
+    assert.equal(config.autonomy, "brazy");
+    assert.equal(queue.autoAcceptReviews, true);
+    assert.deepEqual(queue.autoRepair, { agent: "builder", checks: ["test"] });
+    // No orchestrator host yet: investigations stay manual and the user is told.
+    assert.notEqual(queue.blockerOrchestrator, true);
+    assert.match(r.stdout, /run vizor investigator/);
+    assert.match(r.stdout, /braZy/);
+    // braZy applies the GitHub merge rails: auto-merge and required checks.
+    assert.equal(gh().allowAutoMerge, true);
+    assert.deepEqual(
+      gh()
+        .rulesets[0].rules.find(
+          (rule) => rule.type === "required_status_checks",
+        )
+        .parameters.required_status_checks.map((c) => c.context),
+      ["test"],
+    );
+    assert.match(r.stdout, /Created ruleset 'Vizor merge rails'/);
+    // Queue and config remain valid for the runtime.
+    assert.equal(queue.dispatchMode, "local");
+    assert.deepEqual(queue.issues, []);
 
-  writeFileSync(join(dir, ".vizor", "orchestrator-host.json"), "{}");
-  run(["autonomy", "brazy"]);
-  ({ queue } = read());
-  assert.equal(queue.blockerOrchestrator, true);
-  assert.deepEqual(
-    queue.autoRepair,
-    { agent: "builder", checks: ["test"] },
-    "kept",
-  );
+    writeFileSync(join(dir, ".vizor", "orchestrator-host.json"), "{}");
+    run(["autonomy", "brazy"]);
+    ({ queue } = read());
+    assert.equal(queue.blockerOrchestrator, true);
+    assert.deepEqual(
+      queue.autoRepair,
+      { agent: "builder", checks: ["test"] },
+      "kept",
+    );
 
-  r = run(["autonomy", "standard"]);
-  ({ config, queue } = read());
-  assert.equal(config.autonomy, "standard");
-  assert.equal(queue.autoAcceptReviews, true);
-  assert.equal(queue.autoRepair, undefined);
-  // Once set up, blocker investigation stays on at every level.
-  assert.equal(queue.blockerOrchestrator, true);
-  run(["autonomy", "supervised"]);
-  ({ queue } = read());
-  assert.equal(queue.blockerOrchestrator, true);
+    r = run(["autonomy", "standard"]);
+    ({ config, queue } = read());
+    assert.equal(config.autonomy, "standard");
+    assert.equal(queue.autoAcceptReviews, true);
+    assert.equal(queue.autoRepair, undefined);
+    // Once set up, blocker investigation stays on at every level.
+    assert.equal(queue.blockerOrchestrator, true);
+    run(["autonomy", "supervised"]);
+    ({ queue } = read());
+    assert.equal(queue.blockerOrchestrator, true);
 
-  r = run(["autonomy", "yolo"]);
-  assert.equal(r.status, 1);
-  assert.match(r.stderr, /supervised \| standard \| brazy/);
-  r = run([
-    "autonomy",
-    "brazy",
-    "--repair-agent",
-    "nobody",
-    "--repair-check",
-    "test",
-  ]);
-  assert.equal(r.status, 1);
-  // A plan still validates with the autonomy field present in the config.
-  mkdirSync(join(dir, ".github"));
-  const example = JSON.parse(
-    readFileSync(
-      join(runtime, "..", "..", "packaging", "examples", "vizor-plan.json"),
-      "utf8",
-    ),
-  );
-  writeFileSync(
-    join(dir, ".github", "vizor-plan.json"),
-    JSON.stringify({ ...example, repository: "o/r" }),
-  );
-  r = run(["check-plan"]);
-  assert.equal(r.status, 0, r.stderr);
-});
+    r = run(["autonomy", "yolo"]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /supervised \| standard \| brazy/);
+    r = run([
+      "autonomy",
+      "brazy",
+      "--repair-agent",
+      "nobody",
+      "--repair-check",
+      "test",
+    ]);
+    assert.equal(r.status, 1);
+    // A plan still validates with the autonomy field present in the config.
+    mkdirSync(join(dir, ".github"));
+    const example = JSON.parse(
+      readFileSync(
+        join(runtime, "..", "..", "packaging", "examples", "vizor-plan.json"),
+        "utf8",
+      ),
+    );
+    writeFileSync(
+      join(dir, ".github", "vizor-plan.json"),
+      JSON.stringify({
+        ...example,
+        repository: "synthetic-owner/synthetic-repo",
+      }),
+    );
+    r = run(["check-plan"]);
+    assert.equal(r.status, 0, r.stderr);
+  },
+);
 
 test("vizor skills installs worker skills in the project and operator skills for the user, without overwriting", (t) => {
   const { dir, run } = project(t);
