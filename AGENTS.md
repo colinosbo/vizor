@@ -7,7 +7,8 @@
 - Dispatch is local by default: the scheduler polls GitHub and calls the saved worker directly, with no public listener. Webhook mode is optional and uses an operator-supplied public HTTPS URL that exposes only the webhook route. Vizor does not start tunnels.
 - Code is accepted only when the configured checks pass on the exact merged commit. Successors are released only after acceptance.
 - Ambiguous provider starts are reconciled, never blindly retried. Receipts survive restarts.
-- Blocker investigation is core. When a worker reports `blocked`, one read-only Claude investigation decides: route a repair, return the worker to its same chat, or hold the task for the owner with a report. `vizor investigator` sets it up, and `doctor` fails without it.
+- Blocker investigation is core. When a worker reports `blocked`, one read-only investigation decides: route a repair, return the worker, or hold the task for the owner with a report. The preferred investigator is a Claude Code routine (a cloud chat with a Fire URL), so nothing has to be installed on the PC; a signed-in Claude CLI is the alternative, and also enables same-chat returns. Vizor validates every decision before acting. `vizor investigator` sets it up, and `doctor` fails without it.
+- Setup should be one guided command (`vizor init`). The owner's job is high-level: answer a few questions, paste secrets into one file, approve plans, and decide what only they can decide.
 - Autonomy is the owner's choice: Supervised, Standard or braZy (`vizor autonomy`). Every level keeps the same rails, and braZy only removes human approval steps, never safety checks.
 - Project configuration, queue state, logs and credentials stay outside Git. Pilot-specific data belongs in synthetic examples.
 

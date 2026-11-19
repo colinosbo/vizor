@@ -23,7 +23,7 @@ Vizor never merges PRs. You merge them, or your repository merges them automatic
 - **Workers can reach the repository.** Each worker is a Claude Code routine connected to GitHub with access to this repository.
 - **Results are posted by a trusted login.** A result counts only if it is posted after the assignment comment by a login in that worker's `trustedManagers` (normally your own GitHub account, which the routine posts as).
 - **Check names.** For merge tasks, find the exact check names your CI reports on a PR: open any PR, then Checks, and use the job names (for example `test`). They are case-sensitive, and each name must match exactly one check on the commit.
-- **Post-merge checks.** Merge tasks are verified on the merge commit, so the named checks must also run on pushes to the default branch (`on: push: branches: [main]` in GitHub Actions). If a bot account using `GITHUB_TOKEN` merges, GitHub does not start push workflows, so dispatch the check workflow explicitly or merge as a user.
+- **Post-merge checks.** Merge tasks are verified on the merge commit, so the named checks must also run on pushes to the default branch (`on: push: branches: [main]` in GitHub Actions). `examples/vizor-checks.yml` is a starter workflow that does this, and `vizor doctor` fails while a named check has not run on the default branch. If a bot account using `GITHUB_TOKEN` merges, GitHub does not start push workflows, so dispatch the check workflow explicitly or merge as a user.
 
 ## The plan file
 
@@ -90,7 +90,7 @@ You can also put the plan file in place before connecting. Nothing is published 
 Vizor waits for the merge; it does not perform it. Pick one approach:
 
 - **You merge** each PR after review. This is the simplest and best for a first plan.
-- **GitHub auto-merge.** Enable "Allow auto-merge" in the repository settings and require the plan's checks in branch protection. Then each PR merges itself once the checks pass.
+- **GitHub auto-merge.** Run `vizor rails` (Standard and braZy autonomy). It turns on "Allow auto-merge" and adds a `Vizor merge rails` ruleset requiring the plan's checks on the default branch. Then each PR merges itself once the checks pass. Run it again whenever a merged plan adds a check; `vizor doctor` fails until you do.
 - **Your own checked-merge workflow**, as in the Vision pilot. Have it dispatch the post-merge checks explicitly if it merges with `GITHUB_TOKEN`.
 
 ## Changing the plan

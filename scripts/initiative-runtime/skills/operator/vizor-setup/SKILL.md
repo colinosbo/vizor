@@ -32,9 +32,9 @@ Use Step 0 of **Agent setup** in `INSTALL.md`, filled in, and add the autonomy l
 
 ## 3. Do the setup
 
-Follow **Agent setup** steps 1–8 in `INSTALL.md` exactly: prerequisites (including the Claude Code CLI), GitHub and Claude sign-in, `node setup.mjs`, project folder, `vizor connect`, worker credentials (the human pastes them), `vizor labels`, `vizor investigator`, `vizor doctor --json` until `"healthy": true`, then `vizor start` and `vizor health`.
+The fastest path is `vizor init` in the project folder. Pass answers as flags (`--repo`, `--manager`, `--worker id=Name`, `--autonomy`) so it doesn't stop to ask, and have the human paste the secrets when it pauses. Otherwise, follow **Agent setup** steps 1–8 in `INSTALL.md` exactly: prerequisites, GitHub sign-in, `node setup.mjs`, project folder, `vizor connect`, worker credentials (the human pastes them), `vizor labels`, `vizor investigator`, `vizor doctor --json` until `"healthy": true`, then `vizor start` and `vizor health`.
 
-Blocker investigation is a core part of Vizor; don't skip `vizor investigator`. Without it, a task that reports `blocked` stays held until someone steps in.
+Blocker investigation is a core part of Vizor; don't skip `vizor investigator`. Without it, a task that reports `blocked` stays held until someone steps in. Prefer an **investigator routine**: have the human create the investigator routine described in `INSTALL.md` step 6 (it uses its own prompt) and paste its Fire URL and token under `"orchestrator"` in `secrets.json`. Then nothing extra has to be installed on the PC.
 
 ## 4. Apply the autonomy level and install the worker skills
 
@@ -46,11 +46,11 @@ vizor autonomy brazy --repair-agent <builder id> --repair-check <check name>   #
 vizor skills
 ```
 
-- `vizor autonomy` sets the queue's acceptance and repair settings and records the level in `vizor.config.json`. Workers read it from there. It also prints the one GitHub setting to change for that level: do it, or ask the human to.
+- `vizor autonomy` sets the queue's acceptance and repair settings and records the level in `vizor.config.json`. Workers read it from there. For Standard and braZy it also applies the GitHub merge rails (Allow auto-merge plus a ruleset requiring the plan's checks). If GitHub refuses, tell the human what it said. After the plan PR merges, run `vizor rails` so its checks are required.
 - `vizor skills` puts the worker skills (`vizor-accept`, `vizor-deliver`, `vizor-blocked`) in `.claude\skills` and the operator skills in the user's Claude Code skills folder.
 - Then open a PR that adds `.claude/skills/` and `vizor.config.json` (it holds no secrets), and have the human merge it. Worker routines load the skills from the repository.
 
-Each worker routine's own prompt should say: "You are <Display Name>, a Vizor worker. Follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository."
+Each worker routine's own prompt should be the one in `INSTALL.md` step 6. If the human has no worker routines yet, send them that step's instructions to create one per worker.
 
 ## 5. First plan
 

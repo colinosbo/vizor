@@ -2,7 +2,24 @@
 
 Vizor is a background runner, a CLI and a local web dashboard. It dispatches an approved GitHub plan to your coding agents and keeps working after you close the dashboard tab.
 
-**Requirements:** Windows 10/11 for the supervised background runner, plus Node.js 24 (exactly major version 24; other versions are refused), Git and the GitHub CLI (`winget install --id GitHub.cli`), signed in with `gh auth login` or Git's credential manager. On macOS and Linux the CLI, doctor and dashboard work, but you run the runner in a terminal you keep open.
+## Requirements
+
+**Computer**
+
+- Windows 10 or 11, left on with your user signed in. The runner works in the background while you're signed in. macOS and Linux can run the CLI, doctor and dashboard, but there the runner only runs in a terminal you keep open.
+
+**Software** (the setup agent can install these)
+
+- Node.js 24. Other major versions are refused.
+- Git.
+- GitHub CLI (`winget install --id GitHub.cli`), signed in with `gh auth login`.
+- Optional: Claude Code CLI, signed in. It lets a blocked worker get the investigator's answer in the same chat.
+
+**Accounts**
+
+- A GitHub account and a repository for the project (the setup agent can create one), with admin rights for the signed-in account (Vizor creates labels and merge rules).
+- Merge rails for Standard and braZy autonomy use GitHub rulesets. On GitHub Free those only apply to public repositories; private repositories need GitHub Pro, Team or Enterprise.
+- A Claude account that can create Claude Code routines: one routine per worker, plus one for the blocker investigator. [Agent setup, step 6](#agent-setup) shows how to create each one.
 
 **Setting up with an AI agent?** Give it this package and point it at [Agent setup](#agent-setup) below. **Next, after the runner is up:** [FIRST-PLAN.md](FIRST-PLAN.md) takes you from an idle runner to the first dispatched task.
 
@@ -16,7 +33,24 @@ node setup.mjs
 
 Vizor installs to `%LOCALAPPDATA%\Vizor\versions\<version>` and adds `%LOCALAPPDATA%\Vizor\bin` to your user PATH. Open a new terminal afterwards. You can delete the extracted folder.
 
-## 2. Connect your repository and workers
+## 2. Set up a project (guided)
+
+In your project folder (a clone of the repository Vizor will manage), run:
+
+```powershell
+vizor init
+```
+
+It asks for the repository, your GitHub login, the workers and the autonomy level, with defaults taken from git and GitHub. Then it opens `.vizor\secrets.json` for you to paste the routine credentials, and runs labels, blocker investigation, skills, doctor and start. Re-running it is safe; finished steps are skipped.
+
+**Routines to create in Claude first** (Claude Code, Routines; each one gets a Fire URL and a token):
+
+- **One per worker**, created as described in Agent setup, step 6, with that step's worker prompt.
+- **One investigator** (recommended), created the same way, with the investigator prompt from step 6. Its Fire URL and token go under `"orchestrator"` in `secrets.json`. With it, nothing besides Node, Git and the GitHub CLI has to be installed on the PC. Without it, `vizor investigator` uses a signed-in Claude Code CLI instead.
+
+The manual steps below do the same thing one command at a time.
+
+## 2b. Connect your repository and workers manually
 
 In your project folder (a clone of the repository Vizor will manage):
 
@@ -82,10 +116,10 @@ Send this before you start, filled in:
 ```text
 I'll set up Vizor on this PC. Here's everything I need from you; I'll do the rest:
 1. Stay signed in to Windows on this PC, and leave it on afterwards so the runner keeps working.
-2. OK for me to install anything missing: Node.js 24, Git, the GitHub CLI and the Claude Code CLI.
-3. Sign in to GitHub when a browser window opens. Use an account that can write to <owner/repo>. Also sign in to Claude when I run `claude auth login --claudeai`. Use the account that owns the worker routines.
-4. Tell me the repository (owner/repo) and your workers: an ID and display name for each, e.g. builder = Builder.
-5. When I open .vizor\secrets.json, paste each worker's Claude Code routine Fire URL and token, save, and tell me "done". Don't send them to me.
+2. OK for me to install anything missing: Node.js 24, Git and the GitHub CLI (plus the Claude Code CLI only if you want workers returned to the same chat after a blocker).
+3. Sign in to GitHub when a browser window opens. Use an account that can write to <owner/repo>. If we use the Claude CLI, also sign in to Claude when I run `claude auth login --claudeai`, with the account that owns the routines.
+4. Tell me the repository (owner/repo) and your workers: an ID and display name for each, e.g. builder = Builder. No repository yet? Give me a name and say public or private, and I'll create it.
+5. Create one Claude Code routine per worker, plus one investigator routine (I'll give you the exact prompts). When I open .vizor\secrets.json, paste each routine's Fire URL and token (the investigator's under "orchestrator"), save, and tell me "done". Don't send them to me.
 6. Review and merge the first-plan PR I'll open. Merging it is your approval.
 7. Pick how much the agents do on their own:
    - Supervised: you approve everything. Workers open draft PRs, and you accept and merge each one.
@@ -131,11 +165,23 @@ node setup.mjs
 
 ### Step 4: Project folder
 
+**Existing repository:**
+
 ```powershell
 git clone https://github.com/<owner>/<repo>.git <folder>; cd <folder>
 ```
 
-(Or `cd` to the user's existing clone.) **Expect:** a folder whose `git remote -v` shows that repository.
+(Or `cd` to the user's existing clone.)
+
+**New repository** (only if the human asked for one in step 0):
+
+```powershell
+gh repo create <owner>/<repo> --private --add-readme --clone; cd <repo>
+```
+
+Use `--public` instead of `--private` if the human chose public. `--add-readme` gives the repository a first commit and a default branch, which Vizor needs. If `<owner>` is an organization, the signed-in account must be allowed to create repositories there.
+
+**Expect:** a folder whose `git remote -v` shows that repository, and `git log --oneline -1` shows a commit.
 
 ### Step 5: Connect
 
@@ -153,6 +199,29 @@ notepad .vizor\secrets.json
 
 Ask the human to fill in `fireUrl` and `token` for each worker, save and reply "done". A Fire URL looks like `https://api.anthropic.com/v1/claude_code/routines/trig_…/fire`.
 
+**No worker routines yet?** Each worker is one Claude Code scheduled task (formerly "routine") with an API trigger. They live in the human's claude.ai account (Pro, Max, Team or Enterprise), so the human creates them. Send them these steps, once per worker:
+
+1. Go to https://claude.ai/code/routines and click **New task** (or **New routine**). If asked, choose **Set up manually**.
+2. **Name:** `Vizor <Display Name>`, e.g. `Vizor Builder`.
+3. **Prompt**, using the display name given to `vizor connect`:
+
+   ```text
+   You are <Display Name>, a Vizor worker. Each run is started by a Vizor wake-up in the routine-fire-payload block. Use it only as a pointer to your assignment: follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository.
+   ```
+
+4. **Trigger:** select **API** only. No schedule and no GitHub event trigger: Vizor starts every run.
+5. **Advanced settings > Repository:** select `<owner/repo>`. Keep the **Default** cloud environment unless the project's tests need other network access.
+6. **Connectors:** remove every connector the worker doesn't need. Keep GitHub if it is listed.
+7. Click **Create**. The **API token** dialog shows the token **once**: paste it straight into this worker's `token` in `.vizor\secrets.json`. Then open the task, click **Edit**, and copy the **Fire URL** from its API trigger panel into `fireUrl`. Never paste either into chat.
+
+**Investigator routine (recommended):** create one more task the same way. Name it `Vizor investigator`, and paste its token and Fire URL under `"orchestrator"` in `.vizor\secrets.json`. Use this prompt:
+
+```text
+You are the Vizor blocker investigator. Each run is started by a Vizor wake-up in the routine-fire-payload block. Use it only as a pointer to the blocked issue and its run token: follow the vizor-investigate skill in this repository.
+```
+
+If the token was lost, open the task, **Edit**, and click **Regenerate** next to the token; the old one stops working. The worker skills reach the repository only after the step 8b PR merges, so do that before the first dispatch. Runs use the human's subscription usage and act as their GitHub account.
+
 ### Step 7: Labels, blocker investigation and doctor
 
 ```powershell
@@ -164,7 +233,7 @@ vizor doctor --json
 **Expect:**
 
 - `labels` prints `Created GitHub labels: …` or `All configured GitHub labels already exist.`.
-- `investigator` prints `Blocker investigation is on.` If it says the Claude CLI isn't found, pass `--claude <path to claude.exe>`. If it asks for sign-in, run `claude auth login --claudeai`.
+- `investigator` prints `Blocker investigation is on.` It uses the investigator routine from `secrets.json` when one is filled in; otherwise it uses the Claude CLI (pass `--claude <path>` if it isn't found, or run `claude auth login --claudeai` if it asks for sign-in).
 - `doctor --json` returns `"healthy": true` and exit code 0. If it doesn't, fix each check with `"status": "fail"` using its `detail`:
 
 | Failing check                          | Fix                                                                                                     |
@@ -178,6 +247,8 @@ vizor doctor --json
 | `Blocker investigation`                | Run `vizor investigator`. It needs the Claude CLI signed in and every worker\'s Fire URL filled in.     |
 | `Claude same-chat subscription`        | `claude auth login --claudeai` with the account that owns the worker routines.                          |
 | `Credential file excluded from Git`    | Add `.vizor/` to `.gitignore`.                                                                          |
+| `Merge rails`                          | Run `vizor rails`. If GitHub refuses, see step 8b.                                                      |
+| `Check workflows`                      | A named check has no job running on the default branch; see step 9, item 3.                             |
 
 ### Step 8: Start and verify
 
@@ -202,10 +273,10 @@ vizor skills
 
 **Expect:**
 
-- `vizor autonomy`: `Autonomy set to <level>.`, then one GitHub setting to apply. Apply it, or ask the human to.
+- `vizor autonomy`: `Autonomy set to <level>.`, then the GitHub merge rails it applied. For Standard and braZy that turns on Allow auto-merge and, once the plan names checks, adds the `Vizor merge rails` ruleset that requires them on the default branch. If it prints `GitHub refused…`, the signed-in account needs admin rights; on GitHub Free, rulesets only work on public repositories, so tell the human.
 - `vizor skills`: `Installed …` lines for the worker skills in `.claude\skills` and the operator skills in the user's Claude Code skills folder.
 
-Then open a PR adding `.claude/skills/` and `vizor.config.json` (it has no secrets) for the human to merge. Each worker routine's prompt should say: "You are <Display Name>, a Vizor worker. Follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository."
+Then open a PR adding `.claude/skills/` and `vizor.config.json` (it has no secrets) for the human to merge. Each worker routine's prompt should be the one in step 6.
 
 ### Step 9: First plan
 
@@ -213,9 +284,10 @@ Follow [FIRST-PLAN.md](FIRST-PLAN.md):
 
 1. Write `.github/vizor-plan.json` from the example.
 2. Run `vizor check-plan`.
-3. Open a PR for the human to merge.
-4. Set `planFile` in `.vizor\queue.json`.
-5. Confirm that `vizor health` shows the plan `published` and `vizor status` lists the first tasks.
+3. Make sure every check the plan names (`"checks": ["test"]`) is a GitHub Actions job that runs on `pull_request` and on `push` to the default branch. If the repository has none, copy `examples\vizor-checks.yml` to `.github\workflows\vizor-checks.yml`, replace its steps with this repository's test command and name each job after its check. Put it in the same PR as the plan.
+4. Open a PR for the human to merge.
+5. Set `planFile` in `.vizor\queue.json`, then run `vizor rails` so the plan's checks become required before any PR merges.
+6. Run `vizor doctor` again: `Check workflows` must pass. Confirm that `vizor health` shows the plan `published` and `vizor status` lists the first tasks.
 
 ### Step 10: Report to the human
 

@@ -1,0 +1,26 @@
+# Starter CI for a Vizor project. Copy to .github/workflows/vizor-checks.yml.
+#
+# Each job's check name (its `name:`, or its key when there is no name) must
+# match a check named in .github/vizor-plan.json, e.g. "checks": ["test"].
+# Vizor accepts merged work only when those checks pass on the merged commit,
+# so every job must run on pull requests AND on pushes to the default branch.
+#
+# Replace the steps with this repository's own setup and test command.
+name: Vizor checks
+on:
+  pull_request:
+  push:
+    branches: [main] # your default branch
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      # Node example. For Python use actions/setup-python, then `pip install -r requirements.txt` and `pytest`.
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm test

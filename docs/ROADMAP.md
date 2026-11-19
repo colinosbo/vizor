@@ -45,6 +45,11 @@ Status labels: **Done** = merged and tested in this repo. **Runtime present** = 
 
 **Next release blocker:** move Vision onto the installed version (`vizor start` from 0.12.0), so it gets the queue lease. Then VZ-25 (stale-PR status and a single alert, from Vision #106's accepted spec), the first open item in work package 2.
 
+## Shipped in 0.14.0: easier setup, investigator routine
+
+- **`vizor init`:** guided setup in one command. It asks for the repository, login, workers and autonomy (defaults come from git and GitHub), completes the secrets template and opens it, then runs labels, investigator, autonomy, skills and doctor, then start and open. Answers can be passed as flags, and piped answers work, for agents and scripts.
+- **Investigator routine:** blocker investigation can run as a Claude Code routine, with no AI CLI on the PC. It's a one-fire, token-bound decision comment, validated by the same rules as a local run, and never re-fired. A new `vizor-investigate` skill tells the routine what to do. `vizor investigator` prefers the routine, and the Claude CLI (when present) adds same-chat return.
+
 ## Shipped in 0.13.0: agent onboarding
 
 - **Agent setup checklist** in `INSTALL.md`: ten ordered steps with exact commands and expected output, a single up-front message listing what the human must do, ground rules (tokens never pass through the agent), a fix table for each failing doctor check, and a short final report.
