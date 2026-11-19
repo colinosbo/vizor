@@ -5,10 +5,13 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { cpSync, readdirSync } from "node:fs";
 import {
   activate,
   defaultOps,
@@ -31,6 +34,8 @@ export const LIFECYCLE_COMMANDS = [
   "start",
   "stop",
   "open",
+  "autonomy",
+  "skills",
 ];
 
 const check = (condition, message) => {
@@ -324,7 +329,156 @@ function rollback() {
   console.log("Rolled back " + result.from + " -> " + result.to + ".");
 }
 
+// How much the agents do on their own. Every level keeps the hard rails:
+// assignment scope, no secrets, workers never orchestrate, and code is
+// accepted only when the plan's checks pass on the merged commit.
+export const AUTONOMY = {
+  supervised: {
+    label: "Supervised",
+    summary:
+      "You approve everything: workers open draft PRs, you accept every review and merge every PR yourself.",
+    github:
+      "Merge PRs yourself after review. Workers open draft PRs; mark one ready when you approve it.",
+  },
+  standard: {
+    label: "Standard",
+    summary:
+      "Reviews with immutable evidence are accepted automatically; you (or GitHub auto-merge on required checks) merge PRs; blockers wait for you.",
+    github:
+      "Merge PRs yourself, or enable 'Allow auto-merge' and require the plan's checks in branch protection.",
+  },
+  brazy: {
+    label: "braZy",
+    summary:
+      "Full release inside the rails: reviews auto-accepted, workers merge their own PR once every named check passes, failed verifications get automatic repair, and workers only stop for credentials, spending or outside commitments.",
+    github:
+      "Require the plan's checks in branch protection (Settings > Branches) so a PR cannot merge before they pass.",
+  },
+};
+
+function autonomy(args) {
+  check(
+    existsSync("vizor.config.json"),
+    "Run vizor autonomy from a connected project folder.",
+  );
+  const queueFile = join(".vizor", "queue.json");
+  const config = JSON.parse(readFileSync("vizor.config.json", "utf8"));
+  const queue = JSON.parse(readFileSync(queueFile, "utf8"));
+  const level = args[0]?.toLowerCase();
+  if (!level) {
+    const current = config.autonomy ?? "standard";
+    console.log(
+      "Autonomy: " +
+        AUTONOMY[current].label +
+        " - " +
+        AUTONOMY[current].summary +
+        "\nQueue: autoAcceptReviews=" +
+        Boolean(queue.autoAcceptReviews) +
+        ", autoRepair=" +
+        (queue.autoRepair ? queue.autoRepair.agent : "off") +
+        ", blockerOrchestrator=" +
+        Boolean(queue.blockerOrchestrator) +
+        "\nChange it with: vizor autonomy supervised | standard | brazy",
+    );
+    return;
+  }
+  check(
+    Object.hasOwn(AUTONOMY, level),
+    "Use vizor autonomy supervised | standard | brazy.",
+  );
+  const repairIndex = args.indexOf("--repair-agent");
+  const repairAgent = repairIndex >= 0 ? args[repairIndex + 1] : undefined;
+  const repairChecks = args
+    .map((arg, i) => (arg === "--repair-check" ? args[i + 1] : null))
+    .filter(Boolean);
+  if (args.includes("--repair-agent"))
+    check(
+      Object.hasOwn(config.agents, repairAgent ?? "") && repairChecks.length,
+      "Use --repair-agent <worker id> with at least one --repair-check <check name>.",
+    );
+  const notes = [];
+  queue.autoAcceptReviews = level !== "supervised";
+  if (level === "brazy") {
+    if (repairAgent)
+      queue.autoRepair = { agent: repairAgent, checks: repairChecks };
+    if (!queue.autoRepair)
+      notes.push(
+        "Automatic repair is off until you name a builder: vizor autonomy brazy --repair-agent <id> --repair-check <check>.",
+      );
+    if (existsSync(join(".vizor", "orchestrator-host.json")))
+      queue.blockerOrchestrator = true;
+    else
+      notes.push(
+        "Blocker investigations stay manual until .vizor/orchestrator-host.json is set up (runtime README).",
+      );
+  } else {
+    delete queue.autoRepair;
+    queue.blockerOrchestrator = false;
+  }
+  config.autonomy = level;
+  for (const [file, data] of [
+    [queueFile, queue],
+    ["vizor.config.json", config],
+  ]) {
+    const temp = file + ".autonomy.tmp";
+    writeFileSync(temp, JSON.stringify(data, null, 2) + "\n");
+    renameSync(temp, file);
+  }
+  console.log(
+    [
+      "Autonomy set to " + AUTONOMY[level].label + ".",
+      AUTONOMY[level].summary,
+      "In GitHub: " + AUTONOMY[level].github,
+      ...notes,
+      "The runner applies the queue settings on its next round. Commit vizor.config.json so workers see the level.",
+    ].join("\n"),
+  );
+}
+
+// Copy the bundled skills: worker skills into this project's .claude/skills
+// (commit them so cloud worker routines load them), operator skills into the
+// user's Claude Code skills folder. Existing skills are never overwritten
+// unless --force is given.
+function skills(args) {
+  const source = join(runtimeRoot(), "skills");
+  check(existsSync(source), "This Vizor version has no bundled skills.");
+  const targets = [];
+  if (!args.includes("--operator-only")) {
+    check(
+      existsSync("vizor.config.json"),
+      "Run vizor skills from a connected project folder (or use --operator-only).",
+    );
+    targets.push([join(source, "worker"), join(".claude", "skills")]);
+  }
+  if (!args.includes("--workers-only"))
+    targets.push([
+      join(source, "operator"),
+      join(
+        process.env.VIZOR_SKILLS_HOME || join(homedir(), ".claude"),
+        "skills",
+      ),
+    ]);
+  for (const [from, to] of targets) {
+    mkdirSync(to, { recursive: true });
+    for (const name of readdirSync(from)) {
+      const dest = join(to, name);
+      if (existsSync(dest) && !args.includes("--force")) {
+        console.log("Kept existing " + dest + " (use --force to replace).");
+        continue;
+      }
+      cpSync(join(from, name), dest, { recursive: true, force: true });
+      console.log("Installed " + dest);
+    }
+  }
+  if (!args.includes("--operator-only"))
+    console.log(
+      "Commit .claude/skills and vizor.config.json so the worker routines load them.",
+    );
+}
+
 export async function runLifecycle(command, args) {
+  if (command === "autonomy") return autonomy(args);
+  if (command === "skills") return skills(args);
   if (command === "version") return console.log(runtimeVersion());
   if (command === "versions") return versions();
   if (command === "rollback") return rollback();

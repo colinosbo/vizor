@@ -239,7 +239,7 @@ async function main() {
         "",
         "Set up:     connect --help | labels | init | doctor [--json] | setup <public HTTPS URL> (webhook mode only)",
         "Run:        start [--reinstall] [--webhook-url <https URL>] | stop | restart | open [--print] | health",
-        "Plan:       check-plan [.github/vizor-plan.json]",
+        "Plan:       check-plan [.github/vizor-plan.json] | autonomy [supervised|standard|brazy] | skills [--workers-only|--operator-only] [--force]",
         "Inspect:    status | dashboard [queue.json] [port] | schedule [queue.json] --preview",
         "Work:       assign <issue> <agent ID> <comment ID> | accept <issue> | retire <queue.json> <issue>",
         "Install:    version | versions | rollback   (upgrade: run setup.mjs from a newer package)",

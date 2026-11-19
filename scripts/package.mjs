@@ -35,7 +35,7 @@ mkdirSync(join(root, "runtime"), { recursive: true });
 
 // Runtime files only: tests and pilot review notes stay in the repository.
 const source = join(repo, "scripts", "initiative-runtime");
-for (const entry of ["scripts", "windows", "README.md"])
+for (const entry of ["scripts", "windows", "skills", "README.md"])
   cpSync(join(source, entry), join(root, "runtime", entry), {
     recursive: true,
   });

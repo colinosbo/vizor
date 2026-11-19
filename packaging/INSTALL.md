@@ -87,7 +87,14 @@ I'll set up Vizor on this PC. Here's everything I need from you; I'll do the res
 4. Tell me the repository (owner/repo) and your workers: an ID and display name for each, e.g. builder = Builder.
 5. When I open .vizor\secrets.json, paste each worker's Claude Code routine Fire URL and token, save, and tell me "done". Don't send them to me.
 6. Review and merge the first-plan PR I'll open. Merging it is your approval.
+7. Pick how much the agents do on their own:
+   - Supervised: you approve everything. Workers open draft PRs, and you accept and merge each one.
+   - Standard (recommended to start): results with evidence are accepted automatically, and you merge PRs.
+   - Go braZy: workers do their approved tasks without asking and merge their own PRs once every required check passes. They stop only for credentials, spending or outside commitments.
+   Every level keeps the safety rails: approved scope only, no secrets shared, no skipped checks.
 ```
+
+With the `vizor-setup` skill installed (`vizor skills --operator-only`), follow that skill; it wraps these steps.
 
 ### Step 1: Prerequisites
 
@@ -178,6 +185,20 @@ vizor open --print
 - `vizor health`: `"healthy": true` and `"summary": "Scheduler heartbeat current"`
 - `vizor open --print`: the dashboard URL
 
+### Step 8b: Autonomy and worker skills
+
+```powershell
+vizor autonomy <supervised|standard|brazy>      # braZy repair: add --repair-agent <id> --repair-check <check>
+vizor skills
+```
+
+**Expect:**
+
+- `vizor autonomy`: `Autonomy set to <level>.`, then one GitHub setting to apply. Apply it, or ask the human to.
+- `vizor skills`: `Installed …` lines for the worker skills in `.claude\skills` and the operator skills in the user's Claude Code skills folder.
+
+Then open a PR adding `.claude/skills/` and `vizor.config.json` (it has no secrets) for the human to merge. Each worker routine's prompt should say: "You are <Display Name>, a Vizor worker. Follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository."
+
 ### Step 9: First plan
 
 Follow [FIRST-PLAN.md](FIRST-PLAN.md):
@@ -196,7 +217,7 @@ Keep it this short:
 Vizor is set up and running for <owner/repo>.
 - Runner: healthy (vizor health). It keeps working with the dashboard closed and restarts when you sign in.
 - Dashboard: http://127.0.0.1:<port+1>  (or run: vizor open)
-- Workers: <ids>. Doctor: all checks pass.
+- Workers: <ids>. Doctor: all checks pass. Autonomy: <level>.
 - Plan: <plan id>, phase <phase> published as issues #<n>, #<n>.  [or: waiting for you to merge PR #<n>]
 What I need from you now: <nothing | merge PR #n | review results on #n>
 To stop: vizor stop.  To check it: vizor health.

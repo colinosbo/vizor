@@ -52,7 +52,12 @@ Status labels: **Done** = merged and tested in this repo. **Runtime present** = 
 - **`FIRST-PLAN.md`:** how work flows, the full plan format, approval by merge, gates and acceptance, who merges, changing a plan, and troubleshooting. Ships in the package with `examples/vizor-plan.json`, which a test validates and publishes through the real publisher.
 - **`vizor check-plan`:** runs the runner's plan validation locally, plus the repository match.
 
-**Next:** turn the checklist and plan guide into Claude skills (setup, write a plan, operate and recover). Then VZ-25.
+- **Skills** (in the package and runtime, `vizor skills` installs them): operator `vizor-setup` (asks the autonomy level first), `vizor-plan` and `vizor-operate`; worker `vizor-accept`, `vizor-deliver` and `vizor-blocked`, generalized from the Vision pilot's skills.
+- **`vizor autonomy supervised | standard | brazy`:** sets queue acceptance and repair, and records the level in `vizor.config.json` for workers. Every level keeps the rails (scope, no secrets, no bypassed checks, merged-commit verification). braZy lets workers merge their own PR once every named check passes.
+
+**Gap found while writing the skills:** without the blocker investigation (`blockerOrchestrator`), a task that reports `blocked` stays held, and Vizor won't read a later result on it. Making a plain "answer and continue" work without the investigator belongs with VZ-24.
+
+**Next:** VZ-25 (stale-PR status and a single alert).
 
 ## Status by item
 
