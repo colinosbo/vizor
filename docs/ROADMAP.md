@@ -55,7 +55,7 @@ Status labels: **Done** = merged and tested in this repo. **Runtime present** = 
 - **Skills** (in the package and runtime, `vizor skills` installs them): operator `vizor-setup` (asks the autonomy level first), `vizor-plan` and `vizor-operate`; worker `vizor-accept`, `vizor-deliver` and `vizor-blocked`, generalized from the Vision pilot's skills.
 - **`vizor autonomy supervised | standard | brazy`:** sets queue acceptance and repair, and records the level in `vizor.config.json` for workers. Every level keeps the rails (scope, no secrets, no bypassed checks, merged-commit verification). braZy lets workers merge their own PR once every named check passes.
 
-**Gap found while writing the skills:** without the blocker investigation (`blockerOrchestrator`), a task that reports `blocked` stays held, and Vizor won't read a later result on it. Making a plain "answer and continue" work without the investigator belongs with VZ-24.
+- **Blocker investigation is core:** `vizor investigator` sets it up (Claude CLI, trigger IDs from the Fire URLs, same-chat return). `doctor` fails without it, the setup checklist and skills include it, and it stays on at every autonomy level. Without it, a `blocked` task would stay held and its later results would go unread; this was found while writing the skills.
 
 **Next:** VZ-25 (stale-PR status and a single alert).
 

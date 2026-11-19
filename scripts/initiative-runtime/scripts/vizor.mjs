@@ -237,7 +237,7 @@ async function main() {
       [
         "Usage: vizor <command>",
         "",
-        "Set up:     connect --help | labels | init | doctor [--json] | setup <public HTTPS URL> (webhook mode only)",
+        "Set up:     connect --help | labels | investigator [--claude <path>] | init | doctor [--json] | setup <public HTTPS URL> (webhook mode only)",
         "Run:        start [--reinstall] [--webhook-url <https URL>] | stop | restart | open [--print] | health",
         "Plan:       check-plan [.github/vizor-plan.json] | autonomy [supervised|standard|brazy] | skills [--workers-only|--operator-only] [--force]",
         "Inspect:    status | dashboard [queue.json] [port] | schedule [queue.json] --preview",
@@ -392,6 +392,12 @@ async function main() {
         databaseFile,
         github,
         dispatchMode: mode,
+        investigation: {
+          enabled: queue?.blockerOrchestrator === true,
+          host: existsSync(".vizor/orchestrator-host.json")
+            ? readJson(".vizor/orchestrator-host.json")
+            : null,
+        },
         report: json ? () => {} : console.log,
         onCheck: (item) => checks.push(item),
       });

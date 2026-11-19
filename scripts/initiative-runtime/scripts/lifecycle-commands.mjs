@@ -36,6 +36,7 @@ export const LIFECYCLE_COMMANDS = [
   "open",
   "autonomy",
   "skills",
+  "investigator",
 ];
 
 const check = (condition, message) => {
@@ -179,9 +180,10 @@ function connect(args) {
         secrets +
         " (keep it private).",
       "  2. vizor labels        create the dispatch and worker labels in GitHub",
-      "  3. vizor doctor        check GitHub access, labels and worker credentials",
-      "  4. vizor start         start the background runner (Windows)",
-      "  5. vizor open          open the dashboard",
+      "  3. vizor investigator  turn on blocker investigation (needs the Claude CLI signed in)",
+      "  4. vizor doctor        check GitHub access, labels, worker credentials and the investigator",
+      "  5. vizor start         start the background runner (Windows)",
+      "  6. vizor open          open the dashboard",
     ].join("\n"),
   );
 }
@@ -405,16 +407,16 @@ function autonomy(args) {
       notes.push(
         "Automatic repair is off until you name a builder: vizor autonomy brazy --repair-agent <id> --repair-check <check>.",
       );
-    if (existsSync(join(".vizor", "orchestrator-host.json")))
-      queue.blockerOrchestrator = true;
-    else
-      notes.push(
-        "Blocker investigations stay manual until .vizor/orchestrator-host.json is set up (runtime README).",
-      );
   } else {
     delete queue.autoRepair;
-    queue.blockerOrchestrator = false;
   }
+  // Blocker investigation is core at every level; it never grants access.
+  if (existsSync(join(".vizor", "orchestrator-host.json")))
+    queue.blockerOrchestrator = true;
+  else
+    notes.push(
+      "Blocker investigation is not set up yet: run vizor investigator.",
+    );
   config.autonomy = level;
   for (const [file, data] of [
     [queueFile, queue],
@@ -476,7 +478,125 @@ function skills(args) {
     );
 }
 
+// Find the Claude Code CLI: --claude <path>, then PATH, then the default
+// per-user install location.
+function findClaude(args) {
+  const flag = args.indexOf("--claude");
+  if (flag >= 0) return resolve(args[flag + 1] ?? "");
+  const lookup = spawnSync(
+    process.platform === "win32" ? "where.exe" : "which",
+    ["claude"],
+    { encoding: "utf8", windowsHide: true },
+  );
+  const found =
+    lookup.status === 0 ? lookup.stdout.split(/\r?\n/)[0].trim() : "";
+  if (found && (process.platform !== "win32" || /\.exe$/i.test(found)))
+    return found;
+  const local = join(
+    homedir(),
+    ".local",
+    "bin",
+    process.platform === "win32" ? "claude.exe" : "claude",
+  );
+  return existsSync(local) ? local : null;
+}
+
+// Blocker investigation is a core part of Vizor: when a worker reports
+// "blocked", a read-only Claude investigation decides whether to route a
+// repair, return the worker to its same chat, or hold for the owner.
+function investigator(args) {
+  check(
+    existsSync("vizor.config.json"),
+    "Run vizor investigator from a connected project folder.",
+  );
+  const config = JSON.parse(readFileSync("vizor.config.json", "utf8"));
+  const secrets = JSON.parse(
+    readFileSync(join(".vizor", "secrets.json"), "utf8"),
+  );
+  const claude = findClaude(args);
+  check(
+    claude && existsSync(claude),
+    "Claude Code CLI not found. Install it (https://code.claude.com), or pass --claude <path to claude.exe>.",
+  );
+  const auth = spawnSync(claude, ["auth", "status"], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 15000,
+  });
+  let signedIn = false;
+  try {
+    const value = JSON.parse(auth.stdout);
+    signedIn = value.loggedIn === true && value.authMethod === "claude.ai";
+  } catch {}
+  check(
+    signedIn,
+    "Sign the Claude CLI in to the account that owns the worker routines: claude auth login --claudeai",
+  );
+  const triggers = {};
+  for (const id of Object.keys(config.agents)) {
+    const match = /\/routines\/(trig_[A-Za-z0-9_-]+)\/fire$/.exec(
+      secrets.agents?.[id]?.fireUrl ?? "",
+    );
+    check(
+      match,
+      "Worker " +
+        id +
+        " has no Fire URL in .vizor/secrets.json yet. Fill in the worker credentials first.",
+    );
+    triggers[id] = match[1];
+  }
+  const hostFile = join(".vizor", "orchestrator-host.json");
+  const existing = existsSync(hostFile)
+    ? JSON.parse(readFileSync(hostFile, "utf8"))
+    : {};
+  // Keep anything already configured (for example a Codex provider, approved
+  // preparation issues or custom timeouts); fill in only what is missing.
+  const host = {
+    provider: "claude",
+    executable: claude,
+    timeoutMs: 300000,
+    preparationIssues: [],
+    ...existing,
+    cloudReturn: {
+      type: "claude-cloud-cli",
+      executable: claude,
+      ...existing.cloudReturn,
+      triggers: { ...triggers, ...existing.cloudReturn?.triggers },
+    },
+  };
+  if (host.cloudReturn && Array.isArray(host.endedSessions))
+    delete host.endedSessions;
+  writeFileSync(hostFile + ".tmp", JSON.stringify(host, null, 2) + "\n", {
+    mode: 0o600,
+  });
+  renameSync(hostFile + ".tmp", hostFile);
+  const queueFile = join(".vizor", "queue.json");
+  const queue = JSON.parse(readFileSync(queueFile, "utf8"));
+  queue.blockerOrchestrator = true;
+  writeFileSync(queueFile + ".tmp", JSON.stringify(queue, null, 2) + "\n");
+  renameSync(queueFile + ".tmp", queueFile);
+  console.log(
+    [
+      "Blocker investigation is on.",
+      "  Investigator: " +
+        (host.provider === "claude" ? "Claude" : "Codex") +
+        " (" +
+        host.executable +
+        "), read-only, " +
+        Math.round(host.timeoutMs / 1000) +
+        "s limit",
+      "  Same-chat return: " +
+        Object.entries(host.cloudReturn.triggers)
+          .map(([id, trigger]) => id + " -> " + trigger)
+          .join(", "),
+      "When a worker reports blocked, Vizor investigates once and either routes a repair, returns the worker to its chat, or holds the task for you with a report on the issue.",
+      "Run vizor doctor to confirm.",
+    ].join("\n"),
+  );
+}
+
 export async function runLifecycle(command, args) {
+  if (command === "investigator") return investigator(args);
   if (command === "autonomy") return autonomy(args);
   if (command === "skills") return skills(args);
   if (command === "version") return console.log(runtimeVersion());

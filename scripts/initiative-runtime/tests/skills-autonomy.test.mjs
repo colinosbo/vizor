@@ -58,8 +58,9 @@ test("vizor autonomy applies each level to the queue and records it for workers"
   let { config, queue } = read();
   assert.equal(config.autonomy, "supervised");
   assert.equal(queue.autoAcceptReviews, false);
-  assert.equal(queue.blockerOrchestrator, false);
+  assert.notEqual(queue.blockerOrchestrator, true, "not set up yet");
   assert.equal(queue.autoRepair, undefined);
+  assert.match(r.stdout, /run vizor investigator/);
   assert.match(r.stdout, /draft PRs/);
 
   r = run([
@@ -77,7 +78,7 @@ test("vizor autonomy applies each level to the queue and records it for workers"
   assert.deepEqual(queue.autoRepair, { agent: "builder", checks: ["test"] });
   // No orchestrator host yet: investigations stay manual and the user is told.
   assert.notEqual(queue.blockerOrchestrator, true);
-  assert.match(r.stdout, /Blocker investigations stay manual/);
+  assert.match(r.stdout, /run vizor investigator/);
   assert.match(r.stdout, /braZy/);
   // Queue and config remain valid for the runtime.
   assert.equal(queue.dispatchMode, "local");
@@ -98,7 +99,11 @@ test("vizor autonomy applies each level to the queue and records it for workers"
   assert.equal(config.autonomy, "standard");
   assert.equal(queue.autoAcceptReviews, true);
   assert.equal(queue.autoRepair, undefined);
-  assert.equal(queue.blockerOrchestrator, false);
+  // Once set up, blocker investigation stays on at every level.
+  assert.equal(queue.blockerOrchestrator, true);
+  run(["autonomy", "supervised"]);
+  ({ queue } = read());
+  assert.equal(queue.blockerOrchestrator, true);
 
   r = run(["autonomy", "yolo"]);
   assert.equal(r.status, 1);
@@ -199,3 +204,73 @@ test("every bundled skill has valid frontmatter and no pilot-specific details", 
     "vizor-setup",
   ]);
 });
+
+test(
+  "vizor investigator turns on blocker investigation from the worker Fire URLs",
+  { skip: process.platform === "win32" },
+  (t) => {
+    const { dir, run, read } = project(t);
+    const fake = join(dir, "fake-claude");
+    const signed = join(dir, "signed-in");
+    writeFileSync(
+      fake,
+      "#!/bin/sh\nif [ -f '" +
+        signed +
+        '\' ]; then echo \'{"loggedIn":true,"authMethod":"claude.ai"}\'; else echo \'{"loggedIn":false}\'; fi\n',
+    );
+    spawnSync("chmod", ["755", fake]);
+    let r = run(["investigator", "--claude", fake]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /claude auth login --claudeai/);
+    writeFileSync(signed, "");
+    r = run(["investigator", "--claude", fake]);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /Worker builder has no Fire URL/);
+    const secretsFile = join(dir, ".vizor", "secrets.json");
+    const secrets = JSON.parse(readFileSync(secretsFile, "utf8"));
+    for (const id of ["builder", "reviewer"])
+      secrets.agents[id] = {
+        fireUrl:
+          "https://api.anthropic.com/v1/claude_code/routines/trig_" +
+          id +
+          "123/fire",
+        token: "t",
+      };
+    writeFileSync(secretsFile, JSON.stringify(secrets));
+    r = run(["investigator", "--claude", fake]);
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /Blocker investigation is on/);
+    const host = JSON.parse(
+      readFileSync(join(dir, ".vizor", "orchestrator-host.json"), "utf8"),
+    );
+    assert.equal(host.provider, "claude");
+    assert.equal(host.executable, fake);
+    assert.equal(host.timeoutMs, 300000);
+    assert.deepEqual(host.cloudReturn, {
+      type: "claude-cloud-cli",
+      executable: fake,
+      triggers: { builder: "trig_builder123", reviewer: "trig_reviewer123" },
+    });
+    assert.equal(read().queue.blockerOrchestrator, true);
+    // An existing configuration is kept; only missing pieces are filled in.
+    host.timeoutMs = 120000;
+    host.cloudReturn.triggers.builder = "trig_custom";
+    writeFileSync(
+      join(dir, ".vizor", "orchestrator-host.json"),
+      JSON.stringify(host),
+    );
+    run(["investigator", "--claude", fake]);
+    const kept = JSON.parse(
+      readFileSync(join(dir, ".vizor", "orchestrator-host.json"), "utf8"),
+    );
+    assert.equal(kept.timeoutMs, 120000);
+    assert.equal(kept.cloudReturn.triggers.builder, "trig_custom");
+    assert.equal(kept.cloudReturn.triggers.reviewer, "trig_reviewer123");
+    // Doctor now reports the investigation as on.
+    r = run(["doctor", "--json"]);
+    const check = JSON.parse(r.stdout).checks.find(
+      (c) => c.label === "Blocker investigation",
+    );
+    assert.equal(check.status, "pass", JSON.stringify(check));
+  },
+);

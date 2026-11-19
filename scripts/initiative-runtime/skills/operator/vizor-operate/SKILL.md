@@ -23,10 +23,13 @@ For each task in the snapshot, read its status line. It tells you exactly what V
 
 ## Answer a blocked worker
 
-A `Vizor result: blocked` comment holds that task and everything that depends on it. How it resumes depends on the project's setup:
+A `Vizor result: blocked` comment holds that task and everything that depends on it until the **blocker investigation** handles it. That's a core part of Vizor, set up with `vizor investigator`; `vizor doctor` shows a `Blocker investigation` check. Vizor runs one read-only Claude investigation per blocker and posts a report on the issue. Then it does one of three things:
 
-- **Blocker investigation enabled** (`"blockerOrchestrator": true` in the queue and `.vizor\orchestrator-host.json` set up, as described in the runtime README): Vizor investigates the blocker and posts a report on the issue. It routes defects to a repair task, and with same-chat return configured, sends the worker back into its original chat. For a decision only the human can make, post the answer as described below, then run `vizor orchestrator-status` to follow it.
-- **Not enabled:** Vizor does **not** read a later result on a blocked task, so the task stays held. Tell the human, recommend enabling the blocker investigation, and stop. Don't try to unstick it by relabelling or re-firing. On review tasks, automatic repair (`vizor autonomy brazy --repair-agent …`) still handles reproducible defects without the investigation.
+- routes a reproducible defect to a repair task and a recheck;
+- returns the worker to its same chat with the answer;
+- holds the task for the human, with what's needed.
+
+Follow it with `vizor orchestrator-status`. If doctor shows the investigation is off, run `vizor investigator` first. Without it, Vizor won't read a later result on a blocked task. Never try to unstick a blocked task by relabelling or re-firing.
 
 To answer the worker's question:
 

@@ -70,8 +70,11 @@ test(
     assert.equal(byLabel["Worker worker"].status, "fail");
     assert.equal(byLabel["GitHub label worker"].status, "fail");
     assert.equal(byLabel["GitHub authentication"].status, "pass");
-    assert.equal(report.failures, 2);
-    assert.match(report.summary, /2 check\(s\) need attention/);
+    // Blocker investigation is core: doctor fails until it is set up.
+    assert.equal(byLabel["Blocker investigation"].status, "fail");
+    assert.match(byLabel["Blocker investigation"].detail, /vizor investigator/);
+    assert.equal(report.failures, 3);
+    assert.match(report.summary, /3 check\(s\) need attention/);
   },
 );
 

@@ -82,8 +82,8 @@ Send this before you start, filled in:
 ```text
 I'll set up Vizor on this PC. Here's everything I need from you; I'll do the rest:
 1. Stay signed in to Windows on this PC, and leave it on afterwards so the runner keeps working.
-2. OK for me to install anything missing: Node.js 24, Git and the GitHub CLI (via winget).
-3. Sign in to GitHub when a browser window opens. Use an account that can write to <owner/repo>.
+2. OK for me to install anything missing: Node.js 24, Git, the GitHub CLI and the Claude Code CLI.
+3. Sign in to GitHub when a browser window opens. Use an account that can write to <owner/repo>. Also sign in to Claude when I run `claude auth login --claudeai`. Use the account that owns the worker routines.
 4. Tell me the repository (owner/repo) and your workers: an ID and display name for each, e.g. builder = Builder.
 5. When I open .vizor\secrets.json, paste each worker's Claude Code routine Fire URL and token, save, and tell me "done". Don't send them to me.
 6. Review and merge the first-plan PR I'll open. Merging it is your approval.
@@ -99,11 +99,12 @@ With the `vizor-setup` skill installed (`vizor skills --operator-only`), follow 
 ### Step 1: Prerequisites
 
 ```powershell
-node --version; git --version; gh --version
+node --version; git --version; gh --version; claude --version
 ```
 
-**Expect:** `v24.x.x`, a git version and a gh version. If any are missing, and the human said OK:
+**Expect:** `v24.x.x`, plus a git, a gh and a claude version. If any are missing, and the human said OK:
 
+- the Claude Code CLI from https://code.claude.com (native installer). Then run `claude auth login --claudeai` and have the human complete the sign-in.
 - `winget install --id Git.Git -e`
 - `winget install --id GitHub.cli -e`
 - Node.js 24 from https://nodejs.org (choose the v24 line). Don't use a winget "LTS" package, which may be a newer major version.
@@ -152,14 +153,19 @@ notepad .vizor\secrets.json
 
 Ask the human to fill in `fireUrl` and `token` for each worker, save and reply "done". A Fire URL looks like `https://api.anthropic.com/v1/claude_code/routines/trig_…/fire`.
 
-### Step 7: Labels and doctor
+### Step 7: Labels, blocker investigation and doctor
 
 ```powershell
 vizor labels
+vizor investigator
 vizor doctor --json
 ```
 
-**Expect:** `labels` prints `Created GitHub labels: …` or `All configured GitHub labels already exist.`. `doctor --json` returns `"healthy": true` and exit code 0. If it doesn't, fix each check with `"status": "fail"` using its `detail`:
+**Expect:**
+
+- `labels` prints `Created GitHub labels: …` or `All configured GitHub labels already exist.`.
+- `investigator` prints `Blocker investigation is on.` If it says the Claude CLI isn't found, pass `--claude <path to claude.exe>`. If it asks for sign-in, run `claude auth login --claudeai`.
+- `doctor --json` returns `"healthy": true` and exit code 0. If it doesn't, fix each check with `"status": "fail"` using its `detail`:
 
 | Failing check                          | Fix                                                                                                     |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -169,6 +175,8 @@ vizor doctor --json
 | `Repository access`                    | The signed-in account can't read the repo; check `--repo` and the account.                              |
 | `Trusted manager`                      | The `--manager` login differs from the signed-in account; fix `trustedManagers` in `vizor.config.json`. |
 | `GitHub label …`                       | Run `vizor labels` again.                                                                               |
+| `Blocker investigation`                | Run `vizor investigator`. It needs the Claude CLI signed in and every worker\'s Fire URL filled in.     |
+| `Claude same-chat subscription`        | `claude auth login --claudeai` with the account that owns the worker routines.                          |
 | `Credential file excluded from Git`    | Add `.vizor/` to `.gitignore`.                                                                          |
 
 ### Step 8: Start and verify

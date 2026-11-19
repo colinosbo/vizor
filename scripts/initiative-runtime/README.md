@@ -51,9 +51,11 @@ A provider routine must stay enabled. An ambiguous provider response is retained
 
 See docs/ROADMAP.md for the remaining productization work.
 
-## On-demand blocker investigations
+## Blocker investigations
 
-Enable `blockerOrchestrator: true` in the project's private queue after the project owner approves the plan. The existing deterministic scheduler ingests missed results and services saved investigations; it does not schedule model reviews. In webhook mode the signed webhook must subscribe to both `issues` and `issue_comment` (rerun `setup` with the public URL); local mode ingests these results by polling. External/manual/capacity blocker events are recorded too. With this setting enabled, the old automatic repair loop runs only when an investigation explicitly routes an eligible software repair.
+Blocker investigation is a core part of Vizor. `vizor investigator` sets it up. It finds the signed-in Claude Code CLI, takes each worker's trigger ID from its Fire URL, writes `.vizor/orchestrator-host.json` (provider `claude`, a 300-second limit, same-chat return) and sets `blockerOrchestrator: true` in the queue. Existing settings in that file are kept. `vizor doctor` fails until it's on. The details below describe how it works and the manual options.
+
+`blockerOrchestrator: true` in the project's private queue enables it. The existing deterministic scheduler ingests missed results and services saved investigations; it does not schedule model reviews. In webhook mode the signed webhook must subscribe to both `issues` and `issue_comment` (rerun `setup` with the public URL); local mode ingests these results by polling. External/manual/capacity blocker events are recorded too. With this setting enabled, the old automatic repair loop runs only when an investigation explicitly routes an eligible software repair.
 
 Create private `.vizor/orchestrator-host.json` in the initiative repository:
 

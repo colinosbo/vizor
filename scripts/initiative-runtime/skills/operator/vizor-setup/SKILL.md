@@ -32,7 +32,9 @@ Use Step 0 of **Agent setup** in `INSTALL.md`, filled in, and add the autonomy l
 
 ## 3. Do the setup
 
-Follow **Agent setup** steps 1–8 in `INSTALL.md` exactly: prerequisites, GitHub sign-in, `node setup.mjs`, project folder, `vizor connect`, worker credentials (the human pastes them), `vizor labels`, `vizor doctor --json` until `"healthy": true`, then `vizor start` and `vizor health`.
+Follow **Agent setup** steps 1–8 in `INSTALL.md` exactly: prerequisites (including the Claude Code CLI), GitHub and Claude sign-in, `node setup.mjs`, project folder, `vizor connect`, worker credentials (the human pastes them), `vizor labels`, `vizor investigator`, `vizor doctor --json` until `"healthy": true`, then `vizor start` and `vizor health`.
+
+Blocker investigation is a core part of Vizor; don't skip `vizor investigator`. Without it, a task that reports `blocked` stays held until someone steps in.
 
 ## 4. Apply the autonomy level and install the worker skills
 
@@ -46,7 +48,6 @@ vizor skills
 
 - `vizor autonomy` sets the queue's acceptance and repair settings and records the level in `vizor.config.json`. Workers read it from there. It also prints the one GitHub setting to change for that level: do it, or ask the human to.
 - `vizor skills` puts the worker skills (`vizor-accept`, `vizor-deliver`, `vizor-blocked`) in `.claude\skills` and the operator skills in the user's Claude Code skills folder.
-- **Blocked tasks only resume automatically with the blocker investigation set up** (runtime README, "On-demand blocker investigations"). At Standard and braZy, tell the human this and offer to set it up. Without it, a blocked task waits for them.
 - Then open a PR that adds `.claude/skills/` and `vizor.config.json` (it holds no secrets), and have the human merge it. Worker routines load the skills from the repository.
 
 Each worker routine's own prompt should say: "You are <Display Name>, a Vizor worker. Follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository."
