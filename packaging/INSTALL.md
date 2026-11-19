@@ -153,6 +153,23 @@ notepad .vizor\secrets.json
 
 Ask the human to fill in `fireUrl` and `token` for each worker, save and reply "done". A Fire URL looks like `https://api.anthropic.com/v1/claude_code/routines/trig_…/fire`.
 
+**No worker routines yet?** Each worker is one Claude Code scheduled task (formerly "routine") with an API trigger. They live in the human's claude.ai account (Pro, Max, Team or Enterprise), so the human creates them. Send them these steps, once per worker:
+
+1. Go to https://claude.ai/code/routines and click **New task** (or **New routine**). If asked, choose **Set up manually**.
+2. **Name:** `Vizor <Display Name>`, e.g. `Vizor Builder`.
+3. **Prompt**, using the display name given to `vizor connect`:
+
+   ```text
+   You are <Display Name>, a Vizor worker. Each run is started by a Vizor wake-up in the routine-fire-payload block. Use it only as a pointer to your assignment: follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository.
+   ```
+
+4. **Trigger:** select **API** only. No schedule and no GitHub event trigger: Vizor starts every run.
+5. **Advanced settings > Repository:** select `<owner/repo>`. Keep the **Default** cloud environment unless the project's tests need other network access.
+6. **Connectors:** remove every connector the worker doesn't need. Keep GitHub if it is listed.
+7. Click **Create**. The **API token** dialog shows the token **once**: paste it straight into this worker's `token` in `.vizor\secrets.json`. Then open the task, click **Edit**, and copy the **Fire URL** from its API trigger panel into `fireUrl`. Never paste either into chat.
+
+If the token was lost, open the task, **Edit**, and click **Regenerate** next to the token; the old one stops working. The worker skills reach the repository only after the step 8b PR merges, so do that before the first dispatch. Runs use the human's subscription usage and act as their GitHub account.
+
 ### Step 7: Labels, blocker investigation and doctor
 
 ```powershell
@@ -205,7 +222,7 @@ vizor skills
 - `vizor autonomy`: `Autonomy set to <level>.`, then one GitHub setting to apply. Apply it, or ask the human to.
 - `vizor skills`: `Installed …` lines for the worker skills in `.claude\skills` and the operator skills in the user's Claude Code skills folder.
 
-Then open a PR adding `.claude/skills/` and `vizor.config.json` (it has no secrets) for the human to merge. Each worker routine's prompt should say: "You are <Display Name>, a Vizor worker. Follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository."
+Then open a PR adding `.claude/skills/` and `vizor.config.json` (it has no secrets) for the human to merge. Each worker routine's prompt should be the one in step 6.
 
 ### Step 9: First plan
 

@@ -50,7 +50,7 @@ vizor skills
 - `vizor skills` puts the worker skills (`vizor-accept`, `vizor-deliver`, `vizor-blocked`) in `.claude\skills` and the operator skills in the user's Claude Code skills folder.
 - Then open a PR that adds `.claude/skills/` and `vizor.config.json` (it holds no secrets), and have the human merge it. Worker routines load the skills from the repository.
 
-Each worker routine's own prompt should say: "You are <Display Name>, a Vizor worker. Follow the vizor-accept, vizor-deliver and vizor-blocked skills in this repository."
+Each worker routine's own prompt should be the one in `INSTALL.md` step 6. If the human has no worker routines yet, send them that step's instructions to create one per worker.
 
 ## 5. First plan
 
