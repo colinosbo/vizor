@@ -63,8 +63,8 @@ writeFileSync(
   join(root, "manifest.json"),
   JSON.stringify(manifest, null, 2) + "\n",
 );
-for (const file of ["setup.mjs", "INSTALL.md"])
-  cpSync(join(repo, "packaging", file), join(root, file));
+for (const file of ["setup.mjs", "INSTALL.md", "FIRST-PLAN.md", "examples"])
+  cpSync(join(repo, "packaging", file), join(root, file), { recursive: true });
 
 // Minimal ZIP writer (deflate), readable by Windows Expand-Archive and unzip.
 const entries = [];

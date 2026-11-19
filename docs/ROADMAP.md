@@ -45,6 +45,15 @@ Status labels: **Done** = merged and tested in this repo. **Runtime present** = 
 
 **Next release blocker:** move Vision onto the installed version (`vizor start` from 0.12.0), so it gets the queue lease. Then VZ-25 (stale-PR status and a single alert, from Vision #106's accepted spec), the first open item in work package 2.
 
+## Shipped in 0.13.0: agent onboarding
+
+- **Agent setup checklist** in `INSTALL.md`: ten ordered steps with exact commands and expected output, a single up-front message listing what the human must do, ground rules (tokens never pass through the agent), a fix table for each failing doctor check, and a short final report.
+- **`vizor doctor --json`** (`vizor.doctor/1`): per-check `pass`/`fail` with details, a summary and an exit code. Setup errors also come back as JSON.
+- **`FIRST-PLAN.md`:** how work flows, the full plan format, approval by merge, gates and acceptance, who merges, changing a plan, and troubleshooting. Ships in the package with `examples/vizor-plan.json`, which a test validates and publishes through the real publisher.
+- **`vizor check-plan`:** runs the runner's plan validation locally, plus the repository match.
+
+**Next:** turn the checklist and plan guide into Claude skills (setup, write a plan, operate and recover). Then VZ-25.
+
 ## Status by item
 
 | ID    | Item                                                                    | Status                                                                                                                                                                |

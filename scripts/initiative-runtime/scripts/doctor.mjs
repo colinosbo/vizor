@@ -91,10 +91,12 @@ export async function runDoctor({
   request = fetch,
   command = localCommand,
   report = console.log,
+  onCheck = () => {},
 }) {
   let failures = 0;
   function status(ok, label, detail) {
     if (!ok) failures++;
+    onCheck({ status: ok ? "pass" : "fail", label, detail });
     report((ok ? "PASS " : "FAIL ") + label + " — " + detail);
     return ok;
   }
