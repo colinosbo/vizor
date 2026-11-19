@@ -8,6 +8,25 @@ Vizor is a background runner and a local web dashboard. It dispatches an approve
 
 Dispatch is local by default and needs no public endpoint. Webhook mode is optional and uses a public HTTPS URL you supply.
 
+## Requirements
+
+**Computer**
+
+- Windows 10 or 11, left on with your user signed in. The runner works in the background while you're signed in. macOS and Linux can run the CLI, doctor and dashboard, but there the runner only runs in a terminal you keep open.
+
+**Software** (the setup agent can install these)
+
+- Node.js 24. Other major versions are refused.
+- Git.
+- GitHub CLI (`winget install --id GitHub.cli`), signed in with `gh auth login`.
+- Optional: Claude Code CLI, signed in. It lets a blocked worker get the investigator's answer in the same chat.
+
+**Accounts**
+
+- A GitHub account and a repository for the project (the setup agent can create one), with admin rights for the signed-in account (Vizor creates labels and merge rules).
+- Merge rails for Standard and braZy autonomy use GitHub rulesets. On GitHub Free those only apply to public repositories; private repositories need GitHub Pro, Team or Enterprise.
+- A Claude account that can create Claude Code routines: one routine per worker, plus one for the blocker investigator. INSTALL.md step 6 shows how to create each one.
+
 ## Install
 
 Download `vizor-<version>.zip` from [Releases](https://github.com/colinosbo/vizor/releases), extract it, and run `node setup.mjs`. Then, in your project folder:
