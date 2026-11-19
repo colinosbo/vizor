@@ -31,7 +31,7 @@ try {
 } catch { }
 # Parents first so they cannot respawn a child we are about to stop.
 foreach ($proc in $parents) { Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue }
-$targets = @($children + $recorded)
+$targets = @(@($children + $recorded) | Sort-Object ProcessId -Unique)
 foreach ($proc in $targets) { Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue }
 # Poll for exit (up to 15 seconds); termination is asynchronous on Windows.
 $deadline = [DateTime]::UtcNow.AddSeconds(15)

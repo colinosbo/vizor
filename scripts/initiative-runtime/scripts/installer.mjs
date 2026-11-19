@@ -225,10 +225,12 @@ export function installFiles(packageDir, home) {
 export function writeShims(home, dir) {
   const script = join(dir, "scripts", "vizor.mjs");
   // One line: cmd.exe re-reads a batch file after each line, and upgrade or
-  // rollback rewrites this shim while it may be running.
+  // rollback rewrites this shim while it may be running. A bare `exit /b`
+  // returned 0; `call` re-expands %errorlevel% after node exits, so the
+  // shim returns node's exit code.
   atomicWrite(
     join(home, "bin", "vizor.cmd"),
-    '@node "' + script + '" %* & exit /b\r\n',
+    '@node "' + script + '" %* & call exit /b %%errorlevel%%\r\n',
   );
   atomicWrite(
     join(home, "bin", "vizor"),

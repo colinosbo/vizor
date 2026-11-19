@@ -252,3 +252,40 @@ test(
     );
   },
 );
+
+test(
+  "the vizor.cmd shim returns the CLI's exit code to cmd and PowerShell",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const { writeShims } = await import("../scripts/installer.mjs");
+    const home = realpathSync.native(
+      mkdtempSync(join(tmpdir(), "vizor shim ")),
+    );
+    t.after(() => rmSync(home, { recursive: true, force: true }));
+    const version = join(home, "versions", "1.0.0");
+    mkdirSync(join(version, "scripts"), { recursive: true });
+    writeFileSync(
+      join(version, "scripts", "vizor.mjs"),
+      "process.exit(Number(process.argv[2]));\n",
+    );
+    writeShims(home, version);
+    const shim = join(home, "bin", "vizor.cmd");
+    for (const code of [0, 1, 7]) {
+      const viaCmd = spawnSync("cmd.exe", ["/d", "/c", shim, String(code)], {
+        encoding: "utf8",
+      });
+      assert.equal(viaCmd.status, code, "cmd.exe exit for " + code);
+      const viaPowerShell = spawnSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-NonInteractive",
+          "-Command",
+          "& '" + shim + "' " + code + "; exit $LASTEXITCODE",
+        ],
+        { encoding: "utf8", env: windowsPowerShellEnv() },
+      );
+      assert.equal(viaPowerShell.status, code, "PowerShell exit for " + code);
+    }
+  },
+);

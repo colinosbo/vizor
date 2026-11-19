@@ -116,7 +116,7 @@ try {
 
     # ---- 4. Two-runner guard -------------------------------------------------------
     $r = Run $script:vizor @('schedule', '--once') $project
-    Check 'Second runner refused' ($r.Code -ne 0 -and $r.Out -match 'Another Vizor runner owns') (($r.Out.Trim() -split "`n")[-1])
+    Check 'Second runner refused' ($r.Code -ne 0 -and $r.Out -match 'Another Vizor runner owns') ('exit ' + $r.Code + '; ' + ((($r.Out -split "`n") | Select-String 'Another Vizor runner owns' | Select-Object -First 1)))
 
     # ---- 5. Stop and start ---------------------------------------------------------------
     $r = Run $script:vizor @('stop') $project
